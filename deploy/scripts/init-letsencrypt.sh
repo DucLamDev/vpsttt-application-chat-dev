@@ -2,6 +2,7 @@
 set -eu
 
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker/compose.prod.yml}"
+export COMPOSE_DISABLE_ENV_FILE=1
 
 read_env_value() {
   key="$1"
@@ -10,22 +11,40 @@ read_env_value() {
   fi
 }
 
-API_DOMAIN="${API_DOMAIN:-$(read_env_value API_DOMAIN)}"
-FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(read_env_value FRONTEND_DOMAIN)}"
-LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-$(read_env_value LETSENCRYPT_EMAIL)}"
+export API_DOMAIN="${API_DOMAIN:-$(read_env_value API_DOMAIN)}"
+export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(read_env_value FRONTEND_DOMAIN)}"
+export LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-$(read_env_value LETSENCRYPT_EMAIL)}"
+export WEBTUI_API_IMAGE="${WEBTUI_API_IMAGE:-$(read_env_value WEBTUI_API_IMAGE)}"
+export WEBTUI_WORKER_IMAGE="${WEBTUI_WORKER_IMAGE:-$(read_env_value WEBTUI_WORKER_IMAGE)}"
+
+compose() {
+  docker compose -f "$COMPOSE_FILE" "$@"
+}
+
+create_temporary_certificate() {
+  echo "Creating temporary certificate for $API_DOMAIN."
+  compose run --rm --no-deps --entrypoint sh nginx -c "\
+    apk add --no-cache openssl >/dev/null && \
+    mkdir -p /etc/letsencrypt/live/$API_DOMAIN && \
+    openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+      -keyout /etc/letsencrypt/live/$API_DOMAIN/privkey.pem \
+      -out /etc/letsencrypt/live/$API_DOMAIN/fullchain.pem \
+      -subj '/CN=$API_DOMAIN'"
+}
 
 if [ "${API_DOMAIN:-}" = "" ]; then
-  echo "Thiếu API_DOMAIN." >&2
+  echo "Missing API_DOMAIN." >&2
   exit 1
 fi
 
 if [ "${LETSENCRYPT_EMAIL:-}" = "" ]; then
-  echo "Thiếu LETSENCRYPT_EMAIL." >&2
+  echo "Missing LETSENCRYPT_EMAIL." >&2
   exit 1
 fi
 
-if docker compose -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint sh nginx -c "test -f /etc/letsencrypt/live/$API_DOMAIN/fullchain.pem"; then
-  echo "Chứng chỉ TLS đã tồn tại cho $API_DOMAIN."
+if compose run --rm --no-deps --entrypoint sh nginx -c "test -f /etc/letsencrypt/live/$API_DOMAIN/fullchain.pem"; then
+  echo "TLS certificate already exists for $API_DOMAIN."
+  compose up -d nginx
   exit 0
 fi
 
@@ -34,32 +53,29 @@ if [ "${FRONTEND_DOMAIN:-}" != "" ]; then
   domain_args="$domain_args -d $FRONTEND_DOMAIN"
 fi
 
-echo "Tạo chứng chỉ tạm để Nginx khởi động."
-docker compose -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint sh nginx -c "\
-  apk add --no-cache openssl >/dev/null && \
-  mkdir -p /etc/letsencrypt/live/$API_DOMAIN && \
-  openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
-    -keyout /etc/letsencrypt/live/$API_DOMAIN/privkey.pem \
-    -out /etc/letsencrypt/live/$API_DOMAIN/fullchain.pem \
-    -subj '/CN=$API_DOMAIN'"
+create_temporary_certificate
+compose up -d --force-recreate nginx
 
-docker compose -f "$COMPOSE_FILE" up -d nginx
-
-echo "Xóa chứng chỉ tạm trước khi xin chứng chỉ Let's Encrypt."
-docker compose -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint sh nginx -c "\
+echo "Removing temporary certificate before requesting Let's Encrypt."
+compose run --rm --no-deps --entrypoint sh nginx -c "\
   rm -rf /etc/letsencrypt/live/$API_DOMAIN \
          /etc/letsencrypt/archive/$API_DOMAIN \
          /etc/letsencrypt/renewal/$API_DOMAIN.conf"
 
-echo "Xin chứng chỉ Let's Encrypt."
-docker compose -f "$COMPOSE_FILE" run --rm certbot certonly \
+echo "Requesting Let's Encrypt certificate."
+if ! compose run --rm certbot certonly \
   --webroot \
   --webroot-path /var/www/certbot \
   --email "$LETSENCRYPT_EMAIL" \
   --agree-tos \
   --no-eff-email \
-  $domain_args
+  $domain_args; then
+  echo "Let's Encrypt request failed. Restoring temporary certificate so Nginx can keep serving." >&2
+  create_temporary_certificate
+  compose up -d --force-recreate nginx
+  exit 1
+fi
 
-docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload
+compose exec -T nginx nginx -s reload
 
-echo "Khởi tạo TLS hoàn tất."
+echo "TLS initialization completed."

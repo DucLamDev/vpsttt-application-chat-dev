@@ -26,6 +26,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: webtui-chat-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
@@ -95,7 +96,7 @@ jobs:
           IMAGE_NAMESPACE: ${{ steps.image.outputs.namespace }}
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || github.token }}
           DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
           API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
         with:
