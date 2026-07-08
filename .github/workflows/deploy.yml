@@ -58,6 +58,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           test -n "$DEPLOY_HOST" || (echo "Missing DEPLOY_HOST secret" && exit 1)
           test -n "$DEPLOY_USER" || (echo "Missing DEPLOY_USER secret" && exit 1)
@@ -65,6 +66,19 @@ jobs:
             echo "Missing DEPLOY_PASSWORD or DEPLOY_SSH_KEY secret"
             exit 1
           fi
+          test -n "$GHCR_TOKEN" || (echo "Missing GHCR_TOKEN secret with read:packages permission" && exit 1)
+
+      - name: Preflight GHCR pull access
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAMESPACE: ${{ steps.image.outputs.namespace }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
+          docker manifest inspect "$REGISTRY/$IMAGE_NAMESPACE/api:$IMAGE_TAG" >/dev/null
+          docker manifest inspect "$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG" >/dev/null
 
       - name: Tao thu muc deploy tren VPS
         uses: appleboy/ssh-action@v1
@@ -96,7 +110,7 @@ jobs:
           IMAGE_NAMESPACE: ${{ steps.image.outputs.namespace }}
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || github.token }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
           API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
         with:
