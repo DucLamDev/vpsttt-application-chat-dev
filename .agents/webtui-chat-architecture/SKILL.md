@@ -21,6 +21,7 @@ Luôn bám kiến trúc trong `CleanArchitecture.md` và các tài liệu ở `d
    - `docs/deploy/cicd.md` nếu người dùng cần hướng dẫn từng bước từ SSH key, GitHub Actions, VPS, `.env`, PostgreSQL đến kiểm thử deploy.
    - `docs/database/postgresql-design.md` nếu có schema, migration hoặc repository PostgreSQL.
    - `backend/api/openapi/openapi.yaml` nếu có endpoint mới hoặc đang chuẩn bị frontend.
+   - `.agents/webtui-chat-frontend/SKILL.md` nếu đang sinh code, thiết kế UI hoặc rà soát kiến trúc frontend.
    - `backend/docs/files.md` nếu có upload, download, attachment, Local/MinIO/S3.
    - `backend/docs/notifications-worker-presence.md` nếu có outbox, notification, worker hoặc presence.
    - `backend/docs/integrations-phase-8.md` nếu có API token, bot, incoming webhook hoặc outgoing webhook.
@@ -53,4 +54,4 @@ Luôn bám kiến trúc trong `CleanArchitecture.md` và các tài liệu ở `d
 
 ## Tài liệu tham khảo ngắn
 
-Đọc `references/architecture.md` khi cần bản tóm tắt nhanh các ranh giới kiến trúc, trạng thái phase backend và API backend đã có để chuẩn bị làm frontend.
+Đọc `references/architecture.md` khi cần bản tóm tắt nhanh các ranh giới kiến trúc, trạng thái phase backend và API backend đã có để chuẩn bị làm frontend. Khi triển khai frontend cụ thể, chuyển sang `.agents/webtui-chat-frontend/SKILL.md` để lấy API map, clean architecture và theme UI.

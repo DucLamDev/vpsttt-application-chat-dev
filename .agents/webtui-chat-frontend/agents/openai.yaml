@@ -1,0 +1,6 @@
+interface:
+  display_name: "Frontend WebTui Chat"
+  short_description: "Frontend chat, admin, API và theme WebTui"
+  default_prompt: "Use $webtui-chat-frontend to build or review the WebTui Chat frontend against backend APIs and the product theme."
+policy:
+  allow_implicit_invocation: true

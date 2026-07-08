@@ -154,8 +154,8 @@ func (a *API) registerAPIV1() {
 	apiTokensHandler.RegisterRoutes(v1, authMiddleware)
 
 	if a.resources.WebSocket != nil {
-		wsHandler := wshttp.NewHandler(a.resources.WebSocket)
-		wsHandler.RegisterRoutes(v1, authMiddleware)
+		wsHandler := wshttp.NewHandler(a.resources.WebSocket, tokenManager)
+		wsHandler.RegisterRoutes(v1)
 	}
 
 	workspacesRepo := workspacespostgres.NewRepository(pool)

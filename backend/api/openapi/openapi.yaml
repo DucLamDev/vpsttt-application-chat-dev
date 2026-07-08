@@ -52,7 +52,25 @@ paths:
   /api/v1/ws:
     get:
       summary: Kết nối WebSocket realtime
-      description: Sau khi kết nối, client gửi JSON `{"type":"join","room":"workspace:{workspace_id}:channel:{channel_id}"}` để nhận event của channel.
+      description: >-
+        Kết nối WebSocket realtime. Client có thể xác thực bằng header
+        `Authorization: Bearer {access_token}`, query `access_token={access_token}`
+        hoặc browser subprotocol `["webtui.jwt", accessToken]`. Sau khi kết nối,
+        client gửi JSON `{"type":"join","room":"workspace:{workspace_id}:channel:{channel_id}"}`
+        để nhận event của channel.
+      parameters:
+        - name: access_token
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Access token JWT cho browser WebSocket khi không set được header Authorization.
+        - name: Sec-WebSocket-Protocol
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Có thể gửi `webtui.jwt, {access_token}` bằng WebSocket subprotocol.
       responses:
         "101":
           description: Nâng cấp kết nối WebSocket thành công

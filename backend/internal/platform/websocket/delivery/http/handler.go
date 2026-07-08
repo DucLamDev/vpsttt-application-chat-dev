@@ -9,7 +9,7 @@ import (
 	"time"
 
 	platformws "github.com/duclamdev/application-chat/backend/internal/platform/websocket"
-	"github.com/duclamdev/application-chat/backend/internal/shared/middleware"
+	sharedauth "github.com/duclamdev/application-chat/backend/internal/shared/auth"
 	"github.com/duclamdev/application-chat/backend/internal/shared/response"
 	"github.com/gin-gonic/gin"
 	xwebsocket "golang.org/x/net/websocket"
@@ -17,6 +17,7 @@ import (
 
 type Handler struct {
 	manager *platformws.Manager
+	tokens  *sharedauth.Manager
 }
 
 type clientCommand struct {
@@ -24,12 +25,12 @@ type clientCommand struct {
 	Room string `json:"room"`
 }
 
-func NewHandler(manager *platformws.Manager) *Handler {
-	return &Handler{manager: manager}
+func NewHandler(manager *platformws.Manager, tokens *sharedauth.Manager) *Handler {
+	return &Handler{manager: manager, tokens: tokens}
 }
 
-func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerFunc) {
-	router.GET("/ws", authMiddleware, h.Connect)
+func (h *Handler) RegisterRoutes(router gin.IRouter) {
+	router.GET("/ws", h.Connect)
 }
 
 func (h *Handler) Connect(c *gin.Context) {
@@ -38,10 +39,88 @@ func (h *Handler) Connect(c *gin.Context) {
 		return
 	}
 
-	userID := middleware.CurrentUserID(c)
+	userID, err := h.authenticateRequest(c.Request)
+	if err != nil {
+		h.failAuth(c, err)
+		return
+	}
+
 	xwebsocket.Handler(func(conn *xwebsocket.Conn) {
 		h.serve(conn, userID)
 	}).ServeHTTP(c.Writer, c.Request)
+}
+
+func (h *Handler) authenticateRequest(req *nethttp.Request) (string, error) {
+	if h.tokens == nil {
+		return "", sharedauth.ErrInvalidToken
+	}
+
+	token := accessTokenFromRequest(req)
+	if token == "" {
+		return "", sharedauth.ErrInvalidToken
+	}
+
+	claims, err := h.tokens.VerifyAccessToken(token)
+	if err != nil {
+		return "", err
+	}
+	return claims.Subject, nil
+}
+
+func (h *Handler) failAuth(c *gin.Context, err error) {
+	message := "Token không hợp lệ."
+	if errors.Is(err, sharedauth.ErrExpiredToken) {
+		message = "Token đã hết hạn."
+	}
+	response.Fail(c, nethttp.StatusUnauthorized, "UNAUTHORIZED", message, nil)
+}
+
+func accessTokenFromRequest(req *nethttp.Request) string {
+	if req == nil {
+		return ""
+	}
+	if token := bearerToken(req.Header.Get("Authorization")); token != "" {
+		return token
+	}
+	if req.URL == nil {
+		return tokenFromSubprotocol(req.Header.Get("Sec-WebSocket-Protocol"))
+	}
+	if token := strings.TrimSpace(req.URL.Query().Get("access_token")); token != "" {
+		return token
+	}
+	if token := strings.TrimSpace(req.URL.Query().Get("token")); token != "" {
+		return token
+	}
+	return tokenFromSubprotocol(req.Header.Get("Sec-WebSocket-Protocol"))
+}
+
+func bearerToken(header string) string {
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(header[7:])
+}
+
+func tokenFromSubprotocol(header string) string {
+	parts := strings.Split(header, ",")
+	for index, part := range parts {
+		protocol := strings.TrimSpace(part)
+		switch strings.ToLower(protocol) {
+		case "webtui.jwt", "webtui.token":
+			if index+1 < len(parts) {
+				return strings.TrimSpace(parts[index+1])
+			}
+		default:
+			if strings.HasPrefix(protocol, "webtui.jwt.") {
+				return strings.TrimSpace(strings.TrimPrefix(protocol, "webtui.jwt."))
+			}
+			if strings.HasPrefix(protocol, "webtui.token.") {
+				return strings.TrimSpace(strings.TrimPrefix(protocol, "webtui.token."))
+			}
+		}
+	}
+	return ""
 }
 
 func (h *Handler) serve(conn *xwebsocket.Conn, userID string) {
