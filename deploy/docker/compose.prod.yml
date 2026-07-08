@@ -2,11 +2,12 @@ name: webtui-chat
 
 services:
   postgres:
-    image: postgres:18-alpine
+    image: postgres:16-alpine
     restart: unless-stopped
     env_file:
       - path: ../../.env
         required: true
+        format: raw
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -38,6 +39,7 @@ services:
     env_file:
       - path: ../../.env
         required: true
+        format: raw
     command: ["migrate", "up"]
     networks:
       - backend
@@ -51,6 +53,7 @@ services:
     env_file:
       - path: ../../.env
         required: true
+        format: raw
     expose:
       - "8080"
     networks:
@@ -73,6 +76,7 @@ services:
     env_file:
       - path: ../../.env
         required: true
+        format: raw
     networks:
       - backend
     depends_on:

@@ -2,6 +2,7 @@
 set -eu
 
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker/compose.prod.yml}"
+COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.compose.env}"
 export COMPOSE_DISABLE_ENV_FILE=1
 
 read_env_value() {
@@ -17,8 +18,19 @@ export LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-$(read_env_value LETSENCRYPT_EMAI
 export WEBTUI_API_IMAGE="${WEBTUI_API_IMAGE:-$(read_env_value WEBTUI_API_IMAGE)}"
 export WEBTUI_WORKER_IMAGE="${WEBTUI_WORKER_IMAGE:-$(read_env_value WEBTUI_WORKER_IMAGE)}"
 
+write_compose_env_file() {
+  {
+    printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
+    printf 'FRONTEND_DOMAIN=%s\n' "$FRONTEND_DOMAIN"
+    printf 'WEBTUI_API_IMAGE=%s\n' "$WEBTUI_API_IMAGE"
+    printf 'WEBTUI_WORKER_IMAGE=%s\n' "$WEBTUI_WORKER_IMAGE"
+  } > "$COMPOSE_ENV_FILE"
+}
+
+write_compose_env_file
+
 compose() {
-  docker compose -f "$COMPOSE_FILE" "$@"
+  docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 create_temporary_certificate() {
