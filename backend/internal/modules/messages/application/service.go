@@ -1,0 +1,596 @@
+package application
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	messagesdomain "github.com/duclamdev/application-chat/backend/internal/modules/messages/domain"
+	apperrors "github.com/duclamdev/application-chat/backend/internal/shared/errors"
+	"github.com/duclamdev/application-chat/backend/internal/shared/pagination"
+)
+
+var mentionPattern = regexp.MustCompile(`<@([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>`)
+
+type PermissionChecker interface {
+	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
+}
+
+type Repository interface {
+	Send(ctx context.Context, params SendParams) (messagesdomain.Message, error)
+	Get(ctx context.Context, params MessageRef) (messagesdomain.Message, error)
+	List(ctx context.Context, params ListParams) ([]messagesdomain.Message, error)
+	ListThread(ctx context.Context, params ThreadParams) ([]messagesdomain.Message, error)
+	Search(ctx context.Context, params SearchParams) ([]messagesdomain.Message, error)
+	Update(ctx context.Context, params UpdateParams) (messagesdomain.Message, error)
+	Delete(ctx context.Context, params DeleteParams) error
+	AddReaction(ctx context.Context, params ReactionParams) (messagesdomain.Message, error)
+	RemoveReaction(ctx context.Context, params ReactionParams) (messagesdomain.Message, error)
+}
+
+type Service struct {
+	repo     Repository
+	checker  PermissionChecker
+	realtime RealtimePublisher
+}
+
+type SendInput struct {
+	ActorUserID      string
+	WorkspaceID      string
+	ChannelID        string
+	ParentID         string
+	Kind             string
+	Body             string
+	Metadata         json.RawMessage
+	MentionedUserIDs []string
+}
+
+type SendParams struct {
+	WorkspaceID      string
+	ChannelID        string
+	SenderID         string
+	ParentID         string
+	Kind             string
+	Body             string
+	Metadata         []byte
+	MentionedUserIDs []string
+}
+
+type MessageRef struct {
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+	ActorUserID string
+}
+
+type ListInput struct {
+	ActorUserID string
+	WorkspaceID string
+	ChannelID   string
+	Limit       int
+	BeforeID    string
+}
+
+type ListParams struct {
+	WorkspaceID string
+	ChannelID   string
+	ActorUserID string
+	Limit       int
+	BeforeID    string
+}
+
+type ThreadInput struct {
+	ActorUserID string
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+	Limit       int
+}
+
+type ThreadParams struct {
+	WorkspaceID string
+	ChannelID   string
+	ActorUserID string
+	MessageID   string
+	Limit       int
+}
+
+type SearchInput struct {
+	ActorUserID string
+	WorkspaceID string
+	Query       string
+	Limit       int
+}
+
+type SearchParams struct {
+	WorkspaceID string
+	ActorUserID string
+	Query       string
+	Limit       int
+}
+
+type UpdateInput struct {
+	ActorUserID string
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+	Body        string
+}
+
+type UpdateParams struct {
+	WorkspaceID      string
+	ChannelID        string
+	MessageID        string
+	ActorUserID      string
+	Body             string
+	MentionedUserIDs []string
+}
+
+type DeleteInput struct {
+	ActorUserID string
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+}
+
+type DeleteParams struct {
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+	ActorUserID string
+}
+
+type ReactionInput struct {
+	ActorUserID string
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+	Emoji       string
+}
+
+type ReactionParams struct {
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+	ActorUserID string
+	Emoji       string
+}
+
+type MessageDTO struct {
+	ID           string               `json:"id"`
+	WorkspaceID  string               `json:"workspace_id"`
+	ChannelID    string               `json:"channel_id"`
+	SenderID     *string              `json:"sender_id,omitempty"`
+	ParentID     *string              `json:"parent_id,omitempty"`
+	ThreadRootID *string              `json:"thread_root_id,omitempty"`
+	Kind         string               `json:"kind"`
+	Body         string               `json:"body"`
+	Metadata     json.RawMessage      `json:"metadata"`
+	EditedAt     *string              `json:"edited_at,omitempty"`
+	DeletedAt    *string              `json:"deleted_at,omitempty"`
+	CreatedAt    string               `json:"created_at"`
+	UpdatedAt    string               `json:"updated_at"`
+	Mentions     []string             `json:"mentions"`
+	Reactions    []ReactionSummaryDTO `json:"reactions"`
+}
+
+type ReactionSummaryDTO struct {
+	Emoji       string `json:"emoji"`
+	Count       int    `json:"count"`
+	ReactedByMe bool   `json:"reacted_by_me"`
+}
+
+type RealtimePublisher interface {
+	Publish(ctx context.Context, event RealtimeEvent) error
+}
+
+type RealtimeEvent struct {
+	Type        string
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+	Payload     map[string]any
+}
+
+func NewService(repo Repository, checker PermissionChecker, realtime ...RealtimePublisher) *Service {
+	service := &Service{repo: repo, checker: checker}
+	if len(realtime) > 0 {
+		service.realtime = realtime[0]
+	}
+	return service
+}
+
+func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return MessageDTO{}, err
+	}
+
+	kind := strings.TrimSpace(input.Kind)
+	if kind == "" {
+		kind = "text"
+	}
+	if kind != "text" {
+		return MessageDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Phase hiện tại chỉ hỗ trợ tin nhắn dạng text.")
+	}
+
+	body := strings.TrimSpace(input.Body)
+	if body == "" || len([]rune(body)) > 8000 {
+		return MessageDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Nội dung tin nhắn phải dài từ 1 đến 8000 ký tự.")
+	}
+
+	metadata, err := normalizeMetadata(input.Metadata)
+	if err != nil {
+		return MessageDTO{}, err
+	}
+
+	message, err := s.repo.Send(ctx, SendParams{
+		WorkspaceID:      strings.TrimSpace(input.WorkspaceID),
+		ChannelID:        strings.TrimSpace(input.ChannelID),
+		SenderID:         strings.TrimSpace(input.ActorUserID),
+		ParentID:         strings.TrimSpace(input.ParentID),
+		Kind:             kind,
+		Body:             body,
+		Metadata:         metadata,
+		MentionedUserIDs: normalizeMentions(body, input.MentionedUserIDs),
+	})
+	if err != nil {
+		return MessageDTO{}, mapMessageError(err)
+	}
+	dto := toMessageDTO(message)
+	s.publishRealtime(ctx, "MessageCreated", dto)
+	return dto, nil
+}
+
+func (s *Service) Get(ctx context.Context, input MessageRef) (MessageDTO, error) {
+	message, err := s.repo.Get(ctx, cleanMessageRef(input))
+	if err != nil {
+		return MessageDTO{}, mapMessageError(err)
+	}
+	return toMessageDTO(message), nil
+}
+
+func (s *Service) List(ctx context.Context, input ListInput) ([]MessageDTO, pagination.Meta, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return nil, pagination.Meta{}, err
+	}
+
+	limit := pagination.NormalizeLimit(input.Limit)
+	messages, err := s.repo.List(ctx, ListParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+		Limit:       limit + 1,
+		BeforeID:    strings.TrimSpace(input.BeforeID),
+	})
+	if err != nil {
+		return nil, pagination.Meta{}, mapMessageError(err)
+	}
+
+	hasMore := len(messages) > limit
+	if hasMore {
+		messages = messages[:limit]
+	}
+	meta := pagination.Meta{HasMore: hasMore}
+	if hasMore && len(messages) > 0 {
+		meta.NextCursor = messages[len(messages)-1].ID
+	}
+	return toMessageDTOs(messages), meta, nil
+}
+
+func (s *Service) ListThread(ctx context.Context, input ThreadInput) ([]MessageDTO, pagination.Meta, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return nil, pagination.Meta{}, err
+	}
+
+	limit := pagination.NormalizeLimit(input.Limit)
+	messages, err := s.repo.ListThread(ctx, ThreadParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+		MessageID:   strings.TrimSpace(input.MessageID),
+		Limit:       limit + 1,
+	})
+	if err != nil {
+		return nil, pagination.Meta{}, mapMessageError(err)
+	}
+
+	hasMore := len(messages) > limit
+	if hasMore {
+		messages = messages[:limit]
+	}
+	return toMessageDTOs(messages), pagination.Meta{HasMore: hasMore}, nil
+}
+
+func (s *Service) Search(ctx context.Context, input SearchInput) ([]MessageDTO, pagination.Meta, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return nil, pagination.Meta{}, err
+	}
+
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		return nil, pagination.Meta{}, apperrors.BadRequest("VALIDATION_ERROR", "Từ khóa tìm kiếm không được để trống.")
+	}
+
+	limit := pagination.NormalizeLimit(input.Limit)
+	messages, err := s.repo.Search(ctx, SearchParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+		Query:       query,
+		Limit:       limit + 1,
+	})
+	if err != nil {
+		return nil, pagination.Meta{}, mapMessageError(err)
+	}
+
+	hasMore := len(messages) > limit
+	if hasMore {
+		messages = messages[:limit]
+	}
+	return toMessageDTOs(messages), pagination.Meta{HasMore: hasMore}, nil
+}
+
+func (s *Service) Update(ctx context.Context, input UpdateInput) (MessageDTO, error) {
+	ref := cleanMessageRef(MessageRef{
+		WorkspaceID: input.WorkspaceID,
+		ChannelID:   input.ChannelID,
+		MessageID:   input.MessageID,
+		ActorUserID: input.ActorUserID,
+	})
+	message, err := s.repo.Get(ctx, ref)
+	if err != nil {
+		return MessageDTO{}, mapMessageError(err)
+	}
+	if !messageOwnedBy(message, ref.ActorUserID) {
+		if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.manage"); err != nil {
+			return MessageDTO{}, err
+		}
+	}
+
+	body := strings.TrimSpace(input.Body)
+	if body == "" || len([]rune(body)) > 8000 {
+		return MessageDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Nội dung tin nhắn phải dài từ 1 đến 8000 ký tự.")
+	}
+
+	updated, err := s.repo.Update(ctx, UpdateParams{
+		WorkspaceID:      ref.WorkspaceID,
+		ChannelID:        ref.ChannelID,
+		MessageID:        ref.MessageID,
+		ActorUserID:      ref.ActorUserID,
+		Body:             body,
+		MentionedUserIDs: normalizeMentions(body, nil),
+	})
+	if err != nil {
+		return MessageDTO{}, mapMessageError(err)
+	}
+	dto := toMessageDTO(updated)
+	s.publishRealtime(ctx, "MessageUpdated", dto)
+	return dto, nil
+}
+
+func (s *Service) Delete(ctx context.Context, input DeleteInput) error {
+	ref := cleanMessageRef(MessageRef{
+		WorkspaceID: input.WorkspaceID,
+		ChannelID:   input.ChannelID,
+		MessageID:   input.MessageID,
+		ActorUserID: input.ActorUserID,
+	})
+	message, err := s.repo.Get(ctx, ref)
+	if err != nil {
+		return mapMessageError(err)
+	}
+	if !messageOwnedBy(message, ref.ActorUserID) {
+		if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.manage"); err != nil {
+			return err
+		}
+	}
+
+	if err := s.repo.Delete(ctx, DeleteParams{
+		WorkspaceID: ref.WorkspaceID,
+		ChannelID:   ref.ChannelID,
+		MessageID:   ref.MessageID,
+		ActorUserID: ref.ActorUserID,
+	}); err != nil {
+		return mapMessageError(err)
+	}
+	s.publishRealtime(ctx, "MessageDeleted", MessageDTO{
+		ID:          ref.MessageID,
+		WorkspaceID: ref.WorkspaceID,
+		ChannelID:   ref.ChannelID,
+	})
+	return nil
+}
+
+func (s *Service) AddReaction(ctx context.Context, input ReactionInput) (MessageDTO, error) {
+	params, err := s.validateReaction(ctx, input)
+	if err != nil {
+		return MessageDTO{}, err
+	}
+	message, err := s.repo.AddReaction(ctx, params)
+	if err != nil {
+		return MessageDTO{}, mapMessageError(err)
+	}
+	dto := toMessageDTO(message)
+	s.publishRealtime(ctx, "ReactionChanged", dto)
+	return dto, nil
+}
+
+func (s *Service) RemoveReaction(ctx context.Context, input ReactionInput) (MessageDTO, error) {
+	params, err := s.validateReaction(ctx, input)
+	if err != nil {
+		return MessageDTO{}, err
+	}
+	message, err := s.repo.RemoveReaction(ctx, params)
+	if err != nil {
+		return MessageDTO{}, mapMessageError(err)
+	}
+	dto := toMessageDTO(message)
+	s.publishRealtime(ctx, "ReactionChanged", dto)
+	return dto, nil
+}
+
+func (s *Service) validateReaction(ctx context.Context, input ReactionInput) (ReactionParams, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return ReactionParams{}, err
+	}
+	emoji := strings.TrimSpace(input.Emoji)
+	if emoji == "" || len([]rune(emoji)) > 32 {
+		return ReactionParams{}, apperrors.BadRequest("VALIDATION_ERROR", "Reaction không hợp lệ.")
+	}
+	return ReactionParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		MessageID:   strings.TrimSpace(input.MessageID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+		Emoji:       emoji,
+	}, nil
+}
+
+func (s *Service) ensurePermission(ctx context.Context, userID string, workspaceID string, permission string) error {
+	allowed, err := s.checker.HasWorkspacePermission(ctx, strings.TrimSpace(userID), strings.TrimSpace(workspaceID), permission)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return apperrors.Forbidden("Bạn không có quyền thực hiện thao tác này.")
+	}
+	return nil
+}
+
+func (s *Service) publishRealtime(ctx context.Context, eventType string, message MessageDTO) {
+	if s.realtime == nil {
+		return
+	}
+	_ = s.realtime.Publish(ctx, RealtimeEvent{
+		Type:        eventType,
+		WorkspaceID: message.WorkspaceID,
+		ChannelID:   message.ChannelID,
+		MessageID:   message.ID,
+		Payload: map[string]any{
+			"message": message,
+		},
+	})
+}
+
+func normalizeMetadata(value json.RawMessage) ([]byte, error) {
+	if len(value) == 0 || strings.TrimSpace(string(value)) == "" || strings.TrimSpace(string(value)) == "null" {
+		return []byte(`{}`), nil
+	}
+	if !json.Valid(value) {
+		return nil, apperrors.BadRequest("VALIDATION_ERROR", "Metadata của tin nhắn không phải JSON hợp lệ.")
+	}
+	return []byte(value), nil
+}
+
+func normalizeMentions(body string, ids []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(ids))
+	add := func(id string) {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		result = append(result, id)
+	}
+
+	for _, id := range ids {
+		add(id)
+	}
+	for _, match := range mentionPattern.FindAllStringSubmatch(body, -1) {
+		if len(match) == 2 {
+			add(match[1])
+		}
+	}
+
+	sort.Strings(result)
+	return result
+}
+
+func cleanMessageRef(input MessageRef) MessageRef {
+	return MessageRef{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		MessageID:   strings.TrimSpace(input.MessageID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+	}
+}
+
+func messageOwnedBy(message messagesdomain.Message, userID string) bool {
+	return message.SenderID != nil && *message.SenderID == strings.TrimSpace(userID)
+}
+
+func mapMessageError(err error) error {
+	if errors.Is(err, messagesdomain.ErrMessageNotFound) {
+		return apperrors.NotFound("MESSAGE_NOT_FOUND", "Không tìm thấy tin nhắn.")
+	}
+	if errors.Is(err, messagesdomain.ErrChannelNotFound) {
+		return apperrors.NotFound("CHANNEL_NOT_FOUND", "Không tìm thấy kênh hoặc bạn chưa thuộc kênh.")
+	}
+	if errors.Is(err, messagesdomain.ErrMentionNotFound) {
+		return apperrors.BadRequest("INVALID_MENTION", "Một hoặc nhiều user được nhắc chưa thuộc kênh.")
+	}
+	if errors.Is(err, messagesdomain.ErrReactionNotFound) {
+		return apperrors.NotFound("REACTION_NOT_FOUND", "Không tìm thấy reaction.")
+	}
+	return err
+}
+
+func toMessageDTOs(messages []messagesdomain.Message) []MessageDTO {
+	dtos := make([]MessageDTO, 0, len(messages))
+	for _, message := range messages {
+		dtos = append(dtos, toMessageDTO(message))
+	}
+	return dtos
+}
+
+func toMessageDTO(message messagesdomain.Message) MessageDTO {
+	metadata := json.RawMessage(message.Metadata)
+	if len(metadata) == 0 {
+		metadata = json.RawMessage(`{}`)
+	}
+	return MessageDTO{
+		ID:           message.ID,
+		WorkspaceID:  message.WorkspaceID,
+		ChannelID:    message.ChannelID,
+		SenderID:     message.SenderID,
+		ParentID:     message.ParentID,
+		ThreadRootID: message.ThreadRootID,
+		Kind:         message.Kind,
+		Body:         message.Body,
+		Metadata:     metadata,
+		EditedAt:     formatOptionalTime(message.EditedAt),
+		DeletedAt:    formatOptionalTime(message.DeletedAt),
+		CreatedAt:    formatTime(message.CreatedAt),
+		UpdatedAt:    formatTime(message.UpdatedAt),
+		Mentions:     message.Mentions,
+		Reactions:    toReactionDTOs(message.Reactions),
+	}
+}
+
+func toReactionDTOs(reactions []messagesdomain.ReactionSummary) []ReactionSummaryDTO {
+	dtos := make([]ReactionSummaryDTO, 0, len(reactions))
+	for _, reaction := range reactions {
+		dtos = append(dtos, ReactionSummaryDTO{
+			Emoji:       reaction.Emoji,
+			Count:       reaction.Count,
+			ReactedByMe: reaction.ReactedByMe,
+		})
+	}
+	return dtos
+}
+
+func formatOptionalTime(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+	formatted := formatTime(*value)
+	return &formatted
+}
+
+func formatTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339)
+}

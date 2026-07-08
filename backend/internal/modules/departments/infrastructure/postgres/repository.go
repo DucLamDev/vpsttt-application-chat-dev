@@ -1,0 +1,249 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+
+	departmentsapp "github.com/duclamdev/application-chat/backend/internal/modules/departments/application"
+	departmentsdomain "github.com/duclamdev/application-chat/backend/internal/modules/departments/domain"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type Repository struct {
+	pool *pgxpool.Pool
+}
+
+func NewRepository(pool *pgxpool.Pool) *Repository {
+	return &Repository{pool: pool}
+}
+
+func (r *Repository) Create(ctx context.Context, params departmentsapp.CreateParams) (departmentsdomain.Department, error) {
+	row := r.pool.QueryRow(ctx, `
+INSERT INTO departments (workspace_id, parent_id, slug, name, description, created_by)
+VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, ''), $6::uuid)
+RETURNING id::text, workspace_id::text, parent_id::text, slug::text, name, description, created_by::text, created_at, updated_at
+`, params.WorkspaceID, params.ParentID, params.Slug, params.Name, params.Description, params.CreatedBy)
+	department, err := scanDepartment(row)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return departmentsdomain.Department{}, departmentsdomain.ErrDepartmentConflict
+		}
+		return departmentsdomain.Department{}, err
+	}
+	return department, nil
+}
+
+func (r *Repository) Find(ctx context.Context, workspaceID string, departmentID string) (departmentsdomain.Department, error) {
+	row := r.pool.QueryRow(ctx, `
+SELECT id::text, workspace_id::text, parent_id::text, slug::text, name, description, created_by::text, created_at, updated_at
+FROM departments
+WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
+`, workspaceID, departmentID)
+	return scanDepartment(row)
+}
+
+func (r *Repository) List(ctx context.Context, workspaceID string) ([]departmentsdomain.Department, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT id::text, workspace_id::text, parent_id::text, slug::text, name, description, created_by::text, created_at, updated_at
+FROM departments
+WHERE workspace_id = $1::uuid AND deleted_at IS NULL
+ORDER BY name
+`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var departments []departmentsdomain.Department
+	for rows.Next() {
+		department, err := scanDepartment(rows)
+		if err != nil {
+			return nil, err
+		}
+		departments = append(departments, department)
+	}
+	return departments, rows.Err()
+}
+
+func (r *Repository) Update(ctx context.Context, params departmentsapp.UpdateParams) (departmentsdomain.Department, error) {
+	row := r.pool.QueryRow(ctx, `
+UPDATE departments
+SET parent_id = COALESCE(NULLIF($3, '')::uuid, parent_id),
+    name = COALESCE($4, name),
+    description = COALESCE($5, description)
+WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
+RETURNING id::text, workspace_id::text, parent_id::text, slug::text, name, description, created_by::text, created_at, updated_at
+`, params.WorkspaceID, params.DepartmentID, params.ParentID, params.Name, params.Description)
+	return scanDepartment(row)
+}
+
+func (r *Repository) Delete(ctx context.Context, workspaceID string, departmentID string) error {
+	command, err := r.pool.Exec(ctx, `
+UPDATE departments
+SET deleted_at = now()
+WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
+`, workspaceID, departmentID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return departmentsdomain.ErrDepartmentNotFound
+	}
+	return nil
+}
+
+func (r *Repository) AddMember(ctx context.Context, params departmentsapp.AddMemberParams) (departmentsdomain.Member, error) {
+	command, err := r.pool.Exec(ctx, `
+INSERT INTO department_members (department_id, user_id, role)
+SELECT d.id, $3::uuid, $4
+FROM departments d
+JOIN workspace_members wm
+  ON wm.workspace_id = d.workspace_id AND wm.user_id = $3::uuid AND wm.status = 'active'
+WHERE d.workspace_id = $1::uuid AND d.id = $2::uuid AND d.deleted_at IS NULL
+ON CONFLICT (department_id, user_id)
+DO UPDATE SET role = EXCLUDED.role
+`, params.WorkspaceID, params.DepartmentID, params.UserID, params.Role)
+	if err != nil {
+		return departmentsdomain.Member{}, err
+	}
+	if command.RowsAffected() == 0 {
+		return departmentsdomain.Member{}, departmentsdomain.ErrMemberNotFound
+	}
+	return r.member(ctx, params.WorkspaceID, params.DepartmentID, params.UserID)
+}
+
+func (r *Repository) RemoveMember(ctx context.Context, workspaceID string, departmentID string, userID string) error {
+	command, err := r.pool.Exec(ctx, `
+DELETE FROM department_members dm
+USING departments d
+WHERE dm.department_id = d.id
+  AND d.workspace_id = $1::uuid
+  AND d.id = $2::uuid
+  AND dm.user_id = $3::uuid
+`, workspaceID, departmentID, userID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return departmentsdomain.ErrMemberNotFound
+	}
+	return nil
+}
+
+func (r *Repository) ListMembers(ctx context.Context, workspaceID string, departmentID string) ([]departmentsdomain.Member, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT dm.department_id::text, dm.user_id::text, u.email::text, u.username::text, u.display_name, dm.role, dm.created_at
+FROM department_members dm
+JOIN departments d ON d.id = dm.department_id AND d.deleted_at IS NULL
+JOIN users u ON u.id = dm.user_id AND u.deleted_at IS NULL
+WHERE d.workspace_id = $1::uuid AND d.id = $2::uuid
+ORDER BY u.display_name
+`, workspaceID, departmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var members []departmentsdomain.Member
+	for rows.Next() {
+		member, err := scanMember(rows)
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, member)
+	}
+	return members, rows.Err()
+}
+
+func (r *Repository) RecordAudit(ctx context.Context, event departmentsapp.AuditEvent) error {
+	metadata := event.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, `
+INSERT INTO audit_logs (workspace_id, actor_user_id, action, entity_type, entity_id, metadata)
+VALUES (NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, '')::uuid, $6::jsonb)
+`, event.WorkspaceID, event.ActorUserID, event.Action, event.EntityType, event.EntityID, string(metadataBytes))
+	return err
+}
+
+func (r *Repository) member(ctx context.Context, workspaceID string, departmentID string, userID string) (departmentsdomain.Member, error) {
+	row := r.pool.QueryRow(ctx, `
+SELECT dm.department_id::text, dm.user_id::text, u.email::text, u.username::text, u.display_name, dm.role, dm.created_at
+FROM department_members dm
+JOIN departments d ON d.id = dm.department_id AND d.deleted_at IS NULL
+JOIN users u ON u.id = dm.user_id AND u.deleted_at IS NULL
+WHERE d.workspace_id = $1::uuid AND d.id = $2::uuid AND dm.user_id = $3::uuid
+`, workspaceID, departmentID, userID)
+	return scanMember(row)
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanDepartment(row rowScanner) (departmentsdomain.Department, error) {
+	var department departmentsdomain.Department
+	var parentID sql.NullString
+	var description sql.NullString
+	var createdBy sql.NullString
+	if err := row.Scan(
+		&department.ID,
+		&department.WorkspaceID,
+		&parentID,
+		&department.Slug,
+		&department.Name,
+		&description,
+		&createdBy,
+		&department.CreatedAt,
+		&department.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return departmentsdomain.Department{}, departmentsdomain.ErrDepartmentNotFound
+		}
+		return departmentsdomain.Department{}, err
+	}
+	department.ParentID = nullStringPtr(parentID)
+	department.Description = nullStringPtr(description)
+	department.CreatedBy = nullStringPtr(createdBy)
+	return department, nil
+}
+
+func scanMember(row rowScanner) (departmentsdomain.Member, error) {
+	var member departmentsdomain.Member
+	if err := row.Scan(
+		&member.DepartmentID,
+		&member.UserID,
+		&member.Email,
+		&member.Username,
+		&member.DisplayName,
+		&member.Role,
+		&member.CreatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return departmentsdomain.Member{}, departmentsdomain.ErrMemberNotFound
+		}
+		return departmentsdomain.Member{}, err
+	}
+	return member, nil
+}
+
+func nullStringPtr(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}

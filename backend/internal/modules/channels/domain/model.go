@@ -1,0 +1,53 @@
+package domain
+
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrChannelNotFound = errors.New("không tìm thấy kênh")
+	ErrChannelConflict = errors.New("kênh đã tồn tại")
+	ErrMemberNotFound  = errors.New("không tìm thấy thành viên kênh")
+)
+
+type Channel struct {
+	ID           string
+	WorkspaceID  string
+	DepartmentID *string
+	Slug         *string
+	Name         string
+	Description  *string
+	Type         string
+	Status       string
+	CreatedBy    *string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	ArchivedAt   *time.Time
+}
+
+type Member struct {
+	ChannelID         string
+	UserID            string
+	Email             string
+	Username          string
+	DisplayName       string
+	Status            string
+	LastReadAt        *time.Time
+	LastReadMessageID *string
+	JoinedAt          time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type DirectConversation struct {
+	ID               string
+	WorkspaceID      string
+	ChannelID        string
+	ParticipantKey   string
+	ConversationType string
+	CreatedBy        *string
+	ParticipantIDs   []string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}

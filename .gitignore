@@ -1,0 +1,37 @@
+# Môi trường
+.env
+.env.*
+!.env.example
+!deploy/.env.example
+vps-info.md
+
+# Log
+*.log
+logs/
+
+# Hệ điều hành / trình soạn thảo
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Backend
+.cache/
+backend/bin/
+backend/tmp/
+backend/coverage.out
+backend/.gocache/
+
+# Frontend
+node_modules/
+.next/
+out/
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# Dữ liệu deploy / runtime
+data/
+deploy/.env
+deploy/data/

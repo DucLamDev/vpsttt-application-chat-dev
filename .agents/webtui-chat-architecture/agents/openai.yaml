@@ -1,0 +1,6 @@
+interface:
+  display_name: "Kiến trúc WebTui Chat"
+  short_description: "Quy ước kiến trúc, backend API và handoff frontend WebTui Chat"
+  default_prompt: "Use $webtui-chat-architecture to thiết kế, rà soát hoặc cập nhật WebTui Chat theo Clean Architecture."
+policy:
+  allow_implicit_invocation: true

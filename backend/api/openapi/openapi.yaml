@@ -1,0 +1,1850 @@
+openapi: 3.1.0
+info:
+  title: WebTui Chat Backend API
+  version: 0.9.0
+  description: Contract nền cho backend WebTui Chat. Tài liệu API được cập nhật theo từng phase backend.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      summary: Kiểm tra API còn sống
+      responses:
+        "200":
+          description: API đang hoạt động
+  /ready:
+    get:
+      security: []
+      summary: Kiểm tra API sẵn sàng nhận traffic
+      responses:
+        "200":
+          description: API sẵn sàng
+  /version:
+    get:
+      security: []
+      summary: Thông tin phiên bản backend
+      responses:
+        "200":
+          description: Thông tin phiên bản
+  /metrics:
+    get:
+      security: []
+      summary: Metrics Prometheus của API
+      description: Bật bằng `METRICS_ENABLED=true`, trả metric kỹ thuật dạng text/plain.
+      responses:
+        "200":
+          description: Metrics Prometheus
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1:
+    get:
+      security: []
+      summary: Thông tin API v1
+      responses:
+        "200":
+          description: API v1 hoạt động
+  /api/v1/ws:
+    get:
+      summary: Kết nối WebSocket realtime
+      description: Sau khi kết nối, client gửi JSON `{"type":"join","room":"workspace:{workspace_id}:channel:{channel_id}"}` để nhận event của channel.
+      responses:
+        "101":
+          description: Nâng cấp kết nối WebSocket thành công
+  /api/v1/auth/register:
+    post:
+      security: []
+      summary: Đăng ký user mới
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Đăng ký thành công
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/v1/auth/login:
+    post:
+      security: []
+      summary: Đăng nhập bằng email hoặc username
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/v1/auth/refresh:
+    post:
+      security: []
+      summary: Rotate refresh token và cấp access token mới
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Refresh thành công
+  /api/v1/auth/logout:
+    post:
+      security: []
+      summary: Thu hồi refresh token hiện tại
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Logout thành công
+  /api/v1/auth/me:
+    get:
+      summary: Lấy user hiện tại từ access token
+      responses:
+        "200":
+          description: Thông tin user hiện tại
+  /api/v1/auth/sessions:
+    get:
+      summary: Danh sách phiên đăng nhập của user hiện tại
+      responses:
+        "200":
+          description: Danh sách phiên
+    delete:
+      summary: Thu hồi toàn bộ phiên đăng nhập của user hiện tại
+      responses:
+        "204":
+          description: Đã thu hồi
+  /api/v1/auth/sessions/{session_id}:
+    delete:
+      summary: Thu hồi một phiên đăng nhập
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Đã thu hồi
+  /api/v1/users/me:
+    get:
+      summary: Lấy hồ sơ user hiện tại
+      responses:
+        "200":
+          description: Hồ sơ user
+    patch:
+      summary: Cập nhật hồ sơ user hiện tại
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeRequest"
+      responses:
+        "200":
+          description: Hồ sơ đã cập nhật
+  /api/v1/users:
+    get:
+      summary: Danh sách user
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Danh sách user
+  /api/v1/users/{user_id}:
+    get:
+      summary: Xem hồ sơ user theo id
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Hồ sơ user
+  /api/v1/rbac/permissions:
+    get:
+      summary: Danh mục permission hệ thống
+      responses:
+        "200":
+          description: Danh sách permission
+  /api/v1/rbac/me:
+    get:
+      summary: Danh sách permission của user trong workspace
+      parameters:
+        - name: workspace_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Danh sách permission của user
+  /api/v1/rbac/check:
+    get:
+      summary: Kiểm tra user có permission trong workspace hay không
+      parameters:
+        - name: workspace_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: permission
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Kết quả kiểm tra quyền
+  /api/v1/rbac/roles:
+    get:
+      summary: Danh sách role hệ thống và role của workspace
+      parameters:
+        - name: workspace_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Danh sách role
+    post:
+      summary: Tạo role riêng cho workspace
+      responses:
+        "201":
+          description: Tạo role thành công
+  /api/v1/rbac/workspaces/{workspace_id}/members/{user_id}/roles:
+    get:
+      summary: Danh sách role của một thành viên workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: Danh sách role
+    post:
+      summary: Gán role cho thành viên workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: Đã gán role
+  /api/v1/workspaces:
+    get:
+      summary: Danh sách workspace của user hiện tại
+      responses:
+        "200":
+          description: Danh sách workspace
+    post:
+      summary: Tạo workspace mới
+      responses:
+        "201":
+          description: Tạo workspace thành công
+  /api/v1/workspaces/{workspace_id}:
+    get:
+      summary: Xem chi tiết workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Chi tiết workspace
+    patch:
+      summary: Cập nhật workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Workspace đã cập nhật
+    delete:
+      summary: Xóa mềm workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "204":
+          description: Đã xóa mềm
+  /api/v1/workspaces/{workspace_id}/members:
+    get:
+      summary: Danh sách thành viên workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách thành viên
+    post:
+      summary: Thêm thành viên vào workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "201":
+          description: Đã thêm thành viên
+  /api/v1/workspaces/{workspace_id}/settings/{key}:
+    put:
+      summary: Tạo hoặc cập nhật setting workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Setting đã cập nhật
+  /api/v1/workspaces/{workspace_id}/invites:
+    get:
+      summary: Danh sách lời mời workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách lời mời
+    post:
+      summary: Tạo lời mời workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "201":
+          description: Tạo lời mời thành công
+  /api/v1/workspaces/{workspace_id}/departments:
+    get:
+      summary: Danh sách phòng ban
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách phòng ban
+    post:
+      summary: Tạo phòng ban
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "201":
+          description: Tạo phòng ban thành công
+  /api/v1/workspaces/{workspace_id}/departments/{department_id}:
+    get:
+      summary: Xem chi tiết phòng ban
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/DepartmentID"
+      responses:
+        "200":
+          description: Chi tiết phòng ban
+    patch:
+      summary: Cập nhật phòng ban
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/DepartmentID"
+      responses:
+        "200":
+          description: Phòng ban đã cập nhật
+    delete:
+      summary: Xóa mềm phòng ban
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/DepartmentID"
+      responses:
+        "204":
+          description: Đã xóa mềm
+  /api/v1/workspaces/{workspace_id}/channels:
+    get:
+      summary: Danh sách kênh
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách kênh
+    post:
+      summary: Tạo kênh public hoặc private
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "201":
+          description: Tạo kênh thành công
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}:
+    get:
+      summary: Xem chi tiết kênh
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+      responses:
+        "200":
+          description: Chi tiết kênh
+    patch:
+      summary: Cập nhật kênh
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+      responses:
+        "200":
+          description: Kênh đã cập nhật
+    delete:
+      summary: Archive kênh
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+      responses:
+        "204":
+          description: Đã archive
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/read-state:
+    put:
+      summary: Cập nhật trạng thái đã đọc của user hiện tại
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+      responses:
+        "200":
+          description: Read state đã cập nhật
+  /api/v1/workspaces/{workspace_id}/messages/search:
+    get:
+      summary: Tìm kiếm tin nhắn bằng PostgreSQL full text search
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Danh sách tin nhắn khớp từ khóa
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages:
+    get:
+      summary: Lấy timeline tin nhắn trong kênh
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Timeline tin nhắn
+    post:
+      summary: Gửi tin nhắn text vào kênh
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: Gửi tin nhắn thành công
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}:
+    get:
+      summary: Xem chi tiết tin nhắn
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: Chi tiết tin nhắn
+    patch:
+      summary: Sửa nội dung tin nhắn
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: Tin nhắn đã cập nhật
+    delete:
+      summary: Xóa mềm tin nhắn
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "204":
+          description: Đã xóa mềm
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/thread:
+    get:
+      summary: Lấy root message và các reply theo thread_root_id
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: Danh sách tin nhắn trong thread
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/reactions:
+    post:
+      summary: Thêm reaction vào tin nhắn
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: Reaction đã cập nhật
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/reactions/{emoji}:
+    delete:
+      summary: Xóa reaction của user hiện tại khỏi tin nhắn
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+        - name: emoji
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Reaction đã cập nhật
+  /api/v1/workspaces/{workspace_id}/files:
+    get:
+      summary: Danh sách file trong workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách file
+    post:
+      summary: Upload file bằng multipart form
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                metadata:
+                  type: string
+                  description: JSON string tùy chọn.
+      responses:
+        "201":
+          description: Upload file thành công
+  /api/v1/workspaces/{workspace_id}/files/{file_id}:
+    get:
+      summary: Xem metadata file
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/FileID"
+      responses:
+        "200":
+          description: Metadata file
+  /api/v1/workspaces/{workspace_id}/files/{file_id}/download:
+    get:
+      summary: Tải nội dung file
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/FileID"
+      responses:
+        "200":
+          description: Nội dung file
+  /api/v1/workspaces/{workspace_id}/files/{file_id}/versions:
+    get:
+      summary: Danh sách version của file
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/FileID"
+      responses:
+        "200":
+          description: Danh sách version
+    post:
+      summary: Upload version mới cho file
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/FileID"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Tạo version mới thành công
+  /api/v1/notifications:
+    get:
+      summary: Danh sách thông báo của user hiện tại
+      parameters:
+        - name: workspace_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Danh sách thông báo
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          notifications:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/Notification"
+  /api/v1/notifications/{notification_id}/read:
+    put:
+      summary: Đánh dấu một thông báo là đã đọc
+      parameters:
+        - $ref: "#/components/parameters/NotificationID"
+      responses:
+        "200":
+          description: Thông báo đã được đánh dấu đã đọc
+  /api/v1/notifications/read-all:
+    put:
+      summary: Đánh dấu tất cả thông báo là đã đọc
+      parameters:
+        - name: workspace_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Đã đánh dấu tất cả thông báo là đã đọc
+  /api/v1/workspaces/{workspace_id}/presence:
+    get:
+      summary: Danh sách presence trong workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Danh sách presence
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          presence:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/Presence"
+  /api/v1/workspaces/{workspace_id}/presence/heartbeat:
+    put:
+      summary: Cập nhật heartbeat presence của user hiện tại
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresenceHeartbeatRequest"
+      responses:
+        "200":
+          description: Presence đã được cập nhật
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/attachments:
+    get:
+      summary: Danh sách file gắn với tin nhắn
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: Danh sách attachment
+    post:
+      summary: Gắn file vào tin nhắn
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_id]
+              properties:
+                file_id:
+                  type: string
+                  format: uuid
+                sort_order:
+                  type: integer
+      responses:
+        "201":
+          description: File đã được gắn vào tin nhắn
+  /api/v1/workspaces/{workspace_id}/direct-conversations:
+    get:
+      summary: Danh sách direct conversation của user hiện tại
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách direct conversation
+    post:
+      summary: Tạo hoặc lấy lại direct conversation theo participant
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "201":
+          description: Direct conversation sẵn sàng
+  /api/v1/api-scopes:
+    get:
+      summary: Danh sách scope có thể gán cho API token
+      responses:
+        "200":
+          description: Danh sách API scope
+  /api/v1/workspaces/{workspace_id}/api-tokens:
+    get:
+      summary: Danh sách API token trong workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách API token
+    post:
+      summary: Tạo API token mới
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPITokenRequest"
+      responses:
+        "201":
+          description: API token được tạo. Secret chỉ trả về một lần.
+  /api/v1/workspaces/{workspace_id}/api-tokens/{token_id}:
+    delete:
+      summary: Thu hồi API token
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/APITokenID"
+      responses:
+        "204":
+          description: Đã thu hồi API token
+  /api/v1/integrations/messages:
+    post:
+      security: []
+      summary: Gửi message bằng API token
+      description: Dùng header `Authorization: Bearer {api_token}`. Token cần scope `message.write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationMessageRequest"
+      responses:
+        "201":
+          description: Message tích hợp đã được gửi
+  /api/v1/workspaces/{workspace_id}/bots:
+    get:
+      summary: Danh sách bot trong workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách bot
+    post:
+      summary: Tạo bot trong workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBotRequest"
+      responses:
+        "201":
+          description: Bot đã được tạo
+  /api/v1/workspaces/{workspace_id}/bots/{bot_id}/installations:
+    get:
+      summary: Danh sách nơi bot được cài đặt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/BotID"
+      responses:
+        "200":
+          description: Danh sách cài đặt bot
+    post:
+      summary: Cài bot vào workspace hoặc một channel
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/BotID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallBotRequest"
+      responses:
+        "201":
+          description: Bot đã được cài đặt
+  /api/v1/workspaces/{workspace_id}/bots/{bot_id}/messages:
+    post:
+      summary: Gửi bot message vào channel
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/BotID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotMessageRequest"
+      responses:
+        "201":
+          description: Bot message đã được gửi
+  /api/v1/workspaces/{workspace_id}/incoming-webhooks:
+    get:
+      summary: Danh sách incoming webhook
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách incoming webhook
+    post:
+      summary: Tạo incoming webhook
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIncomingWebhookRequest"
+      responses:
+        "201":
+          description: Incoming webhook được tạo. Secret chỉ trả về một lần.
+  /api/v1/hooks/incoming/{webhook_id}:
+    post:
+      security: []
+      summary: Dispatch incoming webhook để gửi message vào channel
+      parameters:
+        - $ref: "#/components/parameters/WebhookID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncomingWebhookDispatchRequest"
+      responses:
+        "201":
+          description: Incoming webhook đã tạo message
+  /api/v1/workspaces/{workspace_id}/outgoing-webhooks:
+    get:
+      summary: Danh sách outgoing webhook
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Danh sách outgoing webhook
+    post:
+      summary: Tạo outgoing webhook
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOutgoingWebhookRequest"
+      responses:
+        "201":
+          description: Outgoing webhook được tạo. Secret chỉ trả về một lần.
+  /api/v1/workspaces/{workspace_id}/outgoing-webhooks/{webhook_id}/deliveries:
+    get:
+      summary: Danh sách delivery của outgoing webhook
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/WebhookID"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Danh sách webhook delivery
+  /api/v1/workspaces/{workspace_id}/cronjobs:
+    get:
+      summary: Danh sách cronjob hệ thống
+      description: Cần quyền `cronjob.manage` trong workspace truyền trên path.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, paused, disabled]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Danh sách cronjob
+    post:
+      summary: Tạo cronjob
+      description: Runner được allowlist gồm `http`, `builtin_cleanup`, `worker` và `script`.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveCronJobRequest"
+      responses:
+        "201":
+          description: Cronjob đã được tạo
+  /api/v1/workspaces/{workspace_id}/cronjobs/{cronjob_id}:
+    patch:
+      summary: Cập nhật cronjob
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/CronJobID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveCronJobRequest"
+      responses:
+        "200":
+          description: Cronjob đã được cập nhật
+    delete:
+      summary: Xóa cronjob
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/CronJobID"
+      responses:
+        "204":
+          description: Đã xóa cronjob
+  /api/v1/workspaces/{workspace_id}/cronjobs/{cronjob_id}/runs:
+    get:
+      summary: Lịch sử chạy cronjob
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/CronJobID"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Danh sách lần chạy cronjob
+  /api/v1/workspaces/{workspace_id}/cronjobs/{cronjob_id}/run:
+    post:
+      summary: Chạy cronjob thủ công
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/CronJobID"
+      responses:
+        "201":
+          description: Cronjob đã được chạy thủ công và ghi run log
+  /api/v1/workspaces/{workspace_id}/admin/stats:
+    get:
+      summary: Thống kê dashboard quản trị
+      description: Cần quyền `admin.view`.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Thống kê workspace cho admin
+  /api/v1/workspaces/{workspace_id}/admin/health:
+    get:
+      summary: Health check sâu cho admin
+      description: Cần quyền `admin.view`, trả trạng thái DB, Redis, RabbitMQ, storage và WebSocket nếu được cấu hình.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      responses:
+        "200":
+          description: Hệ thống sẵn sàng
+        "503":
+          description: Một hoặc nhiều dependency chưa sẵn sàng
+  /api/v1/workspaces/{workspace_id}/audit-logs:
+    get:
+      summary: Danh sách audit log
+      description: Cần quyền `audit.view`.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: actor_user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Audit log đã lọc
+  /api/v1/workspaces/{workspace_id}/backup-jobs:
+    get:
+      summary: Danh sách backup job
+      description: Cần quyền `backup.manage`.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Danh sách backup job
+    post:
+      summary: Tạo backup job database
+      description: MVP hiện hỗ trợ `backup_type=database`.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBackupJobRequest"
+      responses:
+        "201":
+          description: Backup job đã được tạo
+  /api/v1/workspaces/{workspace_id}/backup-jobs/{backup_job_id}/runs:
+    get:
+      summary: Lịch sử chạy backup job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/BackupJobID"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Danh sách backup run
+  /api/v1/workspaces/{workspace_id}/backup-jobs/{backup_job_id}/run:
+    post:
+      summary: Chạy backup job thủ công
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/BackupJobID"
+      responses:
+        "201":
+          description: Backup run đã được tạo
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserID:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DepartmentID:
+      name: department_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ChannelID:
+      name: channel_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MessageID:
+      name: message_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    FileID:
+      name: file_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    APITokenID:
+      name: token_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BotID:
+      name: bot_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WebhookID:
+      name: webhook_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    NotificationID:
+      name: notification_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CronJobID:
+      name: cronjob_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BackupJobID:
+      name: backup_job_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          description: Dữ liệu trả về
+        error:
+          $ref: "#/components/schemas/ApiError"
+        meta:
+          description: Metadata phân trang hoặc thông tin bổ sung
+        request_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    ApiError:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    SendMessageRequest:
+      type: object
+      required: [body]
+      properties:
+        parent_id:
+          type: string
+          format: uuid
+          description: Tin nhắn cha khi reply thread.
+        kind:
+          type: string
+          default: text
+        body:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        mentioned_user_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+        sender_id:
+          type: string
+          format: uuid
+        parent_id:
+          type: string
+          format: uuid
+        thread_root_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        body:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        mentions:
+          type: array
+          items:
+            type: string
+            format: uuid
+        reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReactionSummary"
+        created_at:
+          type: string
+          format: date-time
+    ReactionSummary:
+      type: object
+      properties:
+        emoji:
+          type: string
+        count:
+          type: integer
+        reacted_by_me:
+          type: boolean
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        read_at:
+          type: string
+          format: date-time
+        delivered_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    PresenceHeartbeatRequest:
+      type: object
+      required: [device_id]
+      properties:
+        device_id:
+          type: string
+        socket_id:
+          type: string
+          description: Tùy chọn. Nếu không gửi, backend dùng device_id.
+        node_id:
+          type: string
+          description: Tùy chọn. Nếu không gửi, backend dùng api-local.
+        status:
+          type: string
+          enum: [online, away, offline]
+          default: online
+        metadata:
+          type: object
+          additionalProperties: true
+    Presence:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+        socket_id:
+          type: string
+        node_id:
+          type: string
+        status:
+          type: string
+          enum: [online, away, offline]
+        last_heartbeat_at:
+          type: string
+          format: date-time
+        connected_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    CreateAPITokenRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+          example: ["message.write", "webhook.write"]
+        expires_days:
+          type: integer
+          description: Số ngày hết hạn. Không gửi hoặc bằng 0 nghĩa là không đặt hạn.
+    CreateBotRequest:
+      type: object
+      required: [slug, name]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        avatar_url:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+    InstallBotRequest:
+      type: object
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+          description: Không gửi để cài bot ở phạm vi workspace.
+        config:
+          type: object
+          additionalProperties: true
+    BotMessageRequest:
+      type: object
+      required: [channel_id, body]
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+        body:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    CreateIncomingWebhookRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        channel_id:
+          type: string
+          format: uuid
+          description: Channel mặc định cho incoming webhook.
+    IncomingWebhookDispatchRequest:
+      type: object
+      required: [body]
+      properties:
+        secret:
+          type: string
+          description: Có thể gửi qua body hoặc header X-WebTui-Webhook-Secret.
+        channel_id:
+          type: string
+          format: uuid
+          description: Ghi đè channel mặc định nếu webhook cho phép.
+        body:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    CreateOutgoingWebhookRequest:
+      type: object
+      required: [name, target_url]
+      properties:
+        name:
+          type: string
+        target_url:
+          type: string
+          format: uri
+        event_types:
+          type: array
+          items:
+            type: string
+          description: Rỗng nghĩa là nhận tất cả event.
+    IntegrationMessageRequest:
+      type: object
+      required: [channel_id, body]
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+        body:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    File:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+        original_name:
+          type: string
+        mime_type:
+          type: string
+        byte_size:
+          type: integer
+        checksum_sha256:
+          type: string
+        status:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    FileVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        file_id:
+          type: string
+          format: uuid
+        version_number:
+          type: integer
+        mime_type:
+          type: string
+        byte_size:
+          type: integer
+    MessageAttachment:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        file_id:
+          type: string
+          format: uuid
+        sort_order:
+          type: integer
+        file:
+          $ref: "#/components/schemas/File"
+    SaveCronJobRequest:
+      type: object
+      required: [name, schedule, runner, payload]
+      properties:
+        name:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+        schedule:
+          type: string
+          description: Hỗ trợ `@every 15m`, `@hourly`, `@daily`, `@weekly` hoặc cron expression 5 trường.
+        runner:
+          type: string
+          enum: [http, builtin_cleanup, worker, script]
+        status:
+          type: string
+          enum: [active, paused, disabled]
+          default: active
+        payload:
+          type: object
+          additionalProperties: true
+          description: Với `http` gồm `method`, `url`, `headers`, `body`; với `builtin_cleanup` gồm `task`, `older_than`; với `script` gồm `name`, `args`, `timeout`.
+    CronJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        schedule:
+          type: string
+        runner:
+          type: string
+        status:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        last_run_at:
+          type: string
+          format: date-time
+        next_run_at:
+          type: string
+          format: date-time
+        locked_at:
+          type: string
+          format: date-time
+        locked_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CronJobRun:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        cron_job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [running, success, failed, cancelled]
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        log:
+          type: string
+        error:
+          type: string
+        duration_ms:
+          type: integer
+    AdminDashboardStats:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        active_members:
+          type: integer
+        channels:
+          type: integer
+        messages:
+          type: integer
+        files:
+          type: integer
+        bots:
+          type: integer
+        incoming_webhooks:
+          type: integer
+        outgoing_webhooks:
+          type: integer
+        audit_logs:
+          type: integer
+        backup_jobs:
+          type: integer
+        generated_at:
+          type: string
+          format: date-time
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        actor_user_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+          format: uuid
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        before_data:
+          type: object
+          additionalProperties: true
+        after_data:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+    CreateBackupJobRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        target:
+          type: string
+          enum: [local, minio, s3]
+        backup_type:
+          type: string
+          enum: [database]
+        schedule:
+          type: string
+          description: Tùy chọn. Hỗ trợ cùng định dạng với cronjob.
+        status:
+          type: string
+          enum: [active, paused, disabled]
+        config:
+          type: object
+          additionalProperties: true
+    BackupJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        target:
+          type: string
+        backup_type:
+          type: string
+        schedule:
+          type: string
+        status:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        last_run_at:
+          type: string
+          format: date-time
+        next_run_at:
+          type: string
+          format: date-time
+    BackupRun:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        backup_job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [running, success, failed, cancelled]
+        backup_type:
+          type: string
+        object_key:
+          type: string
+        byte_size:
+          type: integer
+        checksum_sha256:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+        duration_ms:
+          type: integer
+    RegisterRequest:
+      type: object
+      required: [email, username, display_name, password]
+      properties:
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        display_name:
+          type: string
+        password:
+          type: string
+          format: password
+        device_name:
+          type: string
+          description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+          description: Email hoặc username
+        password:
+          type: string
+          format: password
+        device_name:
+          type: string
+          description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    UpdateMeRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+        locale:
+          type: string
+        timezone:
+          type: string
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        display_name:
+          type: string
+        registration_ip_address:
+          type: string
+        registration_device_name:
+          type: string
+        last_ip_address:
+          type: string
+        device_name:
+          type: string
+    AuthResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"

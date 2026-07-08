@@ -1,0 +1,87 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Môi trường triển khai"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: "Tag image cần deploy, ví dụ latest hoặc SHA"
+        required: true
+        default: "latest"
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository }}
+  DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/webtui-chat' }}
+  API_HEALTH_URL: ${{ vars.API_HEALTH_URL || 'https://api.vpsttt.com/ready' }}
+
+jobs:
+  deploy:
+    name: Deploy Docker Compose
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Tạo thư mục deploy trên VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            mkdir -p "${{ env.DEPLOY_PATH }}"
+
+      - name: Đồng bộ cấu hình deploy
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "deploy"
+          target: ${{ env.DEPLOY_PATH }}
+          overwrite: true
+
+      - name: Deploy trên VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAMESPACE: ${{ env.IMAGE_NAMESPACE }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
+          API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: REGISTRY,IMAGE_NAMESPACE,IMAGE_TAG,GHCR_USERNAME,GHCR_TOKEN,DEPLOY_PATH,API_HEALTH_URL
+          script: |
+            set -eu
+            cd "$DEPLOY_PATH"
+            test -f .env
+            if [ -n "${GHCR_TOKEN:-}" ]; then
+              printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
+            fi
+            export WEBTUI_API_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/api:$IMAGE_TAG"
+            export WEBTUI_WORKER_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
+            export API_HEALTH_URL="$API_HEALTH_URL"
+            sh deploy/scripts/deploy-compose.sh
+
+      - name: Health check public
+        run: curl -fsS "${{ env.API_HEALTH_URL }}"
