@@ -36,22 +36,26 @@ func TestCORSAllowsConfiguredOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	router.Use(CORS([]string{"http://localhost:3000"}))
+	router.Use(CORS([]string{"http://localhost:3000", "http://localhost:3001"}))
 	router.GET("/ping", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
 
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodOptions, "/ping", nil)
-	req.Header.Set("Origin", "http://localhost:3000")
-	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
-	router.ServeHTTP(w, req)
+	for _, origin := range []string{"http://localhost:3000", "http://localhost:3001"} {
+		t.Run(origin, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodOptions, "/ping", nil)
+			req.Header.Set("Origin", origin)
+			req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+			router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, muốn %d", w.Code, http.StatusNoContent)
-	}
-	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
-		t.Fatalf("Access-Control-Allow-Origin = %q", got)
+			if w.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, muốn %d", w.Code, http.StatusNoContent)
+			}
+			if got := w.Header().Get("Access-Control-Allow-Origin"); got != origin {
+				t.Fatalf("Access-Control-Allow-Origin = %q", got)
+			}
+		})
 	}
 }
 

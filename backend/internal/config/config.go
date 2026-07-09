@@ -122,7 +122,9 @@ func Load() (*Config, error) {
 			TrustedProxies:  getEnvCSV("TRUSTED_PROXIES", []string{}),
 			CORSAllowedOrigins: getEnvCSV("CORS_ALLOWED_ORIGINS", []string{
 				"http://localhost:3000",
+				"http://localhost:3001",
 				"http://localhost:5173",
+				"https://chat.vpsttt.com",
 			}),
 			SecureHeadersEnabled: getEnvBool("SECURE_HEADERS_ENABLED", true),
 			RateLimitEnabled:     getEnvBool("RATE_LIMIT_ENABLED", true),

@@ -231,7 +231,7 @@ Giữ các giá trị production này:
 ```env
 APP_ENV=production
 APP_URL=https://api.vpsttt.com
-CORS_ALLOWED_ORIGINS=https://chat.vpsttt.com
+CORS_ALLOWED_ORIGINS=https://chat.vpsttt.com,http://localhost:3000,http://localhost:3001
 API_DOMAIN=api.vpsttt.com
 FRONTEND_DOMAIN=chat.vpsttt.com
 RABBITMQ_ENABLED=true
