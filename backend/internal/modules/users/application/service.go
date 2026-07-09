@@ -33,6 +33,7 @@ type UpdateProfileParams struct {
 	UserID      string
 	DisplayName *string
 	AvatarURL   *string
+	PhoneNumber *string
 	Locale      *string
 	Timezone    *string
 }
@@ -41,6 +42,7 @@ type UpdateUserParams struct {
 	UserID      string
 	DisplayName *string
 	AvatarURL   *string
+	PhoneNumber *string
 	Locale      *string
 	Timezone    *string
 	Status      *string
@@ -50,6 +52,7 @@ type UpdateProfileInput struct {
 	UserID      string
 	DisplayName *string
 	AvatarURL   *string
+	PhoneNumber *string
 	Locale      *string
 	Timezone    *string
 }
@@ -58,6 +61,7 @@ type UpdateUserInput struct {
 	UserID      string
 	DisplayName *string
 	AvatarURL   *string
+	PhoneNumber *string
 	Locale      *string
 	Timezone    *string
 	Status      *string
@@ -69,6 +73,7 @@ type UserDTO struct {
 	Username        string  `json:"username"`
 	DisplayName     string  `json:"display_name"`
 	AvatarURL       *string `json:"avatar_url,omitempty"`
+	PhoneNumber     *string `json:"phone_number,omitempty"`
 	Status          string  `json:"status"`
 	Locale          string  `json:"locale"`
 	Timezone        string  `json:"timezone"`
@@ -119,7 +124,7 @@ func (s *Service) List(ctx context.Context, params ListUsersParams) ([]UserDTO, 
 }
 
 func (s *Service) UpdateMe(ctx context.Context, input UpdateProfileInput) (UserDTO, error) {
-	displayName, avatarURL, locale, timezone, err := validateProfile(input.DisplayName, input.AvatarURL, input.Locale, input.Timezone)
+	displayName, avatarURL, phoneNumber, locale, timezone, err := validateProfile(input.DisplayName, input.AvatarURL, input.PhoneNumber, input.Locale, input.Timezone)
 	if err != nil {
 		return UserDTO{}, err
 	}
@@ -127,6 +132,7 @@ func (s *Service) UpdateMe(ctx context.Context, input UpdateProfileInput) (UserD
 		UserID:      strings.TrimSpace(input.UserID),
 		DisplayName: displayName,
 		AvatarURL:   avatarURL,
+		PhoneNumber: phoneNumber,
 		Locale:      locale,
 		Timezone:    timezone,
 	})
@@ -140,7 +146,7 @@ func (s *Service) UpdateMe(ctx context.Context, input UpdateProfileInput) (UserD
 }
 
 func (s *Service) Update(ctx context.Context, input UpdateUserInput) (UserDTO, error) {
-	displayName, avatarURL, locale, timezone, err := validateProfile(input.DisplayName, input.AvatarURL, input.Locale, input.Timezone)
+	displayName, avatarURL, phoneNumber, locale, timezone, err := validateProfile(input.DisplayName, input.AvatarURL, input.PhoneNumber, input.Locale, input.Timezone)
 	if err != nil {
 		return UserDTO{}, err
 	}
@@ -156,6 +162,7 @@ func (s *Service) Update(ctx context.Context, input UpdateUserInput) (UserDTO, e
 		UserID:      strings.TrimSpace(input.UserID),
 		DisplayName: displayName,
 		AvatarURL:   avatarURL,
+		PhoneNumber: phoneNumber,
 		Locale:      locale,
 		Timezone:    timezone,
 		Status:      status,
@@ -179,31 +186,38 @@ func (s *Service) Delete(ctx context.Context, userID string) error {
 	return nil
 }
 
-func validateProfile(displayNameInput *string, avatarURLInput *string, localeInput *string, timezoneInput *string) (*string, *string, *string, *string, error) {
+func validateProfile(displayNameInput *string, avatarURLInput *string, phoneNumberInput *string, localeInput *string, timezoneInput *string) (*string, *string, *string, *string, *string, error) {
 	displayName := cleanOptional(displayNameInput)
 	avatarURL := cleanOptional(avatarURLInput)
+	phoneNumber := cleanOptional(phoneNumberInput)
 	locale := cleanOptional(localeInput)
 	timezone := cleanOptional(timezoneInput)
 
 	if displayName != nil {
 		value := *displayName
 		if value == "" || len([]rune(value)) > 120 {
-			return nil, nil, nil, nil, apperrors.BadRequest("VALIDATION_ERROR", "Tên hiển thị phải dài từ 1 đến 120 ký tự.")
+			return nil, nil, nil, nil, nil, apperrors.BadRequest("VALIDATION_ERROR", "Tên hiển thị phải dài từ 1 đến 120 ký tự.")
+		}
+	}
+	if phoneNumber != nil {
+		value := *phoneNumber
+		if len([]rune(value)) > 32 {
+			return nil, nil, nil, nil, nil, apperrors.BadRequest("VALIDATION_ERROR", "Số điện thoại không được vượt quá 32 ký tự.")
 		}
 	}
 	if locale != nil {
 		value := *locale
 		if value == "" || len([]rune(value)) > 20 {
-			return nil, nil, nil, nil, apperrors.BadRequest("VALIDATION_ERROR", "Locale không hợp lệ.")
+			return nil, nil, nil, nil, nil, apperrors.BadRequest("VALIDATION_ERROR", "Locale không hợp lệ.")
 		}
 	}
 	if timezone != nil {
 		value := *timezone
 		if value == "" || len([]rune(value)) > 80 {
-			return nil, nil, nil, nil, apperrors.BadRequest("VALIDATION_ERROR", "Timezone không hợp lệ.")
+			return nil, nil, nil, nil, nil, apperrors.BadRequest("VALIDATION_ERROR", "Timezone không hợp lệ.")
 		}
 	}
-	return displayName, avatarURL, locale, timezone, nil
+	return displayName, avatarURL, phoneNumber, locale, timezone, nil
 }
 
 func cleanOptional(value *string) *string {
@@ -221,6 +235,7 @@ func toDTO(user usersdomain.User) UserDTO {
 		Username:        user.Username,
 		DisplayName:     user.DisplayName,
 		AvatarURL:       user.AvatarURL,
+		PhoneNumber:     user.PhoneNumber,
 		Status:          user.Status,
 		Locale:          user.Locale,
 		Timezone:        user.Timezone,

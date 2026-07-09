@@ -17,6 +17,7 @@ type Handler struct {
 type updateMeRequest struct {
 	DisplayName *string `json:"display_name"`
 	AvatarURL   *string `json:"avatar_url"`
+	PhoneNumber *string `json:"phone_number"`
 	Locale      *string `json:"locale"`
 	Timezone    *string `json:"timezone"`
 }
@@ -24,6 +25,7 @@ type updateMeRequest struct {
 type updateUserRequest struct {
 	DisplayName *string `json:"display_name"`
 	AvatarURL   *string `json:"avatar_url"`
+	PhoneNumber *string `json:"phone_number"`
 	Locale      *string `json:"locale"`
 	Timezone    *string `json:"timezone"`
 	Status      *string `json:"status"`
@@ -64,6 +66,7 @@ func (h *Handler) UpdateMe(c *gin.Context) {
 		UserID:      middleware.CurrentUserID(c),
 		DisplayName: req.DisplayName,
 		AvatarURL:   req.AvatarURL,
+		PhoneNumber: req.PhoneNumber,
 		Locale:      req.Locale,
 		Timezone:    req.Timezone,
 	})
@@ -107,6 +110,7 @@ func (h *Handler) Update(c *gin.Context) {
 		UserID:      c.Param("user_id"),
 		DisplayName: req.DisplayName,
 		AvatarURL:   req.AvatarURL,
+		PhoneNumber: req.PhoneNumber,
 		Locale:      req.Locale,
 		Timezone:    req.Timezone,
 		Status:      req.Status,

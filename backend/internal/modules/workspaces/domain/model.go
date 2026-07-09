@@ -32,6 +32,7 @@ type Member struct {
 	Email       string
 	Username    string
 	DisplayName string
+	PhoneNumber *string
 	Status      string
 	Title       *string
 	JoinedAt    *time.Time

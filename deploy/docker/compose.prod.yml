@@ -85,6 +85,19 @@ services:
       redis:
         condition: service_healthy
 
+  web:
+    image: ${WEBTUI_WEB_IMAGE}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.vpsttt.com}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://api.vpsttt.com/api/v1/ws}
+      NEXT_TELEMETRY_DISABLED: "1"
+      PORT: "3000"
+    expose:
+      - "3000"
+    networks:
+      - backend
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
@@ -95,6 +108,7 @@ services:
       API_DOMAIN: ${API_DOMAIN:-api.vpsttt.com}
       FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:-chat.vpsttt.com}
       API_UPSTREAM: api:8080
+      FRONTEND_UPSTREAM: web:3000
     volumes:
       - ../nginx/templates:/etc/nginx/templates:ro
       - letsencrypt:/etc/letsencrypt

@@ -13,6 +13,7 @@ type User struct {
 	Username        string
 	DisplayName     string
 	AvatarURL       *string
+	PhoneNumber     *string
 	Status          string
 	Locale          string
 	Timezone        string

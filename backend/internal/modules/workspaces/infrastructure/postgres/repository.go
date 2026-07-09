@@ -132,7 +132,7 @@ WHERE id = $1::uuid AND deleted_at IS NULL
 
 func (r *Repository) ListMembers(ctx context.Context, workspaceID string) ([]workspacesdomain.Member, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT wm.id::text, wm.workspace_id::text, wm.user_id::text, u.email::text, u.username::text, u.display_name,
+SELECT wm.id::text, wm.workspace_id::text, wm.user_id::text, u.email::text, u.username::text, u.display_name, u.phone_number,
        wm.status, wm.title, wm.joined_at, wm.created_at, wm.updated_at
 FROM workspace_members wm
 JOIN users u ON u.id = wm.user_id AND u.deleted_at IS NULL
@@ -203,7 +203,7 @@ func (r *Repository) UpdateMemberStatus(ctx context.Context, params workspacesap
 UPDATE workspace_members
 SET status = $3
 WHERE workspace_id = $1::uuid AND user_id = $2::uuid
-RETURNING id::text, workspace_id::text, user_id::text, ''::text, ''::text, ''::text, status, title, joined_at, created_at, updated_at
+RETURNING id::text, workspace_id::text, user_id::text, ''::text, ''::text, ''::text, ''::text, status, title, joined_at, created_at, updated_at
 `, params.WorkspaceID, params.UserID, params.Status)
 	member, err := scanMember(row)
 	if err != nil {
@@ -321,7 +321,7 @@ VALUES (NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, '')::uuid
 
 func (r *Repository) member(ctx context.Context, workspaceID string, userID string) (workspacesdomain.Member, error) {
 	row := r.pool.QueryRow(ctx, `
-SELECT wm.id::text, wm.workspace_id::text, wm.user_id::text, u.email::text, u.username::text, u.display_name,
+SELECT wm.id::text, wm.workspace_id::text, wm.user_id::text, u.email::text, u.username::text, u.display_name, u.phone_number,
        wm.status, wm.title, wm.joined_at, wm.created_at, wm.updated_at
 FROM workspace_members wm
 JOIN users u ON u.id = wm.user_id AND u.deleted_at IS NULL
@@ -361,6 +361,7 @@ func scanWorkspace(row rowScanner) (workspacesdomain.Workspace, error) {
 
 func scanMember(row rowScanner) (workspacesdomain.Member, error) {
 	var member workspacesdomain.Member
+	var phoneNumber sql.NullString
 	var title sql.NullString
 	var joinedAt sql.NullTime
 	if err := row.Scan(
@@ -370,6 +371,7 @@ func scanMember(row rowScanner) (workspacesdomain.Member, error) {
 		&member.Email,
 		&member.Username,
 		&member.DisplayName,
+		&phoneNumber,
 		&member.Status,
 		&title,
 		&joinedAt,
@@ -381,6 +383,7 @@ func scanMember(row rowScanner) (workspacesdomain.Member, error) {
 		}
 		return workspacesdomain.Member{}, err
 	}
+	member.PhoneNumber = nullStringPtr(phoneNumber)
 	member.Title = nullStringPtr(title)
 	member.JoinedAt = nullTimePtr(joinedAt)
 	return member, nil

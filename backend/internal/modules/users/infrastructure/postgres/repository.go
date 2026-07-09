@@ -22,7 +22,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 func (r *Repository) FindByID(ctx context.Context, id string) (usersdomain.User, error) {
 	row := r.pool.QueryRow(ctx, `
-SELECT id::text, email::text, username::text, display_name, avatar_url, status,
+SELECT id::text, email::text, username::text, display_name, avatar_url, phone_number, status,
        locale, timezone, email_verified_at, last_seen_at,
        host(registration_ip_address), registration_device_name,
        host(last_ip_address), device_name,
@@ -35,14 +35,23 @@ WHERE id = $1::uuid AND deleted_at IS NULL
 
 func (r *Repository) List(ctx context.Context, params usersapp.ListUsersParams) ([]usersdomain.User, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT id::text, email::text, username::text, display_name, avatar_url, status,
+SELECT id::text, email::text, username::text, display_name, avatar_url, phone_number, status,
        locale, timezone, email_verified_at, last_seen_at,
        host(registration_ip_address), registration_device_name,
        host(last_ip_address), device_name,
        created_at, updated_at
 FROM users
 WHERE deleted_at IS NULL
-  AND ($1 = '' OR display_name ILIKE '%' || $1 || '%' OR email::text ILIKE '%' || $1 || '%' OR username::text ILIKE '%' || $1 || '%')
+  AND (
+    $1 = ''
+    OR display_name ILIKE '%' || $1 || '%'
+    OR email::text ILIKE '%' || $1 || '%'
+    OR username::text ILIKE '%' || $1 || '%'
+    OR (
+      regexp_replace($1, '\D', '', 'g') <> ''
+      AND regexp_replace(COALESCE(phone_number, ''), '\D', '', 'g') LIKE '%' || regexp_replace($1, '\D', '', 'g') || '%'
+    )
+  )
   AND ($2 = '' OR status = $2)
 ORDER BY created_at DESC
 LIMIT $3
@@ -68,15 +77,16 @@ func (r *Repository) UpdateProfile(ctx context.Context, params usersapp.UpdatePr
 UPDATE users
 SET display_name = COALESCE($2, display_name),
     avatar_url = COALESCE($3, avatar_url),
-    locale = COALESCE($4, locale),
-    timezone = COALESCE($5, timezone)
+    phone_number = COALESCE($4, phone_number),
+    locale = COALESCE($5, locale),
+    timezone = COALESCE($6, timezone)
 WHERE id = $1::uuid AND deleted_at IS NULL
-RETURNING id::text, email::text, username::text, display_name, avatar_url, status,
+RETURNING id::text, email::text, username::text, display_name, avatar_url, phone_number, status,
           locale, timezone, email_verified_at, last_seen_at,
           host(registration_ip_address), registration_device_name,
           host(last_ip_address), device_name,
           created_at, updated_at
-`, params.UserID, params.DisplayName, params.AvatarURL, params.Locale, params.Timezone)
+`, params.UserID, params.DisplayName, params.AvatarURL, params.PhoneNumber, params.Locale, params.Timezone)
 	return scanUser(row)
 }
 
@@ -85,16 +95,17 @@ func (r *Repository) UpdateUser(ctx context.Context, params usersapp.UpdateUserP
 UPDATE users
 SET display_name = COALESCE($2, display_name),
     avatar_url = COALESCE($3, avatar_url),
-    locale = COALESCE($4, locale),
-    timezone = COALESCE($5, timezone),
-    status = COALESCE($6, status)
+    phone_number = COALESCE($4, phone_number),
+    locale = COALESCE($5, locale),
+    timezone = COALESCE($6, timezone),
+    status = COALESCE($7, status)
 WHERE id = $1::uuid AND deleted_at IS NULL
-RETURNING id::text, email::text, username::text, display_name, avatar_url, status,
+RETURNING id::text, email::text, username::text, display_name, avatar_url, phone_number, status,
           locale, timezone, email_verified_at, last_seen_at,
           host(registration_ip_address), registration_device_name,
           host(last_ip_address), device_name,
           created_at, updated_at
-`, params.UserID, params.DisplayName, params.AvatarURL, params.Locale, params.Timezone, params.Status)
+`, params.UserID, params.DisplayName, params.AvatarURL, params.PhoneNumber, params.Locale, params.Timezone, params.Status)
 	return scanUser(row)
 }
 
@@ -120,6 +131,7 @@ type rowScanner interface {
 func scanUser(row rowScanner) (usersdomain.User, error) {
 	var user usersdomain.User
 	var avatarURL sql.NullString
+	var phoneNumber sql.NullString
 	var emailVerifiedAt sql.NullTime
 	var lastSeenAt sql.NullTime
 	var registrationIP sql.NullString
@@ -133,6 +145,7 @@ func scanUser(row rowScanner) (usersdomain.User, error) {
 		&user.Username,
 		&user.DisplayName,
 		&avatarURL,
+		&phoneNumber,
 		&user.Status,
 		&user.Locale,
 		&user.Timezone,
@@ -153,6 +166,7 @@ func scanUser(row rowScanner) (usersdomain.User, error) {
 	}
 
 	user.AvatarURL = nullStringPtr(avatarURL)
+	user.PhoneNumber = nullStringPtr(phoneNumber)
 	user.EmailVerifiedAt = nullTimePtr(emailVerifiedAt)
 	user.LastSeenAt = nullTimePtr(lastSeenAt)
 	user.RegistrationIP = nullStringPtr(registrationIP)

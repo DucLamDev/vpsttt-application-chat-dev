@@ -93,12 +93,27 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Typecheck
+        if: steps.package.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run typecheck
+
       - name: Lint
         if: steps.package.outputs.exists == 'true'
         working-directory: frontend
-        run: npm run lint --if-present
+        run: npm run lint
 
-      - name: Test
+      - name: Unit test
         if: steps.package.outputs.exists == 'true'
         working-directory: frontend
-        run: npm test --if-present
+        run: npm run test:unit
+
+      - name: Build web
+        if: steps.package.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run build:web
+
+      - name: Build admin
+        if: steps.package.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run build:admin

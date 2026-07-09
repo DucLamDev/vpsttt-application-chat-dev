@@ -164,6 +164,7 @@ type MemberDTO struct {
 	Email       string  `json:"email"`
 	Username    string  `json:"username"`
 	DisplayName string  `json:"display_name"`
+	PhoneNumber *string `json:"phone_number,omitempty"`
 	Status      string  `json:"status"`
 	Title       *string `json:"title,omitempty"`
 	JoinedAt    *string `json:"joined_at,omitempty"`
@@ -519,6 +520,7 @@ func toMemberDTO(member workspacesdomain.Member) MemberDTO {
 		Email:       member.Email,
 		Username:    member.Username,
 		DisplayName: member.DisplayName,
+		PhoneNumber: member.PhoneNumber,
 		Status:      member.Status,
 		Title:       member.Title,
 		JoinedAt:    formatOptionalTime(member.JoinedAt),
