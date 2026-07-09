@@ -15,6 +15,20 @@ func TestLoadIncludesLocalFrontendCORSOrigins(t *testing.T) {
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3001")
 }
 
+func TestLoadMergesConfiguredAndLocalFrontendCORSOrigins(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://chat.vpsttt.com")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "https://chat.vpsttt.com")
+	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3000")
+	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3001")
+}
+
 func TestValidateRejectsWeakProductionSecrets(t *testing.T) {
 	cfg := &Config{
 		App: AppConfig{

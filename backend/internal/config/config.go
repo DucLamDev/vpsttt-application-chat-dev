@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+var defaultCORSAllowedOrigins = []string{
+	"http://localhost:3000",
+	"http://localhost:3001",
+	"http://localhost:5173",
+	"https://chat.vpsttt.com",
+}
+
 type Config struct {
 	App          AppConfig
 	HTTP         HTTPConfig
@@ -119,13 +126,8 @@ func Load() (*Config, error) {
 			WriteTimeout:    getEnvDuration("API_WRITE_TIMEOUT", 30*time.Second),
 			IdleTimeout:     getEnvDuration("API_IDLE_TIMEOUT", 60*time.Second),
 			ShutdownTimeout: getEnvDuration("API_SHUTDOWN_TIMEOUT", 10*time.Second),
-			TrustedProxies:  getEnvCSV("TRUSTED_PROXIES", []string{}),
-			CORSAllowedOrigins: getEnvCSV("CORS_ALLOWED_ORIGINS", []string{
-				"http://localhost:3000",
-				"http://localhost:3001",
-				"http://localhost:5173",
-				"https://chat.vpsttt.com",
-			}),
+			TrustedProxies:       getEnvCSV("TRUSTED_PROXIES", []string{}),
+			CORSAllowedOrigins:   getEnvCSVWithDefaults("CORS_ALLOWED_ORIGINS", defaultCORSAllowedOrigins),
 			SecureHeadersEnabled: getEnvBool("SECURE_HEADERS_ENABLED", true),
 			RateLimitEnabled:     getEnvBool("RATE_LIMIT_ENABLED", true),
 			RateLimitPerMinute:   getEnvInt("RATE_LIMIT_PER_MINUTE", 120),
@@ -323,6 +325,48 @@ func getEnvCSV(key string, fallback []string) []string {
 		return fallback
 	}
 	return values
+}
+
+func getEnvCSVWithDefaults(key string, defaults []string) []string {
+	values := append([]string{}, defaults...)
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return uniqueCSVValues(values)
+	}
+
+	for _, part := range strings.Split(raw, ",") {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if value == "*" {
+			return []string{"*"}
+		}
+		values = append(values, value)
+	}
+
+	return uniqueCSVValues(values)
+}
+
+func uniqueCSVValues(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	unique := make([]string, 0, len(values))
+
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+
+		key := strings.ToLower(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		unique = append(unique, value)
+	}
+
+	return unique
 }
 
 func getEnvMap(key string) map[string]string {
