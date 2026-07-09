@@ -19,9 +19,25 @@ read_env_value() {
 }
 
 export API_DOMAIN="${API_DOMAIN:-$(read_env_value API_DOMAIN)}"
+export API_DOMAIN="${API_DOMAIN:-api.vpsttt.com}"
 export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(read_env_value FRONTEND_DOMAIN)}"
+export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-chat.vpsttt.com}"
 export WEBTUI_API_IMAGE="${WEBTUI_API_IMAGE:-$(read_env_value WEBTUI_API_IMAGE)}"
 export WEBTUI_WORKER_IMAGE="${WEBTUI_WORKER_IMAGE:-$(read_env_value WEBTUI_WORKER_IMAGE)}"
+export WEBTUI_WEB_IMAGE="${WEBTUI_WEB_IMAGE:-$(read_env_value WEBTUI_WEB_IMAGE)}"
+
+require_value() {
+  name="$1"
+  value="$2"
+  if [ "$value" = "" ]; then
+    echo "Missing $name. Set it in GitHub Actions or production .env." >&2
+    exit 1
+  fi
+}
+
+require_value WEBTUI_API_IMAGE "$WEBTUI_API_IMAGE"
+require_value WEBTUI_WORKER_IMAGE "$WEBTUI_WORKER_IMAGE"
+require_value WEBTUI_WEB_IMAGE "$WEBTUI_WEB_IMAGE"
 
 write_compose_env_file() {
   {
@@ -29,6 +45,7 @@ write_compose_env_file() {
     printf 'FRONTEND_DOMAIN=%s\n' "$FRONTEND_DOMAIN"
     printf 'WEBTUI_API_IMAGE=%s\n' "$WEBTUI_API_IMAGE"
     printf 'WEBTUI_WORKER_IMAGE=%s\n' "$WEBTUI_WORKER_IMAGE"
+    printf 'WEBTUI_WEB_IMAGE=%s\n' "$WEBTUI_WEB_IMAGE"
   } > "$COMPOSE_ENV_FILE"
 }
 

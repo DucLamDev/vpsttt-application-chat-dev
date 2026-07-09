@@ -295,6 +295,7 @@ Workflow `Docker` build:
 ```text
 ghcr.io/<owner>/<repo>/api:<tag>
 ghcr.io/<owner>/<repo>/worker:<tag>
+ghcr.io/<owner>/<repo>/web:<tag>
 ```
 
 Với repo này, image thường có dạng:
@@ -302,6 +303,7 @@ Với repo này, image thường có dạng:
 ```text
 ghcr.io/duclamdev/application-chat/api:latest
 ghcr.io/duclamdev/application-chat/worker:latest
+ghcr.io/duclamdev/application-chat/web:latest
 ```
 
 ## Bước 7: Deploy production
@@ -325,11 +327,13 @@ Workflow sẽ:
 2. Tạo `/opt/webtui-chat`.
 3. Đồng bộ thư mục `deploy`.
 4. Login GHCR nếu có `GHCR_TOKEN`.
-5. Export `WEBTUI_API_IMAGE` và `WEBTUI_WORKER_IMAGE`.
+5. Export `WEBTUI_API_IMAGE`, `WEBTUI_WORKER_IMAGE` và `WEBTUI_WEB_IMAGE`.
 6. Chạy `deploy/scripts/deploy-compose.sh`.
 7. Chạy migration.
 8. Chạy `docker compose up -d`.
 9. Kiểm tra `https://api.vpsttt.com/ready`.
+
+Nếu deploy báo `WEBTUI_WEB_IMAGE variable is not set` hoặc `service "web" has neither an image nor a build context specified`, hãy chạy lại workflow `Docker` trước để build image `web`, sau đó chạy workflow `Deploy`. Workflow deploy hiện đã export đủ `WEBTUI_API_IMAGE`, `WEBTUI_WORKER_IMAGE` và `WEBTUI_WEB_IMAGE`, đồng thời preflight sẽ kiểm tra đủ 3 image trên GHCR trước khi SSH vào VPS.
 
 ## Bước 8: Test sau deploy
 
@@ -389,6 +393,7 @@ Hoặc trên VPS:
 cd /opt/webtui-chat
 WEBTUI_API_IMAGE=ghcr.io/duclamdev/application-chat/api:TAG_CU \
 WEBTUI_WORKER_IMAGE=ghcr.io/duclamdev/application-chat/worker:TAG_CU \
+WEBTUI_WEB_IMAGE=ghcr.io/duclamdev/application-chat/web:TAG_CU \
 sh deploy/scripts/deploy-compose.sh
 ```
 

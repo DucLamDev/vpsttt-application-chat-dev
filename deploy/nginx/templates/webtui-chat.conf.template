@@ -54,8 +54,8 @@ server {
     http2 on;
     server_name ${FRONTEND_DOMAIN};
 
-    ssl_certificate /etc/letsencrypt/live/${FRONTEND_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${FRONTEND_DOMAIN}/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
     ssl_session_timeout 1d;
     ssl_session_cache shared:WEBTUI_FRONTEND_SSL:10m;
     ssl_protocols TLSv1.2 TLSv1.3;

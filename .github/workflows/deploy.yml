@@ -79,6 +79,7 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
           docker manifest inspect "$REGISTRY/$IMAGE_NAMESPACE/api:$IMAGE_TAG" >/dev/null
           docker manifest inspect "$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG" >/dev/null
+          docker manifest inspect "$REGISTRY/$IMAGE_NAMESPACE/web:$IMAGE_TAG" >/dev/null
 
       - name: Tao thu muc deploy tren VPS
         uses: appleboy/ssh-action@v1
@@ -129,6 +130,7 @@ jobs:
             fi
             export WEBTUI_API_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/api:$IMAGE_TAG"
             export WEBTUI_WORKER_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
+            export WEBTUI_WEB_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/web:$IMAGE_TAG"
             export API_HEALTH_URL="$API_HEALTH_URL"
             sh deploy/scripts/deploy-compose.sh
 
