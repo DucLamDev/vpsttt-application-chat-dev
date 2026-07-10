@@ -25,7 +25,9 @@ type Repository interface {
 	UpdateChannel(ctx context.Context, params UpdateChannelParams) (channelsdomain.Channel, error)
 	ArchiveChannel(ctx context.Context, workspaceID string, channelID string) error
 	ListMembers(ctx context.Context, workspaceID string, channelID string) ([]channelsdomain.Member, error)
+	FindMember(ctx context.Context, workspaceID string, channelID string, userID string) (channelsdomain.Member, error)
 	AddMember(ctx context.Context, params AddMemberParams) (channelsdomain.Member, error)
+	RequestJoin(ctx context.Context, params AddMemberParams) (channelsdomain.Member, error)
 	UpdateMemberStatus(ctx context.Context, params UpdateMemberStatusParams) (channelsdomain.Member, error)
 	UpdateReadState(ctx context.Context, params UpdateReadStateParams) (channelsdomain.Member, error)
 	CreateOrGetDirectConversation(ctx context.Context, params CreateDirectParams) (channelsdomain.DirectConversation, error)
@@ -142,18 +144,21 @@ type AuditEvent struct {
 }
 
 type ChannelDTO struct {
-	ID           string  `json:"id"`
-	WorkspaceID  string  `json:"workspace_id"`
-	DepartmentID *string `json:"department_id,omitempty"`
-	Slug         *string `json:"slug,omitempty"`
-	Name         string  `json:"name"`
-	Description  *string `json:"description,omitempty"`
-	Type         string  `json:"type"`
-	Status       string  `json:"status"`
-	CreatedBy    *string `json:"created_by,omitempty"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
-	ArchivedAt   *string `json:"archived_at,omitempty"`
+	ID               string  `json:"id"`
+	WorkspaceID      string  `json:"workspace_id"`
+	DepartmentID     *string `json:"department_id,omitempty"`
+	Slug             *string `json:"slug,omitempty"`
+	Name             string  `json:"name"`
+	Description      *string `json:"description,omitempty"`
+	Type             string  `json:"type"`
+	Status           string  `json:"status"`
+	CreatedBy        *string `json:"created_by,omitempty"`
+	CreatedAt        string  `json:"created_at"`
+	UpdatedAt        string  `json:"updated_at"`
+	ArchivedAt       *string `json:"archived_at,omitempty"`
+	MembershipStatus string `json:"membership_status"`
+	IsMember         bool    `json:"is_member"`
+	CanManage        bool    `json:"can_manage"`
 }
 
 type MemberDTO struct {
@@ -222,7 +227,11 @@ func (s *Service) Create(ctx context.Context, input CreateChannelInput) (Channel
 		return ChannelDTO{}, err
 	}
 	_ = s.repo.RecordAudit(ctx, AuditEvent{ActorUserID: input.ActorUserID, WorkspaceID: input.WorkspaceID, Action: "channel.create", EntityType: "channel", EntityID: channel.ID})
-	return toChannelDTO(channel), nil
+	dto := toChannelDTO(channel)
+	dto.MembershipStatus = "active"
+	dto.IsMember = true
+	dto.CanManage = true
+	return dto, nil
 }
 
 func (s *Service) Get(ctx context.Context, actorUserID string, workspaceID string, channelID string) (ChannelDTO, error) {
@@ -233,7 +242,7 @@ func (s *Service) Get(ctx context.Context, actorUserID string, workspaceID strin
 	if err != nil {
 		return ChannelDTO{}, mapChannelError(err)
 	}
-	return toChannelDTO(channel), nil
+	return s.decorateChannelDTO(ctx, actorUserID, workspaceID, channel)
 }
 
 func (s *Service) List(ctx context.Context, actorUserID string, workspaceID string) ([]ChannelDTO, error) {
@@ -246,7 +255,11 @@ func (s *Service) List(ctx context.Context, actorUserID string, workspaceID stri
 	}
 	dtos := make([]ChannelDTO, 0, len(channels))
 	for _, channel := range channels {
-		dtos = append(dtos, toChannelDTO(channel))
+		dto, err := s.decorateChannelDTO(ctx, actorUserID, workspaceID, channel)
+		if err != nil {
+			return nil, err
+		}
+		dtos = append(dtos, dto)
 	}
 	return dtos, nil
 }
@@ -290,7 +303,7 @@ func (s *Service) ListMembers(ctx context.Context, actorUserID string, workspace
 }
 
 func (s *Service) AddMember(ctx context.Context, input AddMemberInput) (MemberDTO, error) {
-	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "channel.manage"); err != nil {
+	if err := s.ensureCanManageChannel(ctx, input.ActorUserID, input.WorkspaceID, input.ChannelID); err != nil {
 		return MemberDTO{}, err
 	}
 	member, err := s.repo.AddMember(ctx, AddMemberParams{
@@ -305,7 +318,7 @@ func (s *Service) AddMember(ctx context.Context, input AddMemberInput) (MemberDT
 }
 
 func (s *Service) UpdateMemberStatus(ctx context.Context, input UpdateMemberStatusInput) (MemberDTO, error) {
-	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "channel.manage"); err != nil {
+	if err := s.ensureCanManageChannel(ctx, input.ActorUserID, input.WorkspaceID, input.ChannelID); err != nil {
 		return MemberDTO{}, err
 	}
 	status := strings.TrimSpace(input.Status)
@@ -322,6 +335,64 @@ func (s *Service) UpdateMemberStatus(ctx context.Context, input UpdateMemberStat
 		return MemberDTO{}, mapMemberError(err)
 	}
 	return toMemberDTO(member), nil
+}
+
+func (s *Service) RequestJoin(ctx context.Context, actorUserID string, workspaceID string, channelID string) (MemberDTO, error) {
+	if err := s.ensureWorkspaceAccess(ctx, actorUserID, workspaceID); err != nil {
+		return MemberDTO{}, err
+	}
+	channel, err := s.repo.FindChannel(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(channelID))
+	if err != nil {
+		return MemberDTO{}, mapChannelError(err)
+	}
+	if channel.Type == "direct" {
+		return MemberDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Không thể yêu cầu tham gia hội thoại riêng.")
+	}
+	member, err := s.repo.FindMember(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(channelID), strings.TrimSpace(actorUserID))
+	if err == nil && (member.Status == "active" || member.Status == "muted") {
+		return MemberDTO{}, apperrors.Conflict("CHANNEL_ALREADY_JOINED", "Bạn đã là thành viên của kênh.")
+	}
+	if err == nil && member.Status == "invited" {
+		return toMemberDTO(member), nil
+	}
+	if err != nil && !errors.Is(err, channelsdomain.ErrMemberNotFound) {
+		return MemberDTO{}, err
+	}
+	member, err = s.repo.RequestJoin(ctx, AddMemberParams{
+		WorkspaceID: strings.TrimSpace(workspaceID),
+		ChannelID:   strings.TrimSpace(channelID),
+		UserID:      strings.TrimSpace(actorUserID),
+	})
+	if err != nil {
+		return MemberDTO{}, mapMemberError(err)
+	}
+	return toMemberDTO(member), nil
+}
+
+func (s *Service) ListJoinRequests(ctx context.Context, actorUserID string, workspaceID string, channelID string) ([]MemberDTO, error) {
+	if err := s.ensureCanManageChannel(ctx, actorUserID, workspaceID, channelID); err != nil {
+		return nil, err
+	}
+	members, err := s.repo.ListMembers(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(channelID))
+	if err != nil {
+		return nil, err
+	}
+	requests := make([]channelsdomain.Member, 0)
+	for _, member := range members {
+		if member.Status == "invited" {
+			requests = append(requests, member)
+		}
+	}
+	return toMemberDTOs(requests), nil
+}
+
+func (s *Service) ApproveJoinRequest(ctx context.Context, actorUserID string, workspaceID string, channelID string, userID string) (MemberDTO, error) {
+	return s.UpdateMemberStatus(ctx, UpdateMemberStatusInput{ActorUserID: actorUserID, WorkspaceID: workspaceID, ChannelID: channelID, UserID: userID, Status: "active"})
+}
+
+func (s *Service) RejectJoinRequest(ctx context.Context, actorUserID string, workspaceID string, channelID string, userID string) error {
+	_, err := s.UpdateMemberStatus(ctx, UpdateMemberStatusInput{ActorUserID: actorUserID, WorkspaceID: workspaceID, ChannelID: channelID, UserID: userID, Status: "removed"})
+	return err
 }
 
 func (s *Service) UpdateReadState(ctx context.Context, input UpdateReadStateInput) (MemberDTO, error) {
@@ -413,6 +484,47 @@ func (s *Service) ensureWorkspaceAccess(ctx context.Context, userID string, work
 		return apperrors.Forbidden("Bạn không thuộc workspace này.")
 	}
 	return nil
+}
+
+func (s *Service) CanJoinRoom(ctx context.Context, userID string, room string) bool {
+	parts := strings.Split(strings.TrimSpace(room), ":")
+	if len(parts) != 4 || parts[0] != "workspace" || parts[2] != "channel" {
+		return false
+	}
+	member, err := s.repo.FindMember(ctx, parts[1], parts[3], strings.TrimSpace(userID))
+	return err == nil && (member.Status == "active" || member.Status == "muted")
+}
+
+func (s *Service) ensureCanManageChannel(ctx context.Context, userID string, workspaceID string, channelID string) error {
+	channel, err := s.repo.FindChannel(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(channelID))
+	if err != nil {
+		return mapChannelError(err)
+	}
+	if channel.CreatedBy != nil && *channel.CreatedBy == strings.TrimSpace(userID) {
+		return nil
+	}
+	return s.ensurePermission(ctx, userID, workspaceID, "channel.manage")
+}
+
+func (s *Service) decorateChannelDTO(ctx context.Context, actorUserID string, workspaceID string, channel channelsdomain.Channel) (ChannelDTO, error) {
+	dto := toChannelDTO(channel)
+	dto.MembershipStatus = "none"
+	member, err := s.repo.FindMember(ctx, strings.TrimSpace(workspaceID), channel.ID, strings.TrimSpace(actorUserID))
+	if err == nil {
+		dto.MembershipStatus = member.Status
+		dto.IsMember = member.Status == "active" || member.Status == "muted"
+	} else if !errors.Is(err, channelsdomain.ErrMemberNotFound) {
+		return ChannelDTO{}, err
+	}
+	dto.CanManage = channel.CreatedBy != nil && *channel.CreatedBy == strings.TrimSpace(actorUserID)
+	if !dto.CanManage {
+		allowed, permissionErr := s.checker.HasWorkspacePermission(ctx, strings.TrimSpace(actorUserID), strings.TrimSpace(workspaceID), "channel.manage")
+		if permissionErr != nil {
+			return ChannelDTO{}, permissionErr
+		}
+		dto.CanManage = allowed
+	}
+	return dto, nil
 }
 
 func (s *Service) ensurePermission(ctx context.Context, userID string, workspaceID string, permission string) error {

@@ -26,6 +26,7 @@ type PermissionChecker interface {
 type Repository interface {
 	CreateFile(ctx context.Context, params CreateFileParams) (filesdomain.File, error)
 	FindFile(ctx context.Context, workspaceID string, fileID string) (filesdomain.File, error)
+	CanAccessFile(ctx context.Context, workspaceID string, fileID string, userID string) (bool, error)
 	ListFiles(ctx context.Context, params ListFilesParams) ([]filesdomain.File, error)
 	CreateVersion(ctx context.Context, params CreateVersionParams) (filesdomain.Version, error)
 	ListVersions(ctx context.Context, workspaceID string, fileID string) ([]filesdomain.Version, error)
@@ -304,6 +305,9 @@ func (s *Service) Get(ctx context.Context, actorUserID string, workspaceID strin
 	if err := s.ensurePermission(ctx, actorUserID, workspaceID, "message.send"); err != nil {
 		return FileDTO{}, err
 	}
+	if err := s.ensureFileAccess(ctx, actorUserID, workspaceID, fileID); err != nil {
+		return FileDTO{}, err
+	}
 	file, err := s.repo.FindFile(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(fileID))
 	if err != nil {
 		return FileDTO{}, mapFileError(err)
@@ -334,6 +338,9 @@ func (s *Service) Download(ctx context.Context, input DownloadInput) (DownloadDT
 	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
 		return DownloadDTO{}, err
 	}
+	if err := s.ensureFileAccess(ctx, input.ActorUserID, input.WorkspaceID, input.FileID); err != nil {
+		return DownloadDTO{}, err
+	}
 	file, err := s.repo.FindFile(ctx, strings.TrimSpace(input.WorkspaceID), strings.TrimSpace(input.FileID))
 	if err != nil {
 		return DownloadDTO{}, mapFileError(err)
@@ -347,6 +354,9 @@ func (s *Service) Download(ctx context.Context, input DownloadInput) (DownloadDT
 
 func (s *Service) ListVersions(ctx context.Context, actorUserID string, workspaceID string, fileID string) ([]VersionDTO, error) {
 	if err := s.ensurePermission(ctx, actorUserID, workspaceID, "message.send"); err != nil {
+		return nil, err
+	}
+	if err := s.ensureFileAccess(ctx, actorUserID, workspaceID, fileID); err != nil {
 		return nil, err
 	}
 	versions, err := s.repo.ListVersions(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(fileID))
@@ -401,6 +411,17 @@ func (s *Service) ensurePermission(ctx context.Context, userID string, workspace
 	}
 	if !allowed {
 		return apperrors.Forbidden("Bạn không có quyền thực hiện thao tác này.")
+	}
+	return nil
+}
+
+func (s *Service) ensureFileAccess(ctx context.Context, userID string, workspaceID string, fileID string) error {
+	allowed, err := s.repo.CanAccessFile(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(fileID), strings.TrimSpace(userID))
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return apperrors.Forbidden("Bạn không có quyền xem file này.")
 	}
 	return nil
 }

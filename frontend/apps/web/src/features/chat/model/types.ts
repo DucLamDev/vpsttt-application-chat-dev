@@ -43,21 +43,30 @@ export type ChatMessage = {
 export type MessageAttachmentItem = {
   fileId: string;
   id: string;
+  isAudio?: boolean;
+  isImage?: boolean;
   mimeType?: string;
   name: string;
+  previewUrl?: string;
   size?: string;
   tone: "green" | "red" | "slate";
+  url?: string;
 };
 
 export type ChatChannel = {
+  canManage?: boolean;
+  createdBy?: string;
   id: string;
   name: string;
   description: string;
   tone: ChannelTone;
   unreadCount: number;
   isFavorite: boolean;
+  isMember?: boolean;
+  membershipStatus?: string;
   memberCount: number;
   messages: ChatMessage[];
+  type?: string;
 };
 
 export type DirectConversation = {

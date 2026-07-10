@@ -7,6 +7,7 @@ import type { Notification, Presence, PresenceHeartbeatInput } from "@webtui/typ
 import { api } from "@/lib/api";
 
 const heartbeatMs = 30_000;
+const notificationFallbackMs = 10_000;
 const deviceIdStorageKey = "webtui-device-id";
 
 export type NotificationPresenceOptions = {
@@ -27,7 +28,9 @@ export function useNotificationPresence({
     enabled: isEnabled,
     queryFn: () => api.notifications.listMine({ limit: 30, workspace_id: workspaceId }),
     queryKey: queryKeys.notifications.list(workspaceId),
-    refetchInterval: heartbeatMs
+    refetchInterval: notificationFallbackMs,
+    refetchIntervalInBackground: true,
+    retry: 2
   });
 
   const presenceQuery = useQuery({

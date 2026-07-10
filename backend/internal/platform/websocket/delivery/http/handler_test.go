@@ -93,3 +93,32 @@ func TestAuthenticateRequestFromBrowserQueryToken(t *testing.T) {
 		t.Fatalf("authenticateRequest() userID = %q, want user-1", userID)
 	}
 }
+
+func TestHandleCommandBroadcastsTypingState(t *testing.T) {
+	manager := platformws.NewManager()
+	handler := NewHandler(manager, nil)
+	sender := &platformws.Client{ID: "sender", UserID: "user-a", Send: make(chan platformws.Event, 2)}
+	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", Send: make(chan platformws.Event, 2)}
+	if err := manager.Register(sender); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Register(receiver); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Unregister(sender.ID)
+	defer manager.Unregister(receiver.ID)
+
+	room := "workspace:workspace-1:channel:channel-1"
+	manager.Join(room, sender.ID)
+	manager.Join(room, receiver.ID)
+	handler.handleCommand(sender, clientCommand{Type: "TypingStarted", Room: room})
+
+	select {
+	case event := <-receiver.Send:
+		if event.Type != "TypingStarted" || event.UserID != sender.UserID || event.Room != room {
+			t.Fatalf("unexpected typing event: %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("typing event was not broadcast")
+	}
+}

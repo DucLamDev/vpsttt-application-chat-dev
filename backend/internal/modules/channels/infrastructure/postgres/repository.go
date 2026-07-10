@@ -145,6 +145,10 @@ ORDER BY u.display_name
 	return members, rows.Err()
 }
 
+func (r *Repository) FindMember(ctx context.Context, workspaceID string, channelID string, userID string) (channelsdomain.Member, error) {
+	return r.member(ctx, workspaceID, channelID, userID)
+}
+
 func (r *Repository) AddMember(ctx context.Context, params channelsapp.AddMemberParams) (channelsdomain.Member, error) {
 	command, err := r.pool.Exec(ctx, `
 INSERT INTO channel_members (channel_id, user_id, status)
@@ -155,6 +159,27 @@ JOIN workspace_members wm
 WHERE c.workspace_id = $1::uuid AND c.id = $2::uuid AND c.deleted_at IS NULL
 ON CONFLICT (channel_id, user_id)
 DO UPDATE SET status = 'active'
+`, params.WorkspaceID, params.ChannelID, params.UserID)
+	if err != nil {
+		return channelsdomain.Member{}, err
+	}
+	if command.RowsAffected() == 0 {
+		return channelsdomain.Member{}, channelsdomain.ErrMemberNotFound
+	}
+	return r.member(ctx, params.WorkspaceID, params.ChannelID, params.UserID)
+}
+
+func (r *Repository) RequestJoin(ctx context.Context, params channelsapp.AddMemberParams) (channelsdomain.Member, error) {
+	command, err := r.pool.Exec(ctx, `
+INSERT INTO channel_members (channel_id, user_id, status)
+SELECT c.id, $3::uuid, 'invited'
+FROM channels c
+JOIN workspace_members wm
+  ON wm.workspace_id = c.workspace_id AND wm.user_id = $3::uuid AND wm.status = 'active'
+WHERE c.workspace_id = $1::uuid AND c.id = $2::uuid AND c.deleted_at IS NULL AND c.type <> 'direct'
+ON CONFLICT (channel_id, user_id)
+DO UPDATE SET status = 'invited'
+WHERE channel_members.status IN ('left', 'removed')
 `, params.WorkspaceID, params.ChannelID, params.UserID)
 	if err != nil {
 		return channelsdomain.Member{}, err

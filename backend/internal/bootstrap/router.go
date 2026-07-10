@@ -166,11 +166,6 @@ func (a *API) registerAPIV1() {
 	apiTokensHandler := aptokenshttp.NewHandler(apiTokensService)
 	apiTokensHandler.RegisterRoutes(v1, authMiddleware)
 
-	if a.resources.WebSocket != nil {
-		wsHandler := wshttp.NewHandler(a.resources.WebSocket, tokenManager)
-		wsHandler.RegisterRoutes(v1)
-	}
-
 	workspacesRepo := workspacespostgres.NewRepository(pool)
 	workspacesService := workspacesapp.NewService(workspacesRepo, rbacService)
 	workspacesHandler := workspaceshttp.NewHandler(workspacesService)
@@ -185,6 +180,11 @@ func (a *API) registerAPIV1() {
 	channelsService := channelsapp.NewService(channelsRepo, rbacService)
 	channelsHandler := channelshttp.NewHandler(channelsService)
 	channelsHandler.RegisterRoutes(v1, authMiddleware)
+
+	if a.resources.WebSocket != nil {
+		wsHandler := wshttp.NewHandler(a.resources.WebSocket, tokenManager, channelsService)
+		wsHandler.RegisterRoutes(v1)
+	}
 
 	notificationsRepo := notificationspostgres.NewRepository(pool)
 	notificationsService := notificationsapp.NewService(notificationsRepo)

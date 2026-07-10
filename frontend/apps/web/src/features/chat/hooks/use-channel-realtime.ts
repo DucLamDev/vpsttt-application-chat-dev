@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createRealtimeGateway, queryKeys, type RealtimeServerEvent } from "@webtui/api-client";
 import type { Message as ApiMessage } from "@webtui/types";
@@ -16,15 +16,24 @@ import {
 type RealtimeMessagePayload = {
   contact_request?: unknown;
   message?: ApiMessage;
+  user_id?: string;
 };
 
 export type ChannelRealtimeOptions = {
   channelId: string;
+  channelIds?: string[];
+  currentUserId?: string;
   enabled?: boolean;
   workspaceId: string;
 };
 
-export function useChannelRealtime({ channelId, enabled = true, workspaceId }: ChannelRealtimeOptions) {
+export function useChannelRealtime({
+  channelId,
+  channelIds = [],
+  currentUserId,
+  enabled = true,
+  workspaceId
+}: ChannelRealtimeOptions) {
   const accessToken = useAuthStore((state) => state.accessToken);
   const queryClient = useQueryClient();
   const setConnection = useRealtimeStore((state) => state.setConnection);
@@ -32,7 +41,19 @@ export function useChannelRealtime({ channelId, enabled = true, workspaceId }: C
   const retryAttempt = useRealtimeStore((state) => state.retryAttempt);
   const lastEventAt = useRealtimeStore((state) => state.lastEventAt);
   const gateway = useMemo(() => createRealtimeGateway(runtimeEnvironment.wsBaseUrl), []);
+  const socketRef = useRef<WebSocket | null>(null);
+  const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const room = workspaceId && channelId ? messageRoomName(workspaceId, channelId) : "";
+  const channelIdsKey = [...new Set(channelIds.filter(Boolean))].sort().join("|");
+  const rooms = useMemo(
+    () => channelIdsKey.split("|").filter(Boolean).map((id) => messageRoomName(workspaceId, id)),
+    [channelIdsKey, workspaceId]
+  );
+
+  useEffect(() => {
+    setTypingUserIds([]);
+  }, [room]);
 
   useEffect(() => {
     if (!enabled || !workspaceId || !accessToken || typeof WebSocket === "undefined") {
@@ -66,6 +87,7 @@ export function useChannelRealtime({ channelId, enabled = true, workspaceId }: C
         accessToken: token,
         workspaceId
       });
+      socketRef.current = socket;
 
       setConnection({
         retryAttempt: attempt,
@@ -79,9 +101,7 @@ export function useChannelRealtime({ channelId, enabled = true, workspaceId }: C
         }
 
         attempt = 0;
-        if (room) {
-          gateway.join(socket, room);
-        }
+        rooms.forEach((nextRoom) => gateway.join(socket as WebSocket, nextRoom));
         setConnection({
           retryAttempt: 0,
           room: room || null,
@@ -119,10 +139,37 @@ export function useChannelRealtime({ channelId, enabled = true, workspaceId }: C
 
     function handleRealtimeMessage(raw: string) {
       const event = parseRealtimeEvent(raw);
-      const isChannelEvent = Boolean(room) && (!event?.room || event.room === room);
+      const isChannelEvent = Boolean(event) && (!event?.room || rooms.includes(event.room));
       const isUserEvent = event?.room?.startsWith("user:");
 
       if (!event || (!isChannelEvent && !isUserEvent)) {
+        return;
+      }
+
+      if (event.type === "TypingStarted" || event.type === "TypingStopped") {
+        const typingUserId = event.user_id || event.payload?.user_id;
+        if (!typingUserId || typingUserId === currentUserId) {
+          return;
+        }
+        const currentTimer = typingTimersRef.current.get(typingUserId);
+        if (currentTimer) {
+          clearTimeout(currentTimer);
+          typingTimersRef.current.delete(typingUserId);
+        }
+        setTypingUserIds((current) =>
+          event.type === "TypingStarted"
+            ? current.includes(typingUserId) ? current : [...current, typingUserId]
+            : current.filter((id) => id !== typingUserId)
+        );
+        if (event.type === "TypingStarted") {
+          typingTimersRef.current.set(
+            typingUserId,
+            setTimeout(() => {
+              setTypingUserIds((current) => current.filter((id) => id !== typingUserId));
+              typingTimersRef.current.delete(typingUserId);
+            }, 4_000)
+          );
+        }
         return;
       }
 
@@ -144,22 +191,35 @@ export function useChannelRealtime({ channelId, enabled = true, workspaceId }: C
         return;
       }
 
+      if (isUserEvent || event.type === "NotificationCreated" || event.type === "NotificationUpdated") {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.notifications.list(workspaceId) });
+      }
+
       const message = event.payload?.message;
       if (!message?.id) {
         return;
       }
 
-      if (event.type === "MessageDeleted") {
-        removeMessageFromTimeline(queryClient, workspaceId, channelId, message.id);
-      } else if (event.type === "MessageCreated" || event.type === "MessageUpdated" || event.type === "ReactionChanged") {
-        mergeMessageIntoTimeline(queryClient, workspaceId, channelId, message);
-      } else if (event.type === "MessagePinned" || event.type === "MessageUnpinned") {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.messages.pins(workspaceId, channelId) });
+      const eventChannelId = message.channel_id || channelId;
+      if (!eventChannelId) {
+        return;
       }
 
+      if (event.type === "MessageDeleted") {
+        removeMessageFromTimeline(queryClient, workspaceId, eventChannelId, message.id);
+      } else if (event.type === "MessageCreated" || event.type === "MessageUpdated" || event.type === "ReactionChanged") {
+        mergeMessageIntoTimeline(queryClient, workspaceId, eventChannelId, message);
+      } else if (event.type === "MessagePinned" || event.type === "MessageUnpinned") {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.messages.pins(workspaceId, eventChannelId) });
+      }
+
+      void queryClient.invalidateQueries({ queryKey: ["direct-conversation-summary", workspaceId, eventChannelId] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.channels.directConversations(workspaceId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications.list(workspaceId) });
+      window.setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.notifications.list(workspaceId) });
+      }, 1_500);
 
       setConnection({
         lastEventAt: new Date().toISOString(),
@@ -173,23 +233,41 @@ export function useChannelRealtime({ channelId, enabled = true, workspaceId }: C
     return () => {
       disposed = true;
       clearReconnectTimer();
-      if (socket && socket.readyState === WebSocket.OPEN && room) {
-        gateway.leave(socket, room);
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        rooms.forEach((nextRoom) => gateway.leave(socket as WebSocket, nextRoom));
       }
       socket?.close();
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
+      typingTimersRef.current.forEach((timer) => clearTimeout(timer));
+      typingTimersRef.current.clear();
       setConnection({
         retryAttempt: 0,
         room: null,
         status: "offline"
       });
     };
-  }, [accessToken, channelId, enabled, gateway, queryClient, room, setConnection, workspaceId]);
+  }, [accessToken, channelId, currentUserId, enabled, gateway, queryClient, room, rooms, setConnection, workspaceId]);
+
+  const publishTyping = useCallback(
+    (active: boolean) => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || !room) {
+        return false;
+      }
+      return gateway.send(socket, { room, type: active ? "TypingStarted" : "TypingStopped" });
+    },
+    [gateway, room]
+  );
 
   return {
     lastEventAt,
+    publishTyping,
     retryAttempt,
     room,
-    status
+    status,
+    typingUserIds
   };
 }
 

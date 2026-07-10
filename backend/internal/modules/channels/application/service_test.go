@@ -46,7 +46,15 @@ func (r *directConversationRepo) ListMembers(context.Context, string, string) ([
 	panic("không được gọi")
 }
 
+func (r *directConversationRepo) FindMember(context.Context, string, string, string) (channelsdomain.Member, error) {
+	panic("không được gọi")
+}
+
 func (r *directConversationRepo) AddMember(context.Context, AddMemberParams) (channelsdomain.Member, error) {
+	panic("không được gọi")
+}
+
+func (r *directConversationRepo) RequestJoin(context.Context, AddMemberParams) (channelsdomain.Member, error) {
 	panic("không được gọi")
 }
 

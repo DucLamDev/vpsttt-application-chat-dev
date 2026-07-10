@@ -24,6 +24,8 @@ backend/.gocache/
 
 # Frontend
 node_modules/
+.npm-cache/
+frontend/.npm-cache/
 .next/
 out/
 dist/

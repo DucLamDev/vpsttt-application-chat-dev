@@ -9,8 +9,10 @@ export type UploadQueueItem = {
   file: File;
   fileId?: string;
   id: string;
+  isImage?: boolean;
   messageId?: string;
   name: string;
+  previewUrl?: string;
   size: number;
   status: UploadQueueStatus;
 };
@@ -31,19 +33,16 @@ export const useUploadStore = create<UploadQueueState>((set) => ({
     set((state) => ({
       items: [
         ...state.items,
-        ...files.map((file) => ({
-          file,
-          id: createUploadId(),
-          name: file.name,
-          size: file.size,
-          status: "queued" as const
-        }))
+        ...files.map(createUploadItem)
       ]
     })),
   clearAttached: () =>
-    set((state) => ({
-      items: state.items.filter((item) => item.status !== "attached")
-    })),
+    set((state) => {
+      state.items.filter((item) => item.status === "attached").forEach(revokeUploadPreview);
+      return {
+        items: state.items.filter((item) => item.status !== "attached")
+      };
+    }),
   items: [],
   markAttached: (id, messageId, fileId) =>
     set((state) => ({
@@ -84,9 +83,12 @@ export const useUploadStore = create<UploadQueueState>((set) => ({
       )
     })),
   remove: (id) =>
-    set((state) => ({
-      items: state.items.filter((item) => item.id !== id)
-    })),
+    set((state) => {
+      state.items.filter((item) => item.id === id).forEach(revokeUploadPreview);
+      return {
+        items: state.items.filter((item) => item.id !== id)
+      };
+    }),
   retry: (id) =>
     set((state) => ({
       items: state.items.map((item) =>
@@ -107,4 +109,24 @@ function createUploadId() {
   }
 
   return `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createUploadItem(file: File): UploadQueueItem {
+  const isImage = file.type.startsWith("image/");
+
+  return {
+    file,
+    id: createUploadId(),
+    isImage,
+    name: file.name || (isImage ? "ảnh-dán-từ-clipboard.png" : "file-đính-kèm"),
+    previewUrl: isImage && typeof URL !== "undefined" ? URL.createObjectURL(file) : undefined,
+    size: file.size,
+    status: "queued"
+  };
+}
+
+function revokeUploadPreview(item: UploadQueueItem) {
+  if (item.previewUrl && typeof URL !== "undefined") {
+    URL.revokeObjectURL(item.previewUrl);
+  }
 }

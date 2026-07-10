@@ -15,6 +15,10 @@ export type Channel = {
   member_count?: number;
   unread_count?: number;
   is_favorite?: boolean;
+  created_by?: Id | null;
+  membership_status?: "none" | "invited" | "active" | "muted" | "left" | "removed" | string;
+  is_member?: boolean;
+  can_manage?: boolean;
   created_at?: ISODateTime;
   updated_at?: ISODateTime;
 };

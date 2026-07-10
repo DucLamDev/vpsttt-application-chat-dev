@@ -3,6 +3,7 @@ import {
   createWebTuiApiClient
 } from "@webtui/api-client";
 import { useAuthStore } from "@/features/auth/auth-store";
+import { clearMediaObjectUrlCache } from "@/features/chat/model/media-cache";
 
 export const runtimeEnvironment = createRuntimeEnvironment();
 
@@ -11,7 +12,10 @@ let refreshRequest: Promise<string | null> | null = null;
 export const api = createWebTuiApiClient({
   baseUrl: runtimeEnvironment.apiBaseUrl,
   getAccessToken: () => useAuthStore.getState().accessToken,
-  onUnauthorized: () => useAuthStore.getState().clearSession(),
+  onUnauthorized: () => {
+    clearMediaObjectUrlCache();
+    useAuthStore.getState().clearSession();
+  },
   refreshAccessToken: () => {
     const refreshToken = useAuthStore.getState().refreshToken;
 

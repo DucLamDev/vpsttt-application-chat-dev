@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type InfiniteData
@@ -102,18 +103,38 @@ export function useMessageTimeline({
     () => apiMessages.filter((message) => !message.id.startsWith("local-") && !message.deleted_at).map((message) => message.id),
     [apiMessages]
   );
-  const attachmentsQuery = useQuery({
-    enabled: Boolean(enabled && workspaceId && channelId && attachmentMessageIds.length),
-    queryFn: () => loadMessageAttachments(workspaceId, channelId, attachmentMessageIds),
-    queryKey: [...queryKeys.files.messageAttachments(workspaceId, channelId), attachmentMessageIds.join("|")] as const,
-    staleTime: 15_000
+  const attachmentQueries = useQueries({
+    queries: attachmentMessageIds.map((messageId) => {
+      const message = apiMessages.find((item) => item.id === messageId);
+      const expectsAttachment = /đã gửi(?: \d+)? (?:ảnh|file|tin nhắn thoại)/i.test(message?.body ?? "");
+      return {
+        enabled: Boolean(enabled && workspaceId && channelId),
+        gcTime: 30 * 60_000,
+        queryFn: async () => {
+          try {
+            const attachments = await api.files.attachments(workspaceId, channelId, messageId);
+            return attachments.map(mapFileAttachmentToMessageAttachment);
+          } catch {
+            return [] as MessageAttachment[];
+          }
+        },
+        queryKey: queryKeys.files.attachments(workspaceId, channelId, messageId),
+        refetchInterval: (query: { state: { data?: MessageAttachment[] } }) =>
+          expectsAttachment && !query.state.data?.length ? 2_000 : false,
+        staleTime: expectsAttachment ? 2_000 : Infinity
+      };
+    })
   });
+  const attachmentsByMessageId = useMemo(
+    () => new Map(attachmentMessageIds.map((messageId, index) => [messageId, attachmentQueries[index]?.data ?? []])),
+    [attachmentMessageIds, attachmentQueries]
+  );
   const messages = useMemo(
     () =>
       apiMessages.map((message) =>
-        mapMessage(withLoadedAttachments(message, attachmentsQuery.data?.get(message.id)), currentUser, canManageMessages)
+        mapMessage(withLoadedAttachments(message, attachmentsByMessageId.get(message.id)), currentUser, canManageMessages)
       ),
-    [apiMessages, attachmentsQuery.data, canManageMessages, currentUser]
+    [apiMessages, attachmentsByMessageId, canManageMessages, currentUser]
   );
   const pinnedMessagesQuery = useQuery({
     enabled: Boolean(enabled && workspaceId && channelId),
@@ -143,6 +164,24 @@ export function useMessageTimeline({
       ),
     [canManageMessages, currentUser, threadQuery.data?.messages]
   );
+  const sendThreadMessageMutation = useMutation({
+    mutationFn: (body: string) => {
+      if (!threadMessageId) {
+        throw new Error("Chưa chọn luồng trả lời.");
+      }
+      return api.messages.send(workspaceId, channelId, {
+        body: body.trim(),
+        kind: "text",
+        parent_id: threadMessageId
+      });
+    },
+    onSuccess: (message) => {
+      mergeMessageIntoTimeline(queryClient, workspaceId, channelId, message);
+      if (threadMessageId) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.messages.thread(workspaceId, channelId, threadMessageId) });
+      }
+    }
+  });
 
   const searchQueryResult = useQuery({
     enabled: Boolean(enabled && workspaceId && cleanSearchQuery.length >= 2),
@@ -233,7 +272,6 @@ export function useMessageTimeline({
   return {
     deleteMessageMutation,
     editMessageMutation,
-    attachmentsQuery,
     hasOlderMessages: Boolean(messagesQuery.hasNextPage),
     isLoadingOlderMessages: messagesQuery.isFetchingNextPage,
     loadOlderMessages: () => messagesQuery.fetchNextPage(),
@@ -244,6 +282,7 @@ export function useMessageTimeline({
     pinMessageMutation,
     searchQuery: searchQueryResult,
     searchResults,
+    sendThreadMessageMutation,
     threadMessages,
     threadQuery,
     toggleReactionMutation,
@@ -258,25 +297,6 @@ export function mapAuthUser(user: AuthUser | null): ChatUser {
     name: displayName(user),
     status: "online"
   };
-}
-
-async function loadMessageAttachments(
-  workspaceId: string,
-  channelId: string,
-  messageIds: string[]
-): Promise<Map<string, MessageAttachment[]>> {
-  const entries = await Promise.all(
-    messageIds.map(async (messageId) => {
-      try {
-        const attachments = await api.files.attachments(workspaceId, channelId, messageId);
-        return [messageId, attachments.map(mapFileAttachmentToMessageAttachment)] as const;
-      } catch {
-        return [messageId, [] as MessageAttachment[]] as const;
-      }
-    })
-  );
-
-  return new Map(entries);
 }
 
 function withLoadedAttachments(message: ApiMessage, attachments?: MessageAttachment[]): ApiMessage {
@@ -321,7 +341,7 @@ export function mapMessage(
     author,
     body: message.deleted_at ? "Tin nhắn đã bị xóa." : message.body,
     canDelete: isOwner || canManageMessages,
-    canEdit: !message.deleted_at && (isOwner || canManageMessages),
+    canEdit: !message.deleted_at && isOwner,
     editedAt: message.edited_at ? formatTime(message.edited_at) : undefined,
     id: message.id,
     isDeleted: Boolean(message.deleted_at),
@@ -360,20 +380,28 @@ function mapMessageAttachments(attachments?: MessageAttachment[]): MessageAttach
         "File đính kèm";
       const mimeType = attachment.mime_type ?? file?.mime_type;
       const size = attachment.byte_size ?? attachment.size_bytes ?? attachment.size ?? file?.byte_size ?? file?.size_bytes ?? file?.size;
+      const url = attachment.url ?? attachment.download_url ?? file?.url ?? file?.download_url;
+      const isAudio = Boolean(mimeType?.startsWith("audio/"));
+      const isImage = Boolean(mimeType?.startsWith("image/"));
 
       return {
         fileId,
         id: attachment.id ?? `${fileId}-${index}`,
+        isAudio,
+        isImage,
         mimeType,
         name,
+        previewUrl: url,
         size: formatFileSize(size),
-        tone: fileTone(mimeType)
+        tone: fileTone(mimeType),
+        url
       };
     })
     .filter(Boolean) as MessageAttachmentItem[];
 }
 
 export function createOptimisticMessage(params: {
+  attachments?: ApiMessage["attachments"];
   body: string;
   channelId: string;
   currentUser: ChatUser;
@@ -388,6 +416,7 @@ export function createOptimisticMessage(params: {
       id: params.currentUser.id,
       status: params.currentUser.status
     },
+    attachments: params.attachments,
     body: params.body,
     channel_id: params.channelId,
     created_at: now,

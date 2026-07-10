@@ -67,6 +67,25 @@ func (r emptyMessageRepo) RemoveReaction(context.Context, ReactionParams) (messa
 	panic("không được gọi")
 }
 
+type otherUserMessageRepo struct {
+	emptyMessageRepo
+}
+
+func (r otherUserMessageRepo) Get(context.Context, MessageRef) (messagesdomain.Message, error) {
+	senderID := "user-a"
+	return messagesdomain.Message{
+		ID:          "message-1",
+		WorkspaceID: "workspace-1",
+		ChannelID:   "channel-1",
+		SenderID:    &senderID,
+		Body:        "Tin nhắn của A",
+	}, nil
+}
+
+func (r otherUserMessageRepo) Update(context.Context, UpdateParams) (messagesdomain.Message, error) {
+	panic("không được sửa tin nhắn của người khác")
+}
+
 func TestNormalizeMentionsDeduplicatesExplicitAndBodyMentions(t *testing.T) {
 	body := "Chào <@22222222-2222-2222-2222-222222222222> và <@11111111-1111-1111-1111-111111111111>"
 	got := normalizeMentions(body, []string{
@@ -81,6 +100,29 @@ func TestNormalizeMentionsDeduplicatesExplicitAndBodyMentions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalizeMentions() = %#v, muốn %#v", got, want)
+	}
+}
+
+func TestUpdateRejectsEditingOtherUsersMessage(t *testing.T) {
+	service := NewService(otherUserMessageRepo{}, testPermissionChecker{allowed: true})
+
+	_, err := service.Update(context.Background(), UpdateInput{
+		ActorUserID: "user-b",
+		WorkspaceID: "workspace-1",
+		ChannelID:   "channel-1",
+		MessageID:   "message-1",
+		Body:        "B sửa tin nhắn của A",
+	})
+	if err == nil {
+		t.Fatal("Update() phải từ chối khi người dùng sửa tin nhắn của người khác")
+	}
+
+	appErr, ok := err.(*apperrors.AppError)
+	if !ok {
+		t.Fatalf("lỗi = %T, muốn AppError", err)
+	}
+	if appErr.Code != "FORBIDDEN" {
+		t.Fatalf("mã lỗi = %q, muốn FORBIDDEN", appErr.Code)
 	}
 }
 

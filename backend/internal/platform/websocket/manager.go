@@ -100,6 +100,13 @@ func (m *Manager) Leave(room string, clientID string) {
 	}
 }
 
+func (m *Manager) IsMember(room string, clientID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	_, ok := m.rooms[room][clientID]
+	return ok
+}
+
 func (m *Manager) Broadcast(ctx context.Context, room string, event Event) error {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()

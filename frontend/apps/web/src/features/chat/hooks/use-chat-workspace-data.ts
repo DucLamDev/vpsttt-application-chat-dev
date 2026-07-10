@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@webtui/api-client";
 import type {
   Channel as ApiChannel,
+  CreateDepartmentInput,
   CreateChannelInput,
   CreateWorkspaceInput,
   DirectConversation as ApiDirectConversation,
   FileObject,
+  Message as ApiMessage,
   Notification as ApiNotification,
   WorkspaceMember
 } from "@webtui/types";
@@ -36,6 +38,7 @@ import type {
 import { useUploadStore, type UploadQueueItem } from "../stores/upload-store";
 
 const channelTones: ChannelTone[] = ["purple", "green", "orange", "red", "violet", "slate"];
+const contactRefetchMs = 5_000;
 
 export type SendMessagePayload = {
   body: string;
@@ -49,6 +52,7 @@ export type SendMessageResult = {
 
 export type CreateChannelPayload = Pick<CreateChannelInput, "description" | "name" | "slug" | "type">;
 export type CreateWorkspacePayload = Pick<CreateWorkspaceInput, "description" | "name" | "slug">;
+export type CreateDepartmentPayload = Pick<CreateDepartmentInput, "description" | "name" | "parent_id" | "slug">;
 type CreateDirectConversationMutationInput =
   | string
   | {
@@ -77,16 +81,66 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   const channelsQuery = useQuery({
     enabled: Boolean(workspaceId),
     queryFn: () => api.channels.list(workspaceId),
-    queryKey: queryKeys.channels.all(workspaceId)
+    queryKey: queryKeys.channels.all(workspaceId),
+    refetchInterval: contactRefetchMs
   });
   const channels = useMemo(
     () => (channelsQuery.data ?? []).map(mapChannel),
     [channelsQuery.data]
   );
 
+  const notificationPresence = useNotificationPresence({
+    currentUserId: currentUser.id,
+    enabled: Boolean(workspaceId),
+    workspaceId
+  });
+
+  const directConversationsQuery = useQuery({
+    enabled: Boolean(workspaceId),
+    queryFn: () => api.channels.directConversations(workspaceId),
+    queryKey: queryKeys.channels.directConversations(workspaceId),
+    refetchInterval: contactRefetchMs
+  });
+  const directConversationSummaries = useQueries({
+    queries: (directConversationsQuery.data ?? []).map((conversation) => {
+      const channelId = conversation.channel_id ?? conversation.id;
+      return {
+        enabled: Boolean(workspaceId && channelId && !conversation.last_message),
+        queryFn: () => api.messages.list(workspaceId, channelId, { limit: 1 }),
+        queryKey: ["direct-conversation-summary", workspaceId, channelId] as const,
+        refetchInterval: contactRefetchMs,
+        retry: 2,
+        staleTime: 3_000
+      };
+    })
+  });
+  const directConversations = useMemo(
+    () =>
+      (directConversationsQuery.data ?? [])
+        .map((item, index) =>
+          mapDirectConversation(
+            item,
+            notificationPresence.presenceByUserId,
+            currentUser.id,
+            directConversationSummaries[index]?.data?.[0]
+          )
+        )
+        .filter(Boolean) as DirectConversation[],
+    [currentUser.id, directConversationSummaries, directConversationsQuery.data, notificationPresence.presenceByUserId]
+  );
+  const membersWithPresence = useMemo(
+    () => mapMembersWithPresence(workspaceContext.members, notificationPresence.presenceByUserId),
+    [notificationPresence.presenceByUserId, workspaceContext.members]
+  );
+
+  const selectedDirectConversation = directConversations.find((conversation) => conversation.id === requestedChannelId);
   const selectedChannel =
-    channels.find((channel) => channel.id === requestedChannelId) ?? channels[0] ?? null;
-  const selectedChannelId = selectedChannel?.id ?? "";
+    channels.find((channel) => channel.id === requestedChannelId) ??
+    (selectedDirectConversation ? directConversationToChannel(selectedDirectConversation) : null);
+  const selectedChannelId = requestedChannelId || "";
+  const canAccessSelectedChannel = Boolean(
+    selectedChannel && (selectedChannel.type === "direct" || selectedChannel.isMember)
+  );
 
   const setSelectedChannelId = useCallback(
     (nextChannelId: string, nextWorkspaceId = workspaceId) => {
@@ -102,54 +156,48 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         nextParams.delete("channel");
       }
 
-      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+      const query = nextParams.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
     },
     [pathname, router, searchParams, workspaceId]
   );
-
-  useEffect(() => {
-    if (channels.length && !requestedChannelId && selectedChannelId) {
-      setSelectedChannelId(selectedChannelId);
-    }
-  }, [channels.length, requestedChannelId, selectedChannelId, setSelectedChannelId]);
 
   const messageTimeline = useMessageTimeline({
     canManageMessages: workspaceContext.can("message.manage"),
     channelId: selectedChannelId,
     currentUser,
-    enabled: Boolean(workspaceId && selectedChannelId),
+    enabled: Boolean(workspaceId && selectedChannelId && canAccessSelectedChannel),
     searchQuery: options.messageSearchQuery,
     threadMessageId: options.threadMessageId,
     workspaceId
   });
   const realtime = useChannelRealtime({
     channelId: selectedChannelId,
-    enabled: Boolean(workspaceId),
-    workspaceId
-  });
-  const notificationPresence = useNotificationPresence({
+    channelIds: [
+      ...channels.filter((channel) => channel.isMember).map((channel) => channel.id),
+      ...directConversations.map((conversation) => conversation.id)
+    ],
     currentUserId: currentUser.id,
     enabled: Boolean(workspaceId),
     workspaceId
   });
-  const selectedChannelWithMessages = selectedChannel ? { ...selectedChannel, messages: messageTimeline.messages } : null;
-
-  const directConversationsQuery = useQuery({
-    enabled: Boolean(workspaceId),
-    queryFn: () => api.channels.directConversations(workspaceId),
-    queryKey: queryKeys.channels.directConversations(workspaceId)
+  const selectedChannelWithMessages = selectedChannelId
+    ? { ...(selectedChannel ?? placeholderChannel(selectedChannelId)), messages: messageTimeline.messages }
+    : null;
+  const managedChannelIds = channels.filter((channel) => channel.canManage).map((channel) => channel.id);
+  const joinRequestQueries = useQueries({
+    queries: managedChannelIds.map((channelId) => ({
+      enabled: Boolean(workspaceId),
+      queryFn: () => api.channels.joinRequests(workspaceId, channelId),
+      queryKey: queryKeys.channels.joinRequests(workspaceId, channelId),
+      refetchInterval: contactRefetchMs
+    }))
   });
-  const directConversations = useMemo(
-    () =>
-      (directConversationsQuery.data ?? [])
-        .map((item) => mapDirectConversation(item, notificationPresence.presenceByUserId))
-        .filter(Boolean) as DirectConversation[],
-    [directConversationsQuery.data, notificationPresence.presenceByUserId]
+  const joinRequestsByChannelId = useMemo(
+    () => new Map(managedChannelIds.map((channelId, index) => [channelId, joinRequestQueries[index]?.data ?? []])),
+    [joinRequestQueries, managedChannelIds]
   );
-  const membersWithPresence = useMemo(
-    () => mapMembersWithPresence(workspaceContext.members, notificationPresence.presenceByUserId),
-    [notificationPresence.presenceByUserId, workspaceContext.members]
-  );
+
   const searchUsersQuery = useQuery({
     enabled: friendSearchQuery.length >= 2,
     queryFn: () => api.users.list({ limit: 25, q: friendSearchQuery, status: "active" }),
@@ -161,11 +209,13 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   );
   const contactsQuery = useQuery({
     queryFn: () => api.contacts.list(),
-    queryKey: queryKeys.contacts.all
+    queryKey: queryKeys.contacts.all,
+    refetchInterval: contactRefetchMs
   });
   const contactRequestsQuery = useQuery({
     queryFn: () => api.contacts.requests({ status: "all" }),
-    queryKey: queryKeys.contacts.requests("all")
+    queryKey: queryKeys.contacts.requests("all"),
+    refetchInterval: contactRefetchMs
   });
   const contacts = contactsQuery.data ?? [];
   const contactRequests = contactRequestsQuery.data ?? [];
@@ -176,17 +226,31 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     queryKey: queryKeys.files.all(workspaceId)
   });
   const files = useMemo(() => (filesQuery.data ?? []).map(mapFile), [filesQuery.data]);
+  const canManageDepartments = workspaceContext.can("workspace.manage");
+  const departmentsQuery = useQuery({
+    enabled: Boolean(workspaceId && canManageDepartments),
+    queryFn: () => api.departments.list(workspaceId),
+    queryKey: queryKeys.departments.all(workspaceId),
+    retry: false
+  });
+  const departments = departmentsQuery.data ?? [];
   const mediaItems = useMemo(
-    () =>
-      files
-        .filter((file) => file.mimeType?.startsWith("image/"))
-        .map<MediaItem>((file) => ({
-          id: file.id,
-          label: file.name,
-          name: file.name,
-          url: file.downloadUrl
-        })),
-    [files]
+    () => {
+      if (!canAccessSelectedChannel) {
+        return [];
+      }
+      return messageTimeline.messages.flatMap((message) =>
+        (message.attachments ?? [])
+          .filter((attachment) => attachment.isImage)
+          .map<MediaItem>((attachment) => ({
+            id: attachment.fileId,
+            label: attachment.name,
+            name: attachment.name,
+            url: attachment.previewUrl ?? attachment.url
+          }))
+      );
+    },
+    [canAccessSelectedChannel, messageTimeline.messages]
   );
 
   const createChannelMutation = useMutation({
@@ -200,6 +264,60 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     onSuccess: async (channel) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) });
       setSelectedChannelId(channel.id);
+    }
+  });
+
+  const requestChannelJoinMutation = useMutation({
+    mutationFn: (channelId: string) => {
+      if (!workspaceId) {
+        throw new Error("Chưa có workspace để tham gia kênh.");
+      }
+      return api.channels.requestJoin(workspaceId, channelId);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) });
+    }
+  });
+
+  const inviteChannelMemberMutation = useMutation({
+    mutationFn: ({ channelId, userId }: { channelId: string; userId: string }) =>
+      api.channels.addMember(workspaceId, channelId, { user_id: userId }),
+    onSuccess: async (_member, input) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.members(workspaceId, input.channelId) })
+      ]);
+    }
+  });
+
+  const approveChannelJoinMutation = useMutation({
+    mutationFn: ({ channelId, userId }: { channelId: string; userId: string }) =>
+      api.channels.approveJoinRequest(workspaceId, channelId, userId),
+    onSuccess: async (_member, input) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.joinRequests(workspaceId, input.channelId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) })
+      ]);
+    }
+  });
+
+  const rejectChannelJoinMutation = useMutation({
+    mutationFn: ({ channelId, userId }: { channelId: string; userId: string }) =>
+      api.channels.rejectJoinRequest(workspaceId, channelId, userId),
+    onSuccess: async (_result, input) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.channels.joinRequests(workspaceId, input.channelId) });
+    }
+  });
+
+  const createDepartmentMutation = useMutation({
+    mutationFn: (input: CreateDepartmentPayload) => {
+      if (!workspaceId) {
+        throw new Error("Chưa có workspace để tạo phòng ban.");
+      }
+      return api.departments.create(workspaceId, input);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.departments.all(workspaceId) });
     }
   });
 
@@ -218,18 +336,14 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
       }
 
       const uploads = input.uploads.filter((item) => item.status === "queued" || item.status === "failed");
-      const messageBody =
-        input.body ||
-        (uploads.length === 1
-          ? `Đã gửi file ${uploads[0].name}`
-          : uploads.length > 1
-            ? `Đã gửi ${uploads.length} file`
-            : "");
+      const messageBody = input.body || uploadMessageFallback(uploads);
       const sentMessage = await api.messages.send(workspaceId, selectedChannelId, {
         body: messageBody,
+        // Media is uploaded and attached after creating the compatible text message.
         kind: "text"
       });
 
+      const attachedFiles: NonNullable<ApiMessage["attachments"]> = [];
       const failedUploadNames: string[] = [];
 
       for (const [index, upload] of uploads.entries()) {
@@ -246,6 +360,19 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
             sort_order: index
           });
 
+          attachedFiles.push({
+            byte_size: uploadedFile.byte_size,
+            file: uploadedFile,
+            file_id: uploadedFile.id,
+            id: `${sentMessage.id}-${uploadedFile.id}`,
+            mime_type: uploadedFile.mime_type,
+            name: uploadedFile.name ?? uploadedFile.file_name ?? uploadedFile.original_name,
+            original_name: uploadedFile.original_name,
+            size: uploadedFile.size,
+            size_bytes: uploadedFile.size_bytes,
+            url: uploadedFile.url ?? uploadedFile.download_url
+          });
+
           useUploadStore.getState().markAttached(upload.id, sentMessage.id, uploadedFile.id);
         } catch (error) {
           failedUploadNames.push(upload.name);
@@ -257,7 +384,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
       return {
         failedUploadNames,
-        message: sentMessage
+        message: attachedFiles.length ? { ...sentMessage, attachments: attachedFiles } : sentMessage
       };
     },
     onMutate: async (input) => {
@@ -266,13 +393,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
       }
 
       const uploads = input.uploads.filter((item) => item.status === "queued" || item.status === "failed");
-      const body =
-        input.body ||
-        (uploads.length === 1
-          ? `Đã gửi file ${uploads[0].name}`
-          : uploads.length > 1
-            ? `Đã gửi ${uploads.length} file`
-            : "");
+      const body = input.body || uploadMessageFallback(uploads);
       if (!body) {
         return undefined;
       }
@@ -281,6 +402,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData(queryKey);
       const optimisticMessage = createOptimisticMessage({
+        attachments: uploads.map((upload) => uploadToOptimisticAttachment(upload)),
         body,
         channelId: selectedChannelId,
         currentUser,
@@ -301,8 +423,14 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     },
     onSuccess: async (result, _input, context) => {
       mergeMessageIntoTimeline(queryClient, workspaceId, selectedChannelId, result.message, context?.optimisticId);
+      queryClient.setQueryData<ApiDirectConversation[]>(
+        queryKeys.channels.directConversations(workspaceId),
+        (current) => updateDirectConversationLastMessage(current, selectedChannelId, result.message)
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.messages.channel(workspaceId, selectedChannelId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.directConversations(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.files.messageAttachments(workspaceId, selectedChannelId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.files.all(workspaceId) })
       ]);
@@ -312,6 +440,10 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   const downloadMutation = useMutation({
     mutationFn: (file: FileItem) => api.files.download(workspaceId, file.id)
   });
+  const downloadAttachment = useCallback(
+    (fileId: string) => api.files.download(workspaceId, fileId),
+    [workspaceId]
+  );
 
   const createDirectConversationMutation = useMutation({
     mutationFn: (input: CreateDirectConversationMutationInput) => {
@@ -326,11 +458,15 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         participant_ids: [participantId]
       });
     },
-    onSuccess: async (_conversation, input) => {
+    onSuccess: async (conversation, input) => {
       const targetWorkspaceId = typeof input === "string" ? workspaceId : input.workspaceId || workspaceId;
       if (!targetWorkspaceId) {
         return;
       }
+      queryClient.setQueryData<ApiDirectConversation[]>(
+        queryKeys.channels.directConversations(targetWorkspaceId),
+        (current) => upsertDirectConversation(current, conversation)
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.channels.directConversations(targetWorkspaceId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.members(targetWorkspaceId) })
@@ -403,22 +539,30 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
   return {
     ...workspaceContext,
+    approveChannelJoinMutation,
+    canAccessSelectedChannel,
     channels,
     channelsQuery,
     acceptContactRequestMutation,
     cancelContactRequestMutation,
     createChannelMutation,
     createDirectConversationMutation,
+    createDepartmentMutation,
     createWorkspaceMutation,
     directConversations,
     directConversationsQuery,
+    downloadAttachment,
     downloadMutation,
+    departments,
+    departmentsQuery,
     contacts,
     contactsQuery,
     contactRequests,
     contactRequestsQuery,
     files,
     filesQuery,
+    inviteChannelMemberMutation,
+    joinRequestsByChannelId,
     hasOlderMessages: messageTimeline.hasOlderMessages,
     isLoadingOlderMessages: messageTimeline.isLoadingOlderMessages,
     loadOlderMessages: messageTimeline.loadOlderMessages,
@@ -445,7 +589,10 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     setSelectedChannelId,
     searchUsers,
     searchUsersQuery,
+    sendThreadMessageMutation: messageTimeline.sendThreadMessageMutation,
     rejectContactRequestMutation,
+    rejectChannelJoinMutation,
+    requestChannelJoinMutation,
     sendContactRequestMutation,
     threadMessages: messageTimeline.threadMessages,
     threadQuery: messageTimeline.threadQuery,
@@ -459,33 +606,79 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   };
 }
 
+function uploadMessageFallback(uploads: UploadQueueItem[]): string {
+  if (!uploads.length) {
+    return "";
+  }
+
+  const imageCount = uploads.filter((upload) => upload.isImage).length;
+  const audioCount = uploads.filter((upload) => upload.file.type.startsWith("audio/")).length;
+
+  if (audioCount === uploads.length) {
+    return audioCount === 1 ? "Đã gửi tin nhắn thoại" : `Đã gửi ${audioCount} tin nhắn thoại`;
+  }
+
+  if (imageCount === uploads.length) {
+    return imageCount === 1 ? "Đã gửi ảnh" : `Đã gửi ${imageCount} ảnh`;
+  }
+
+  if (uploads.length === 1) {
+    return `Đã gửi file ${uploads[0].name}`;
+  }
+
+  return `Đã gửi ${uploads.length} file`;
+}
+
+function uploadToOptimisticAttachment(upload: UploadQueueItem): NonNullable<ApiMessage["attachments"]>[number] {
+  return {
+    byte_size: upload.size,
+    file_id: upload.id,
+    id: upload.id,
+    mime_type: upload.file.type,
+    name: upload.name,
+    original_name: upload.name,
+    size: upload.size,
+    size_bytes: upload.size,
+    url: upload.previewUrl
+  };
+}
+
 function mapChannel(channel: ApiChannel, index: number): ChatChannel {
   return {
+    canManage: Boolean(channel.can_manage),
+    createdBy: channel.created_by ?? undefined,
     description: channel.description || "Chưa có mô tả",
     id: channel.id,
     isFavorite: Boolean(channel.is_favorite),
+    isMember: Boolean(channel.is_member),
+    membershipStatus: channel.membership_status ?? "none",
     memberCount: channel.member_count ?? 0,
     messages: [],
     name: channel.name,
     tone: channelTones[index % channelTones.length],
+    type: channel.type ?? channel.kind,
     unreadCount: channel.unread_count ?? 0
   };
 }
 
 function mapDirectConversation(
   item: ApiDirectConversation,
-  presenceByUserId: Map<string, { status?: string }>
+  presenceByUserId: Map<string, { status?: string }>,
+  currentUserId: string,
+  latestMessage?: ApiMessage
 ): DirectConversation | null {
-  const participant = item.user ?? item.participants?.[0];
+  const participant = item.user ?? item.participants?.find((member) => member.user_id !== currentUserId) ?? item.participants?.[0];
 
   if (!participant) {
     return null;
   }
 
+  const lastMessage = item.last_message ?? latestMessage;
+
   return {
     id: item.channel_id ?? item.id,
-    lastMessage: item.last_message?.body ?? "Chưa có tin nhắn",
-    relativeTime: formatRelative(item.updated_at ?? item.last_message?.created_at),
+    lastMessage: lastMessage?.body ?? "Chưa có tin nhắn",
+    relativeTime: formatRelative(lastMessage?.created_at ?? lastMessage?.updated_at ?? item.updated_at),
     unreadCount: item.unread_count,
     user: {
       avatarUrl: participant.avatar_url ?? undefined,
@@ -494,6 +687,82 @@ function mapDirectConversation(
       status: mapPresenceStatus(presenceByUserId.get(participant.user_id)?.status ?? participant.status)
     }
   };
+}
+
+function directConversationToChannel(conversation: DirectConversation): ChatChannel {
+  return {
+    canManage: false,
+    description: "Tin nhắn riêng",
+    id: conversation.id,
+    isFavorite: false,
+    isMember: true,
+    membershipStatus: "active",
+    memberCount: 2,
+    messages: [],
+    name: conversation.user.name,
+    tone: "purple",
+    type: "direct",
+    unreadCount: conversation.unreadCount ?? 0
+  };
+}
+
+function placeholderChannel(channelId: string): ChatChannel {
+  return {
+    canManage: false,
+    description: "Tin nhắn riêng",
+    id: channelId,
+    isFavorite: false,
+    isMember: true,
+    membershipStatus: "active",
+    memberCount: 2,
+    messages: [],
+    name: "Hội thoại",
+    tone: "purple",
+    type: "direct",
+    unreadCount: 0
+  };
+}
+
+function upsertDirectConversation(
+  current: ApiDirectConversation[] | undefined,
+  conversation: ApiDirectConversation
+): ApiDirectConversation[] {
+  const nextId = conversation.channel_id ?? conversation.id;
+  const list = current ?? [];
+
+  if (!nextId) {
+    return list;
+  }
+
+  const exists = list.some((item) => (item.channel_id ?? item.id) === nextId);
+  if (!exists) {
+    return [conversation, ...list];
+  }
+
+  return list.map((item) => ((item.channel_id ?? item.id) === nextId ? { ...item, ...conversation } : item));
+}
+
+function updateDirectConversationLastMessage(
+  current: ApiDirectConversation[] | undefined,
+  channelId: string,
+  message: ApiMessage
+): ApiDirectConversation[] | undefined {
+  if (!current?.length || !channelId) {
+    return current;
+  }
+
+  return current.map((conversation) => {
+    const conversationChannelId = conversation.channel_id ?? conversation.id;
+    if (conversationChannelId !== channelId) {
+      return conversation;
+    }
+
+    return {
+      ...conversation,
+      last_message: message,
+      updated_at: message.updated_at ?? message.created_at ?? conversation.updated_at
+    };
+  });
 }
 
 function mapFile(file: FileObject): FileItem {

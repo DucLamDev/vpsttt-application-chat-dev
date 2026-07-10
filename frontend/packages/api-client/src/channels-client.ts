@@ -50,6 +50,29 @@ export function createChannelsClient(http: HttpClient) {
         input
       );
     },
+    requestJoin(workspaceId: string, channelId: string) {
+      return http.post<ChannelMember>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/join-requests`,
+        {}
+      );
+    },
+    async joinRequests(workspaceId: string, channelId: string) {
+      const data = await http.get<unknown>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/join-requests`
+      );
+      return collectionFrom<ChannelMember>(data, "join_requests");
+    },
+    approveJoinRequest(workspaceId: string, channelId: string, userId: string) {
+      return http.post<ChannelMember>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/join-requests/${encodeURIComponent(userId)}/approve`,
+        {}
+      );
+    },
+    rejectJoinRequest(workspaceId: string, channelId: string, userId: string) {
+      return http.delete<void>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/join-requests/${encodeURIComponent(userId)}`
+      );
+    },
     updateMemberStatus(workspaceId: string, channelId: string, userId: string, input: UpdateMemberStatusInput) {
       return http.patch<ChannelMember>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/members/${encodeURIComponent(userId)}`,

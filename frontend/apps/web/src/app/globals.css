@@ -11,6 +11,76 @@
   font-weight: 400;
 }
 
+.recording-status {
+  align-items: center;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 999px;
+  color: #be123c;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 7px;
+  padding: 8px 11px;
+}
+
+.recording-status span {
+  animation: recordingPulse 1s ease-in-out infinite;
+  background: #e11d48;
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+@keyframes recordingPulse {
+  50% { box-shadow: 0 0 0 5px rgb(225 29 72 / 14%); opacity: .65; }
+}
+
+.attachment-audio {
+  align-items: center;
+  background: rgb(255 255 255 / 76%);
+  border: 1px solid rgb(111 160 230 / 28%);
+  border-radius: 16px;
+  display: flex;
+  gap: 9px;
+  max-width: min(360px, 72vw);
+  padding: 8px 10px;
+}
+
+.attachment-audio__mic {
+  align-items: center;
+  background: #1677ff;
+  border-radius: 50%;
+  color: #fff;
+  display: flex;
+  flex: 0 0 auto;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.attachment-audio audio { height: 36px; max-width: 285px; width: min(285px, 55vw); }
+
+.attachment-media-loading {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 12px;
+  min-height: 38px;
+  min-width: 120px;
+  padding: 0 8px;
+}
+
+.attachment-image:disabled { cursor: wait; opacity: .8; }
+
+[data-theme="dark"] .attachment-audio { background: rgb(15 23 42 / 72%); border-color: #334155; }
+[data-theme="dark"] .recording-status { background: #35141c; border-color: #6f1d32; }
+
+@media (prefers-reduced-motion: reduce) {
+  .recording-status span { animation: none; }
+}
+
 /* Zalo-inspired chat surface */
 .chat-app-shell--zalo {
   --zalo-blue: #0068ff;
@@ -498,6 +568,22 @@
   width: 84px;
 }
 
+.channel-access-view { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.channel-access-view > section {
+  align-content: center;
+  background: linear-gradient(180deg, #eef5ff, #f8fbff);
+  display: grid;
+  flex: 1 1 auto;
+  gap: 12px;
+  justify-items: center;
+  padding: 28px;
+  text-align: center;
+}
+.channel-access-view > section > span { align-items: center; background: #dceaff; border-radius: 18px; color: var(--brand-700); display: flex; height: 64px; justify-content: center; width: 64px; }
+.channel-access-view h2, .channel-access-view p { margin: 0; }
+.channel-access-view p { color: var(--text-muted); line-height: 1.55; max-width: 520px; }
+[data-theme="dark"] .channel-access-view > section { background: #0b1220; }
+
 .chat-empty-state h2 {
   color: var(--zalo-text);
   font-size: 22px;
@@ -645,6 +731,61 @@
     grid-template-columns: 64px minmax(0, 1fr);
   }
 }
+
+/* Image-only messages behave like Messenger media cards instead of text bubbles. */
+.chat-app-shell--zalo .message-row--media-only .message-row__content,
+.chat-app-shell--zalo .message-row--media-only.message-row--local .message-row__content {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  max-width: min(720px, 82%);
+  overflow: visible;
+  padding: 0;
+  position: relative;
+}
+
+.chat-app-shell--zalo .message-row--media-only .message-row__content > header {
+  background: rgb(15 23 42 / 62%);
+  border-radius: 999px;
+  color: #fff;
+  margin: 0 0 6px auto;
+  min-height: 26px;
+  padding: 3px 9px;
+  width: fit-content;
+}
+
+.chat-app-shell--zalo .message-row--media-only .message-row__content > header strong,
+.chat-app-shell--zalo .message-row--media-only .message-row__content > header span { color: #fff; }
+
+.chat-app-shell--zalo .message-row--media-only .attachment-list { margin: 0; }
+.chat-app-shell--zalo .message-row--media-only .attachment-image { max-width: min(720px, 70vw); }
+.chat-app-shell--zalo .message-row--media-only .attachment-image img {
+  aspect-ratio: auto;
+  border-radius: 12px;
+  max-height: min(560px, 68vh);
+  max-width: 100%;
+  object-fit: contain;
+  width: auto;
+}
+.chat-app-shell--zalo .message-row--media-only .attachment-image > span:last-child { display: none; }
+.chat-app-shell--zalo .message-row--media-only .reaction-add-button { background: #fff; }
+.chat-app-shell--zalo .message-row--media-only .message-actions {
+  background: rgb(255 255 255 / 94%);
+  border: 1px solid var(--zalo-border);
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgb(15 23 42 / 12%);
+  left: calc(100% + 8px);
+  padding: 4px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+}
+.chat-app-shell--zalo .message-row--media-only.message-row--local .message-actions {
+  left: auto;
+  right: calc(100% + 8px);
+}
+.chat-app-shell--zalo .message-row--media-only:hover .message-actions { transform: translateY(-50%); }
 
 @media (max-width: 640px) {
   .chat-app-shell--zalo {
@@ -1136,6 +1277,79 @@
   text-align: left;
 }
 
+.workspace-tile > .ui-button { justify-self: start; margin-top: auto; }
+
+.channel-membership-manager {
+  border-top: 1px solid var(--border);
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding-top: 10px;
+  width: 100%;
+}
+.channel-membership-manager summary { color: var(--brand-700); cursor: pointer; font-size: 12px; font-weight: 700; }
+.channel-membership-manager > small { color: var(--text-muted); display: block; margin-top: 10px; }
+.channel-invite-row { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; margin-top: 10px; }
+.channel-invite-row select { background: var(--surface-muted); border: 1px solid var(--border); border-radius: 8px; color: var(--text); min-width: 0; padding: 0 8px; }
+.channel-join-requests { display: grid; gap: 6px; margin-top: 10px; }
+.channel-join-requests article { align-items: center; background: var(--surface-muted); border-radius: 9px; display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) auto auto; padding: 8px; }
+.channel-join-requests article > span { display: grid; gap: 2px; }
+.channel-join-requests small { color: var(--text-muted); font-size: 11px; }
+
+.department-create-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 16px;
+}
+
+.department-create-form label {
+  color: var(--text-muted);
+  display: grid;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.department-create-form input,
+.department-create-form select,
+.department-create-form textarea {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  min-height: 40px;
+  outline: 0;
+  padding: 8px 10px;
+}
+
+.department-create-form__description { grid-column: 1 / -1; }
+.department-create-form textarea { min-height: 72px; resize: vertical; }
+.department-create-form > div { display: flex; gap: 8px; grid-column: 1 / -1; }
+
+.department-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.department-grid article {
+  align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 16px;
+}
+.department-grid article > span { align-items: center; background: var(--surface-soft); border-radius: 10px; color: var(--brand-700); display: flex; height: 38px; justify-content: center; width: 38px; }
+.department-grid article > div { display: grid; gap: 4px; }
+.department-grid strong { color: var(--text); }
+.department-grid small, .department-grid p { color: var(--text-muted); font-size: 12px; margin: 0; }
+
+@media (max-width: 760px) {
+  .department-create-form { grid-template-columns: 1fr; }
+  .department-create-form__description, .department-create-form > div { grid-column: auto; }
+}
+
 .workspace-feed__item {
   cursor: default;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1209,6 +1423,24 @@
   font-weight: 700;
   gap: 7px;
 }
+
+.avatar-upload-field {
+  color: var(--text-muted);
+  display: grid;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+}
+
+.avatar-upload-field > div {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.avatar-upload-field > div > span { display: grid; gap: 5px; }
+.avatar-upload-field small { color: var(--text-muted); font-size: 11px; font-weight: 500; }
+.profile-form__error { color: #d92d20 !important; }
 
 .profile-form input {
   background: var(--surface-muted);
@@ -1926,6 +2158,12 @@
   width: 6px;
 }
 
+.typing-dots small {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-right: 3px;
+}
+
 .typing-dots span:nth-child(2) {
   animation-delay: 160ms;
 }
@@ -2062,7 +2300,8 @@
   display: grid;
   gap: 12px;
   max-height: 44vh;
-  overflow: auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
   padding: 16px;
 }
 
@@ -2086,6 +2325,7 @@
 .thread-list {
   display: grid;
   gap: 12px;
+  overflow-y: auto;
 }
 
 .thread-list article {
@@ -2098,6 +2338,42 @@
   font-size: 13px;
   line-height: 1.5;
   margin: 4px 0 0;
+}
+
+.thread-composer {
+  align-items: center;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 3px 4px 3px 12px;
+}
+
+.thread-composer input {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  min-width: 0;
+  outline: 0;
+}
+
+.detail-panel--thread-open .thread-panel { border: 0; max-height: none; min-height: 0; }
+
+@media (max-width: 1440px) {
+  .chat-app-shell--zalo .detail-panel--thread-open {
+    bottom: 0;
+    box-shadow: -18px 0 48px rgb(15 23 42 / 18%);
+    display: flex;
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: min(380px, 92vw);
+    z-index: 50;
+  }
+  .detail-panel--thread-open .thread-panel { flex: 1 1 auto; }
+  .detail-panel--thread-open .detail-tabs,
+  .detail-panel--thread-open .detail-section { display: none; }
 }
 
 .detail-section {
@@ -3035,4 +3311,556 @@
 [data-theme="dark"] .chat-app-shell--zalo .channel-panel .channel-hash--red {
   background: #102a4c;
   color: #bfdbfe;
+}
+
+/* Compact Zalo-like conversation refinements. */
+.chat-app-shell--zalo .api-status-pill {
+  display: none;
+}
+
+.chat-app-shell--zalo .message-toolbar {
+  border-bottom: 1px solid var(--zalo-border);
+  grid-template-columns: minmax(180px, 520px);
+  padding: 8px 20px;
+}
+
+.chat-app-shell--zalo .message-toolbar .ui-input-shell {
+  min-height: 34px;
+}
+
+.chat-app-shell--zalo .message-timeline {
+  background:
+    radial-gradient(circle at 18% 4%, rgb(0 104 255 / 5%), transparent 24rem),
+    linear-gradient(180deg, #eef3f9 0%, #f7faff 100%);
+  gap: 8px;
+  padding: 12px 22px 18px;
+}
+
+.chat-app-shell--zalo .message-row {
+  align-items: end;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.chat-app-shell--zalo .message-row--local {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.chat-app-shell--zalo .message-row--local .ui-avatar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.chat-app-shell--zalo .message-row__content {
+  background: #ffffff;
+  border: 1px solid #d6deea;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+  gap: 4px;
+  justify-self: start;
+  max-width: min(640px, 66%);
+  min-width: 0;
+  padding: 7px 10px;
+  width: fit-content;
+}
+
+.chat-app-shell--zalo .message-row--local .message-row__content {
+  background: #dbeeff;
+  border-color: #bad8ff;
+  grid-column: 1;
+  justify-self: end;
+}
+
+.chat-app-shell--zalo .message-row header {
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+}
+
+.chat-app-shell--zalo .message-row header strong {
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-app-shell--zalo .message-row header span {
+  font-size: 11px;
+}
+
+.chat-app-shell--zalo .message-row p {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.42;
+}
+
+.chat-app-shell--zalo .message-actions {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+}
+
+.chat-app-shell--zalo .message-row:hover .message-actions,
+.chat-app-shell--zalo .message-row:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.chat-app-shell--zalo .message-actions button,
+.chat-app-shell--zalo .reaction-add-button,
+.chat-app-shell--zalo .reaction-pill__item {
+  font-weight: 500;
+  min-height: 24px;
+  padding: 0 7px;
+}
+
+.chat-app-shell--zalo .message-actions button,
+.chat-app-shell--zalo .reaction-add-button {
+  height: 24px;
+  width: 24px;
+}
+
+.chat-app-shell--zalo .reaction-add-button {
+  justify-content: center;
+  opacity: 0;
+  padding: 0;
+}
+
+.chat-app-shell--zalo .message-row:hover .reaction-add-button,
+.chat-app-shell--zalo .message-row:focus-within .reaction-add-button {
+  opacity: 0.86;
+}
+
+.chat-app-shell--zalo .reaction-pill {
+  font-size: 12px;
+  gap: 4px;
+  padding: 2px 6px;
+}
+
+.chat-app-shell--zalo .attachment-chip {
+  border-radius: 7px;
+  font-size: 12px;
+  gap: 6px;
+  max-width: min(320px, 100%);
+  padding: 6px 8px 6px 6px;
+}
+
+.chat-app-shell--zalo .composer-wrap {
+  border-top: 1px solid var(--zalo-border);
+  box-shadow: none;
+}
+
+.chat-app-shell--zalo .composer {
+  gap: 6px;
+  padding: 9px 16px;
+}
+
+.chat-app-shell--zalo .composer .ui-button--icon {
+  height: 34px;
+  width: 34px;
+}
+
+.chat-app-shell--zalo .composer-input-group {
+  border-radius: 999px;
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.chat-app-shell--zalo .send-button {
+  height: 40px;
+  width: 40px;
+}
+
+.chat-app-shell--zalo .conversation-row--active {
+  background: #e8f1ff;
+  color: var(--zalo-text);
+}
+
+.chat-app-shell--zalo .conversation-row .ui-avatar {
+  height: 48px;
+  width: 48px;
+}
+
+.chat-app-shell--zalo .conversation-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.chat-app-shell--zalo .conversation-row em {
+  align-self: start;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.chat-app-shell--zalo .sidebar-context-panel {
+  display: grid;
+  gap: 16px;
+  padding: 18px 14px;
+}
+
+.chat-app-shell--zalo .sidebar-context-panel h2 {
+  color: var(--zalo-text);
+  font-size: 20px;
+  font-weight: 650;
+  margin: 2px 0 6px;
+}
+
+.chat-app-shell--zalo .sidebar-context-panel p {
+  color: var(--zalo-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.chat-app-shell--zalo .sidebar-context-stats {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.chat-app-shell--zalo .sidebar-context-stats article {
+  background: var(--zalo-soft);
+  border: 1px solid var(--zalo-border);
+  border-radius: 14px;
+  display: grid;
+  gap: 6px;
+  min-height: 88px;
+  padding: 12px;
+}
+
+.chat-app-shell--zalo .sidebar-context-stats strong {
+  color: var(--zalo-text);
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.chat-app-shell--zalo .sidebar-context-stats span {
+  color: var(--zalo-muted);
+  font-size: 12px;
+}
+
+.chat-app-shell--zalo .workspace-tile {
+  border-radius: 12px;
+  min-height: 138px;
+  padding: 18px;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .message-timeline {
+  background:
+    radial-gradient(circle at 18% 4%, rgb(59 130 246 / 9%), transparent 24rem),
+    linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .message-row__content {
+  background: #111827;
+  border-color: #273449;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .message-row--local .message-row__content {
+  background: #12345d;
+  border-color: #2563a6;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .conversation-row--active {
+  background: #12345d;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .composer-input-group,
+[data-theme="dark"] .chat-app-shell--zalo .composer-input-group:focus-within {
+  background: #172033;
+  border-color: #334155;
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 12%);
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .composer-input-group input {
+  color: #f8fafc;
+  caret-color: #60a5fa;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .sidebar-context-stats article {
+  background: #172033;
+  border-color: #273449;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .sidebar-context-panel h2,
+[data-theme="dark"] .chat-app-shell--zalo .sidebar-context-stats strong {
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .message-row header strong,
+[data-theme="dark"] .chat-app-shell--zalo .message-row p {
+  color: #f8fafc;
+}
+
+/* Zalo-like chat flow fixes: search is opt-in, timeline is always full height, media is visual. */
+.chat-app-shell--zalo .chat-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-app-shell--zalo .chat-header,
+.chat-app-shell--zalo .message-toolbar,
+.chat-app-shell--zalo .permission-note,
+.chat-app-shell--zalo .composer-wrap {
+  flex: 0 0 auto;
+}
+
+.chat-app-shell--zalo .chat-action-active {
+  background: var(--zalo-soft);
+  color: var(--zalo-blue);
+}
+
+.chat-app-shell--zalo .message-toolbar {
+  animation: chatSearchDrop 160ms ease-out;
+  grid-template-columns: minmax(180px, 1fr) auto;
+}
+
+.chat-app-shell--zalo .message-timeline,
+.chat-app-shell--zalo .chat-empty-state {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.chat-app-shell--zalo .message-timeline {
+  align-content: start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scroll-padding-bottom: 24px;
+}
+
+.chat-app-shell--zalo .attachment-list {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chat-app-shell--zalo .attachment-image {
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: inherit;
+  cursor: zoom-in;
+  display: grid;
+  gap: 4px;
+  max-width: min(340px, 72vw);
+  padding: 0;
+  text-align: left;
+}
+
+.chat-app-shell--zalo .attachment-image img {
+  aspect-ratio: 4 / 3;
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgb(15 23 42 / 10%);
+  display: block;
+  max-height: 280px;
+  max-width: 100%;
+  object-fit: cover;
+}
+
+.chat-app-shell--zalo .attachment-image span {
+  color: var(--zalo-muted);
+  font-size: 11px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-app-shell--zalo .upload-queue--media {
+  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px 8px;
+}
+
+.chat-app-shell--zalo .upload-queue__header {
+  align-items: center;
+  display: flex;
+  flex: 1 0 100%;
+  justify-content: space-between;
+}
+
+.chat-app-shell--zalo .upload-queue__header strong {
+  color: var(--zalo-text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.chat-app-shell--zalo .upload-queue__header span {
+  color: var(--zalo-muted);
+  font-size: 12px;
+}
+
+.chat-app-shell--zalo .upload-queue__thumb {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  height: 56px;
+  object-fit: cover;
+  width: 56px;
+}
+
+.chat-app-shell--zalo .upload-queue--media .upload-queue__item {
+  border-radius: 12px;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  min-width: 220px;
+  padding: 8px;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .chat-action-active {
+  background: #172033;
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .attachment-image span {
+  color: #9aa8bd;
+}
+
+@keyframes chatSearchDrop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Density and interaction fixes for 100% browser zoom. */
+.chat-app-shell--zalo {
+  grid-template-columns: 64px minmax(280px, 316px) minmax(0, 1fr) minmax(276px, 310px);
+}
+
+.chat-app-shell--section {
+  grid-template-columns: 64px 276px minmax(0, 1fr);
+}
+
+.chat-app-shell--no-detail { grid-template-columns: 64px minmax(280px, 316px) minmax(0, 1fr); }
+
+.chat-app-shell--section .chat-main { grid-column: 3 / -1; }
+
+.chat-app-shell--zalo button:not(:disabled),
+.chat-app-shell--zalo a,
+.chat-app-shell--zalo [role="button"] { cursor: pointer; }
+
+.chat-app-shell--zalo .channel-row,
+.chat-app-shell--zalo .conversation-row,
+.chat-app-shell--zalo .workspace-tile { cursor: pointer; }
+
+.chat-app-shell--zalo .panel-heading { gap: 8px; }
+.chat-app-shell--zalo .panel-heading > div:first-child { min-width: 0; }
+.chat-app-shell--zalo .panel-heading p,
+.chat-app-shell--zalo .panel-heading > div:first-child > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-app-shell--zalo .list-section.conversations {
+  align-content: start;
+  flex: 0 1 auto;
+  grid-auto-rows: max-content;
+  max-height: 52%;
+  min-height: 80px;
+}
+
+.chat-app-shell--zalo .conversation-row {
+  flex: 0 0 auto;
+  height: 62px;
+  max-height: 62px;
+  min-height: 62px;
+}
+
+.chat-app-shell--zalo .conversation-row .ui-avatar { height: 40px; width: 40px; }
+
+.chat-app-shell--zalo .chat-header {
+  gap: 14px;
+  min-height: 68px;
+  padding: 10px 18px;
+}
+
+.chat-app-shell--zalo .chat-title { min-width: 0; }
+.chat-app-shell--zalo .chat-title > div { min-width: 0; }
+.chat-app-shell--zalo .chat-title h1,
+.chat-app-shell--zalo .chat-title p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-app-shell--zalo .chat-actions { flex: 0 0 auto; white-space: nowrap; }
+
+.chat-app-shell--zalo .message-timeline { padding-top: 28px; }
+
+.chat-load-error {
+  align-content: center;
+  align-self: stretch;
+  flex: 1 1 auto;
+  justify-items: center;
+  margin: 18px;
+  text-align: center;
+}
+
+.chat-app-shell--zalo .sidebar-context-panel {
+  align-content: start;
+  gap: 18px;
+}
+
+.chat-app-shell--zalo .sidebar-context-panel .ui-button { justify-self: start; }
+
+.chat-app-shell--zalo .workspace-page {
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.chat-app-shell--zalo .workspace-page__header h1 { font-size: 25px; }
+.chat-app-shell--zalo .workspace-page__header p { line-height: 1.45; margin: 0; max-width: 760px; }
+
+.chat-app-shell--zalo .emoji-picker {
+  grid-template-columns: repeat(8, 34px);
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  width: 306px;
+}
+
+@media (max-width: 1440px) {
+  .chat-app-shell--zalo {
+    grid-template-columns: 64px minmax(278px, 304px) minmax(0, 1fr);
+  }
+  .chat-app-shell--zalo .detail-panel { display: none; }
+}
+
+@media (max-width: 980px) {
+  .chat-app-shell--zalo { grid-template-columns: 64px minmax(260px, 292px) minmax(0, 1fr); }
+  .chat-app-shell--zalo .member-count { display: none; }
+}
+
+@media (max-width: 860px) {
+  .chat-app-shell--zalo { grid-template-columns: 64px minmax(0, 1fr); }
+  .chat-app-shell--zalo .chat-main { grid-column: 2; }
+  .chat-app-shell--zalo .emoji-picker { grid-template-columns: repeat(6, 34px); width: 238px; }
+}
+
+@media (max-width: 1440px) {
+  .chat-app-shell--zalo .detail-panel--thread-open {
+    bottom: 0;
+    box-shadow: -18px 0 48px rgb(15 23 42 / 18%);
+    display: flex;
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: min(380px, 92vw);
+    z-index: 50;
+  }
+  .detail-panel--thread-open .thread-panel { flex: 1 1 auto; }
+  .detail-panel--thread-open .detail-tabs,
+  .detail-panel--thread-open .detail-section { display: none; }
 }

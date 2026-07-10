@@ -374,9 +374,7 @@ func (s *Service) Update(ctx context.Context, input UpdateInput) (MessageDTO, er
 		return MessageDTO{}, mapMessageError(err)
 	}
 	if !messageOwnedBy(message, ref.ActorUserID) {
-		if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.manage"); err != nil {
-			return MessageDTO{}, err
-		}
+		return MessageDTO{}, apperrors.Forbidden("Bạn chỉ có thể sửa tin nhắn của chính mình.")
 	}
 
 	body := strings.TrimSpace(input.Body)

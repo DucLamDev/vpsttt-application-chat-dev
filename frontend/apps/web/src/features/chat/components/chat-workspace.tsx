@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type ClipboardEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Avatar,
   Badge,
@@ -45,16 +45,14 @@ import {
   Ticket,
   Trash2,
   Users,
-  Wifi,
-  WifiOff,
   Workflow,
   X
 } from "@webtui/icons";
 import { useAuth } from "@/features/auth/auth-provider";
-import { useApiStatus } from "../../platform/hooks/use-api-status";
 import {
   mapAuthUser,
   type CreateChannelPayload,
+  type CreateDepartmentPayload,
   type CreateWorkspacePayload,
   useChatWorkspaceData
 } from "../hooks/use-chat-workspace-data";
@@ -70,14 +68,15 @@ import type {
   NotificationItem,
   PinnedMessage
 } from "../model/types";
-import type { RealtimeConnectionStatus } from "../stores/realtime-store";
 import { useUploadStore, type UploadQueueItem } from "../stores/upload-store";
-import type { AuthUser, ContactRequest, WorkspaceMember } from "@webtui/types";
+import { getCachedMediaUrl, resolveCachedMediaUrl } from "../model/media-cache";
+import type { AuthUser, ChannelMember, ContactRequest, Department, WorkspaceMember } from "@webtui/types";
 
 const railItems = [
   { id: "messages", label: "Tin nhắn", icon: MessageCircle },
   { id: "contacts", label: "Bạn bè", icon: Users },
   { id: "channels", label: "Kênh", icon: Hash },
+  { id: "departments", label: "Phòng ban", icon: Archive },
   { id: "tickets", label: "Ticket", icon: Ticket },
   { id: "files", label: "File", icon: FileText },
   { id: "bots", label: "Bot", icon: Bot },
@@ -129,20 +128,26 @@ export function ChatWorkspace() {
   const [editingBody, setEditingBody] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
   const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const autoWorkspaceStartedRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingStreamRef = useRef<MediaStream | null>(null);
-  const apiStatus = useApiStatus();
+  const seenNotificationIdsRef = useRef<Set<string> | null>(null);
+  const seenContactRequestIdsRef = useRef<Set<string> | null>(null);
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingPublishedRef = useRef(false);
   const currentUser = useMemo(() => mapAuthUser(user), [user]);
+  const activeMessageSearchQuery = isMessageSearchOpen ? messageSearchQuery : "";
   const data = useChatWorkspaceData(currentUser, {
     friendSearchQuery,
-    messageSearchQuery,
+    messageSearchQuery: activeMessageSearchQuery,
     threadMessageId: threadMessageId ?? undefined
   });
   const uploadQueue = useUploadStore();
@@ -152,26 +157,27 @@ export function ChatWorkspace() {
   );
 
   const canCreateChannel = data.can("channel.create");
-  const canSendMessage = data.can("message.send");
-  const canUploadFile = data.can("file.upload");
+  const isDirectChat =
+    data.selectedChannel?.type === "direct" || data.selectedChannelWithMessages?.type === "direct";
+  const canSendMessage = data.can("message.send") || isDirectChat;
+  const canUploadFile = data.can("file.upload") || isDirectChat;
   const canUseComposer = canSendMessage && (!uploadQueue.items.length || canUploadFile);
 
-  const filteredChannels = useMemo(() => {
+  const sidebarChannels = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
     return data.channels.filter((channel) => {
-      const matchesQuery =
+      if (channel.type === "direct") {
+        return false;
+      }
+
+      return (
         !normalizedQuery ||
         channel.name.toLowerCase().includes(normalizedQuery) ||
-        channel.description.toLowerCase().includes(normalizedQuery);
-      const matchesFilter =
-        channelFilter === "all" ||
-        (channelFilter === "unread" && channel.unreadCount > 0) ||
-        (channelFilter === "favorite" && channel.isFavorite);
-
-      return matchesQuery && matchesFilter;
+        channel.description.toLowerCase().includes(normalizedQuery)
+      );
     });
-  }, [channelFilter, data.channels, searchQuery]);
+  }, [data.channels, searchQuery]);
 
   const filteredConversations = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -219,6 +225,53 @@ export function ChatWorkspace() {
     [data.contactRequests]
   );
   const notificationBadgeCount = data.unreadNotificationsCount + incomingContactRequests.length;
+  const remoteTypingLabel = useMemo(() => {
+    const userId = data.realtime.typingUserIds[0];
+    if (!userId) {
+      return "";
+    }
+    const directUser = data.directConversations.find((conversation) => conversation.user.id === userId)?.user;
+    const member = data.members.find((item) => item.user_id === userId);
+    const name = directUser?.name || member?.display_name || member?.username || member?.email || "Ai đó";
+    const extra = data.realtime.typingUserIds.length - 1;
+    return extra > 0 ? `${name} và ${extra} người khác đang soạn tin` : `${name} đang soạn tin`;
+  }, [data.directConversations, data.members, data.realtime.typingUserIds]);
+
+  useEffect(() => {
+    const currentIds = new Set(data.notifications.map((notification) => notification.id));
+    if (!seenNotificationIdsRef.current) {
+      seenNotificationIdsRef.current = currentIds;
+      return;
+    }
+
+    const newest = data.notifications.find(
+      (notification) => !notification.isRead && !seenNotificationIdsRef.current?.has(notification.id)
+    );
+    data.notifications.forEach((notification) => seenNotificationIdsRef.current?.add(notification.id));
+    if (!newest) {
+      return;
+    }
+
+    setToast(`${newest.title}: ${newest.body}`);
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      new Notification(newest.title, { body: newest.body, tag: newest.id });
+    }
+  }, [data.notifications]);
+
+  useEffect(() => {
+    const currentIds = new Set(incomingContactRequests.map((request) => request.id));
+    if (!seenContactRequestIdsRef.current) {
+      seenContactRequestIdsRef.current = currentIds;
+      return;
+    }
+
+    const newest = incomingContactRequests.find((request) => !seenContactRequestIdsRef.current?.has(request.id));
+    incomingContactRequests.forEach((request) => seenContactRequestIdsRef.current?.add(request.id));
+    if (newest) {
+      const name = newest.user.display_name || newest.user.username || newest.user.email || "Một người dùng";
+      setToast(`${name} vừa gửi lời mời kết bạn.`);
+    }
+  }, [incomingContactRequests]);
   const selectedChatChannel = useMemo(() => {
     if (!data.selectedChannelWithMessages) {
       return null;
@@ -237,18 +290,25 @@ export function ChatWorkspace() {
     };
   }, [data.directConversations, data.selectedChannelWithMessages]);
 
-  const selectedRailLabel = railItems.find((item) => item.id === activeRailItem)?.label ?? "Workspace";
+  const selectedRailLabel = railItems.find((item) => item.id === activeRailItem)?.label ?? "Tin nhắn";
   const panelTitle =
     activeRailItem === "contacts"
       ? "Danh bạ"
       : activeRailItem === "channels"
         ? "Kênh"
+        : activeRailItem === "departments"
+          ? "Phòng ban"
         : activeRailItem === "files"
           ? "Tệp tin"
           : activeRailItem === "settings"
             ? "Cài đặt"
             : "Tin nhắn";
-  const panelSubtitle = data.selectedWorkspace?.name ?? "Chưa có workspace";
+  const panelSubtitle =
+    activeRailItem === "messages"
+      ? "Hội thoại riêng và kênh"
+      : activeRailItem === "contacts"
+        ? "Tìm bạn bè để nhắn tin"
+        : selectedRailLabel;
 
   async function handleCreateChannel(input: CreateChannelPayload) {
     if (!canCreateChannel) {
@@ -259,8 +319,9 @@ export function ChatWorkspace() {
     data.createChannelMutation.mutate(input, {
       onError: (error) => setToast(error instanceof Error ? error.message : "Không tạo được kênh."),
       onSuccess: () => {
+        setChannelFilter("all");
         setIsCreateChannelOpen(false);
-        setToast("Đã tạo kênh mới từ API.");
+        setToast("Đã tạo kênh mới.");
       }
     });
   }
@@ -269,11 +330,35 @@ export function ChatWorkspace() {
     data.setSelectedChannelId(channelId);
     data.markChannelRead(channelId, data.messages.at(-1)?.id);
     setThreadMessageId(null);
+    setIsMessageSearchOpen(false);
+    setMessageSearchQuery("");
     setActiveRailItem("messages");
   }
 
+  function handleToggleMessageSearch() {
+    setIsMessageSearchOpen((current) => {
+      if (current) {
+        setMessageSearchQuery("");
+      }
+      return !current;
+    });
+  }
+
+  function handleToggleNotifications() {
+    const willOpen = !isNotificationsOpen;
+    setIsNotificationsOpen(willOpen);
+    if (willOpen && typeof Notification !== "undefined" && Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+  }
+
+  function handleCloseMessageSearch() {
+    setIsMessageSearchOpen(false);
+    setMessageSearchQuery("");
+  }
+
   function handleToggleFavorite() {
-    setToast("Backend chưa có endpoint cập nhật kênh yêu thích.");
+    setToast("Tính năng yêu thích kênh đang được hoàn thiện.");
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -299,31 +384,93 @@ export function ChatWorkspace() {
     }
   }
 
+  function handleComposerPaste(event: ClipboardEvent<HTMLInputElement>) {
+    const imageFiles = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item, index) => {
+        const file = item.getAsFile();
+        if (!file) {
+          return null;
+        }
+
+        if (file.name) {
+          return file;
+        }
+
+        const extension = file.type.includes("jpeg") ? "jpg" : file.type.includes("webp") ? "webp" : "png";
+        return new File([file], `anh-dan-${Date.now()}-${index}.${extension}`, {
+          type: file.type || "image/png"
+        });
+      })
+      .filter(Boolean) as File[];
+
+    if (!imageFiles.length) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (!canUploadFile) {
+      setToast("Tài khoản hiện tại chưa có quyền gửi ảnh.");
+      return;
+    }
+
+    uploadQueue.addFiles(imageFiles);
+    setToast(`${imageFiles.length} ảnh đã được thêm vào tin nhắn.`);
+  }
+
   function handleEmojiSelect(emoji: string) {
-    setDraft((current) => `${current}${emoji}`);
+    handleDraftChange(`${draft}${emoji}`);
     setIsEmojiPickerOpen(false);
+  }
+
+  function handleDraftChange(value: string) {
+    setDraft(value);
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+    const isTyping = Boolean(value.trim());
+    if (isTyping && !typingPublishedRef.current) {
+      data.realtime.publishTyping(true);
+      typingPublishedRef.current = true;
+    } else if (!isTyping && typingPublishedRef.current) {
+      data.realtime.publishTyping(false);
+      typingPublishedRef.current = false;
+    }
+    if (isTyping) {
+      typingStopTimerRef.current = setTimeout(() => {
+        data.realtime.publishTyping(false);
+        typingPublishedRef.current = false;
+        typingStopTimerRef.current = null;
+      }, 1_400);
+    }
   }
 
   function buildDefaultWorkspacePayload(): CreateWorkspacePayload {
     const baseName =
       currentUser?.name && currentUser.name !== "Bạn"
-        ? `Workspace của ${currentUser.name}`
-        : "Workspace nội bộ";
+        ? `Dữ liệu trò chuyện của ${currentUser.name}`
+        : "Dữ liệu trò chuyện";
     const baseSlug = slugify(
       user?.username || user?.email || currentUser?.id || `workspace-${Date.now().toString(36)}`
     );
 
     return {
-      description: "Workspace được tạo từ giao diện WebTui Chat.",
+      description: "Dữ liệu nền để đồng bộ hội thoại và kênh.",
       name: baseName,
       slug: `${baseSlug || "workspace"}-${Date.now().toString(36).slice(-5)}`
     };
   }
 
-  function handleCreateDefaultWorkspace() {
+  function handleCreateDefaultWorkspace(options: { silent?: boolean } = {}) {
     data.createWorkspaceMutation.mutate(buildDefaultWorkspacePayload(), {
-      onError: (error) => setToast(error instanceof Error ? error.message : "Không tạo được workspace."),
-      onSuccess: () => setToast("Đã tạo workspace. Bạn có thể tạo kênh hoặc thêm bạn bè để nhắn tin.")
+      onError: (error) => setToast(error instanceof Error ? error.message : "Không chuẩn bị được dữ liệu."),
+      onSuccess: () => {
+        if (!options.silent) {
+          setToast("Đã chuẩn bị không gian làm việc.");
+        }
+      }
     });
   }
 
@@ -337,7 +484,7 @@ export function ChatWorkspace() {
       return;
     }
     autoWorkspaceStartedRef.current = true;
-    handleCreateDefaultWorkspace();
+    handleCreateDefaultWorkspace({ silent: true });
   }, [data.createWorkspaceMutation.isPending, data.workspaceId, data.workspacesQuery.isLoading]);
 
   function handleContactPrimaryAction(contact: ContactResult) {
@@ -393,7 +540,7 @@ export function ChatWorkspace() {
         const workspace = await data.createWorkspaceMutation.mutateAsync(buildDefaultWorkspacePayload());
         handleStartDirectConversation(contact.userId, workspace.id);
       } catch (error) {
-        setToast(error instanceof Error ? error.message : "Không tạo được workspace cá nhân để mở hội thoại.");
+        setToast(error instanceof Error ? error.message : "Không chuẩn bị được dữ liệu để mở hội thoại.");
       }
       return;
     }
@@ -443,6 +590,7 @@ export function ChatWorkspace() {
       };
 
       recorder.start();
+      setRecordingSeconds(0);
       setIsRecording(true);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Không bật được micro.");
@@ -452,6 +600,26 @@ export function ChatWorkspace() {
       setIsRecording(false);
     }
   }
+
+  useEffect(() => {
+    if (!isRecording) {
+      return;
+    }
+    const timer = window.setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [isRecording]);
+
+  useEffect(
+    () => () => {
+      if (typingStopTimerRef.current) {
+        clearTimeout(typingStopTimerRef.current);
+        typingStopTimerRef.current = null;
+      }
+      data.realtime.publishTyping(false);
+      typingPublishedRef.current = false;
+    },
+    [data.realtime.publishTyping]
+  );
 
   function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -472,11 +640,13 @@ export function ChatWorkspace() {
         onError: (error) => setToast(error instanceof Error ? error.message : "Không gửi được nội dung."),
         onSuccess: (result) => {
           setDraft("");
+          data.realtime.publishTyping(false);
+          typingPublishedRef.current = false;
           uploadQueue.clearAttached();
           setToast(
             result.failedUploadNames.length
               ? `Tin nhắn đã gửi, ${result.failedUploadNames.length} file cần thử lại.`
-              : "Nội dung đã được gửi qua API."
+              : "Tin nhắn đã được gửi."
           );
         }
       }
@@ -564,7 +734,7 @@ export function ChatWorkspace() {
         }
         setThreadMessageId(null);
         setActiveRailItem("messages");
-        setToast("Đã mở hội thoại riêng từ API.");
+        setToast("Đã mở hội thoại riêng.");
       }
     });
   }
@@ -658,7 +828,10 @@ export function ChatWorkspace() {
   }
 
   return (
-    <main className="chat-app-shell chat-app-shell--zalo" aria-label="Màn hình chat WebTui">
+    <main
+      className={`chat-app-shell chat-app-shell--zalo${activeRailItem === "messages" ? "" : " chat-app-shell--section"}${activeRailItem === "messages" && data.selectedChannel && !data.canAccessSelectedChannel ? " chat-app-shell--no-detail" : ""}`}
+      aria-label="Màn hình chat WebTui"
+    >
       <NavigationRail
         activeId={activeRailItem}
         ariaLabel="Điều hướng chính"
@@ -678,7 +851,7 @@ export function ChatWorkspace() {
               <Button
                 aria-label="Thông báo"
                 className={isNotificationsOpen ? "notification-button notification-button--active" : "notification-button"}
-                onClick={() => setIsNotificationsOpen((current) => !current)}
+                onClick={handleToggleNotifications}
                 size="sm"
                 variant="icon"
               >
@@ -718,7 +891,7 @@ export function ChatWorkspace() {
         {isNotificationsOpen ? (
           <NotificationDropdown
             contactRequests={incomingContactRequests}
-            isLoading={data.notificationsQuery.isLoading}
+            isLoading={data.notificationsQuery.isLoading || data.contactRequestsQuery.isLoading}
             isMutatingContactRequest={data.acceptContactRequestMutation.isPending || data.rejectContactRequestMutation.isPending}
             isMarkingAllRead={data.markAllNotificationsReadMutation.isPending}
             notifications={data.notifications}
@@ -733,43 +906,6 @@ export function ChatWorkspace() {
           />
         ) : null}
 
-        <div className={`api-status-pill api-status-pill--${apiStatus.status}`}>
-          <span />
-          <strong>{apiStatus.label}</strong>
-        </div>
-
-        <div className="workspace-switcher">
-          <label htmlFor="workspace-select">Workspace</label>
-          <select
-            disabled={!data.workspaces.length}
-            id="workspace-select"
-            onChange={(event) => data.setWorkspaceId(event.target.value)}
-            value={data.workspaceId}
-          >
-            {data.workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {!data.workspaceId ? (
-          <div className="workspace-quickstart">
-            <strong>Chưa có workspace</strong>
-            <span>Tạo workspace để thêm bạn bè, tạo kênh và mở hội thoại riêng.</span>
-            <Button
-              disabled={data.createWorkspaceMutation.isPending}
-              onClick={handleCreateDefaultWorkspace}
-              size="sm"
-              variant="primary"
-            >
-              <Plus size={15} />
-              Tạo workspace
-            </Button>
-          </div>
-        ) : null}
-
         {isCreateChannelOpen ? (
           <CreateChannelForm
             isPending={data.createChannelMutation.isPending}
@@ -778,92 +914,105 @@ export function ChatWorkspace() {
           />
         ) : null}
 
-        <div className="channel-search">
-          <Input
-            aria-label="Tìm kiếm kênh hoặc hội thoại"
-            leftAddon={<Search size={17} />}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Tìm kiếm..."
-            value={searchQuery}
-          />
-        </div>
-
-        <SegmentedControl
-          aria-label="Bộ lọc hội thoại"
-          className="channel-filter-tabs"
-          onValueChange={setChannelFilter}
-          options={channelFilters}
-          value={channelFilter}
-        />
-
-        <div className="list-section conversations">
-          <span className="section-label">Hội thoại</span>
-          {data.directConversationsQuery.isLoading ? (
-            <PanelSkeleton />
-          ) : filteredConversations.length ? (
-            filteredConversations.map((item) => (
-              <button className="conversation-row" key={item.id} onClick={() => handleChannelSelect(item.id)} type="button">
-                <Avatar name={item.user.name} size="sm" status={item.user.status} />
-                <span>
-                  <strong>{item.user.name}</strong>
-                  <small>{item.lastMessage}</small>
-                </span>
-                <em>{item.relativeTime}</em>
-              </button>
-            ))
-          ) : (
-            <div className="conversation-empty">
-              <EmptyState description="Tìm bạn bè, gửi lời mời và bắt đầu nhắn tin riêng như Zalo." title="Chưa có hội thoại" />
-              <Button onClick={() => setActiveRailItem("contacts")} size="sm" variant="secondary">
-                <Users size={15} />
-                Tìm bạn bè
-              </Button>
+        {activeRailItem === "messages" ? (
+          <>
+            <div className="channel-search">
+              <Input
+                aria-label="Tìm kiếm kênh hoặc hội thoại"
+                leftAddon={<Search size={17} />}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Tìm kiếm..."
+                value={searchQuery}
+              />
             </div>
-          )}
-        </div>
 
-        <div className="list-section channels-section">
-          <span className="section-label">Kênh & bot</span>
-          {data.workspacesQuery.isLoading || data.channelsQuery.isLoading ? (
-            <PanelSkeleton />
-          ) : filteredChannels.length ? (
-            filteredChannels.map((channel) => (
-              <button
-                className={channel.id === data.selectedChannelId ? "channel-row channel-row--active" : "channel-row"}
-                key={channel.id}
-                onClick={() => handleChannelSelect(channel.id)}
-                type="button"
-              >
-                <span className={`channel-hash channel-hash--${channel.tone}`}>#</span>
-                <span className="channel-row__body">
-                  <strong>{channel.name}</strong>
-                  <small>{channel.description}</small>
-                </span>
-                {channel.unreadCount ? <Badge tone="red">{channel.unreadCount}</Badge> : null}
-                <Tooltip label={channel.isFavorite ? "Bỏ yêu thích" : "Yêu thích"}>
-                  <span
-                    className={channel.isFavorite ? "pin-action pin-action--active" : "pin-action"}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleToggleFavorite();
-                    }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <Pin size={15} />
-                  </span>
-                </Tooltip>
-              </button>
-            ))
-          ) : (
-            <EmptyState
-              description={
-                data.selectedWorkspace ? "Workspace này chưa có kênh. Kênh dùng cho nhóm, bot và thông báo chung." : "Tài khoản chưa có workspace."
-              }
-              title="Chưa có kênh"
+            <SegmentedControl
+              aria-label="Bộ lọc hội thoại"
+              className="channel-filter-tabs"
+              onValueChange={setChannelFilter}
+              options={channelFilters}
+              value={channelFilter}
             />
-          )}
-        </div>
+
+            <div className="list-section conversations">
+              <span className="section-label">Hội thoại</span>
+              {data.directConversationsQuery.isLoading || data.createWorkspaceMutation.isPending ? (
+                <PanelSkeleton />
+              ) : filteredConversations.length ? (
+                filteredConversations.map((item) => (
+                  <button
+                    className={item.id === data.selectedChannelId ? "conversation-row conversation-row--active" : "conversation-row"}
+                    key={item.id}
+                    onClick={() => handleChannelSelect(item.id)}
+                    type="button"
+                  >
+                    <Avatar name={item.user.name} size="md" src={item.user.avatarUrl} status={item.user.status} />
+                    <span>
+                      <strong>{item.user.name}</strong>
+                      <small>{item.lastMessage}</small>
+                    </span>
+                    <em>{item.relativeTime}</em>
+                    {item.unreadCount ? <Badge tone="red">{item.unreadCount}</Badge> : null}
+                  </button>
+                ))
+              ) : (
+                <div className="conversation-empty">
+                  <EmptyState description="Tìm bạn bè, gửi lời mời và bắt đầu nhắn tin riêng như Zalo." title="Chưa có hội thoại" />
+                  <Button onClick={() => setActiveRailItem("contacts")} size="sm" variant="secondary">
+                    <Users size={15} />
+                    Tìm bạn bè
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="list-section channels-section">
+              <span className="section-label">Kênh & bot</span>
+              {data.workspacesQuery.isLoading || data.channelsQuery.isLoading ? (
+                <PanelSkeleton />
+              ) : sidebarChannels.length ? (
+                sidebarChannels.map((channel) => (
+                  <button
+                    className={channel.id === data.selectedChannelId ? "channel-row channel-row--active" : "channel-row"}
+                    key={channel.id}
+                    onClick={() => handleChannelSelect(channel.id)}
+                    type="button"
+                  >
+                    <span className={`channel-hash channel-hash--${channel.tone}`}>#</span>
+                    <span className="channel-row__body">
+                      <strong>{channel.name}</strong>
+                      <small>{channel.description}</small>
+                    </span>
+                    {channel.unreadCount ? <Badge tone="red">{channel.unreadCount}</Badge> : null}
+                    <Tooltip label={channel.isFavorite ? "Bỏ yêu thích" : "Yêu thích"}>
+                      <span
+                        className={channel.isFavorite ? "pin-action pin-action--active" : "pin-action"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleToggleFavorite();
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <Pin size={15} />
+                      </span>
+                    </Tooltip>
+                  </button>
+                ))
+              ) : (
+                <EmptyState
+                  description="Kênh dùng cho nhóm, bot và thông báo chung."
+                  title="Chưa có kênh"
+                />
+              )}
+            </div>
+          </>
+        ) : (
+          <SidebarContextPanel
+            activeRailItem={activeRailItem}
+            onOpenMessages={() => setActiveRailItem("messages")}
+          />
+        )}
       </section>
 
       <section
@@ -879,11 +1028,11 @@ export function ChatWorkspace() {
         {activeRailItem !== "messages" ? (
           <WorkspaceSectionPage
             activeRailItem={activeRailItem}
-            apiStatus={apiStatus.status}
             canCreateChannel={canCreateChannel}
-            channels={data.channels}
+            channels={data.channels.filter((channel) => channel.type !== "direct")}
             contacts={contactResults}
             currentUser={currentUser}
+            departments={data.departments}
             files={data.files}
             friendSearchQuery={friendSearchQuery}
             isCreatingDirectConversation={
@@ -901,8 +1050,46 @@ export function ChatWorkspace() {
               data.searchUsersQuery.isFetching
             }
             isLoadingFiles={data.filesQuery.isLoading}
+            isLoadingDepartments={data.permissionsQuery.isLoading || data.departmentsQuery.isLoading}
+            isMutatingChannelMembership={
+              data.requestChannelJoinMutation.isPending ||
+              data.inviteChannelMemberMutation.isPending ||
+              data.approveChannelJoinMutation.isPending ||
+              data.rejectChannelJoinMutation.isPending
+            }
+            joinRequestsByChannelId={data.joinRequestsByChannelId}
             onChannelSelect={handleChannelSelect}
+            onApproveChannelJoin={(channelId, userId) =>
+              data.approveChannelJoinMutation.mutate({ channelId, userId }, {
+                onError: (error) => setToast(error instanceof Error ? error.message : "Không phê duyệt được yêu cầu."),
+                onSuccess: () => setToast("Đã phê duyệt thành viên vào kênh.")
+              })
+            }
             onDownloadFile={handleDownload}
+            onInviteChannelMember={(channelId, userId) =>
+              data.inviteChannelMemberMutation.mutate({ channelId, userId }, {
+                onError: (error) => setToast(error instanceof Error ? error.message : "Không mời được thành viên."),
+                onSuccess: () => setToast("Đã thêm thành viên vào kênh.")
+              })
+            }
+            onRejectChannelJoin={(channelId, userId) =>
+              data.rejectChannelJoinMutation.mutate({ channelId, userId }, {
+                onError: (error) => setToast(error instanceof Error ? error.message : "Không từ chối được yêu cầu."),
+                onSuccess: () => setToast("Đã từ chối yêu cầu tham gia.")
+              })
+            }
+            onRequestChannelJoin={(channelId) =>
+              data.requestChannelJoinMutation.mutate(channelId, {
+                onError: (error) => setToast(error instanceof Error ? error.message : "Không gửi được yêu cầu tham gia."),
+                onSuccess: () => setToast("Đã gửi yêu cầu tham gia kênh.")
+              })
+            }
+            onCreateDepartment={(input) =>
+              data.createDepartmentMutation.mutate(input, {
+                onError: (error) => setToast(error instanceof Error ? error.message : "Không tạo được phòng ban."),
+                onSuccess: () => setToast("Đã tạo phòng ban mới.")
+              })
+            }
             onFriendSearchChange={setFriendSearchQuery}
             onProfileSubmit={(input) =>
               data.updateProfileMutation.mutate(input, {
@@ -914,32 +1101,69 @@ export function ChatWorkspace() {
             onStartConversation={handleContactPrimaryAction}
             onThemeToggle={toggleTheme}
             theme={theme}
+            canManageDepartments={data.can("workspace.manage")}
+            isCreatingDepartment={data.createDepartmentMutation.isPending}
             isUpdatingProfile={data.updateProfileMutation.isPending}
             workspaceId={data.workspaceId}
-            workspaceName={data.selectedWorkspace?.name}
+            workspaceMembers={data.members}
           />
-        ) : data.workspacesQuery.isError || data.channelsQuery.isError ? (
+        ) : data.workspacesQuery.isError ? (
           <ErrorState
-            description="Kiểm tra quyền truy cập hoặc trạng thái backend production."
+            action={
+              <Button onClick={() => void data.workspacesQuery.refetch()} size="sm" variant="secondary">
+                Thử tải lại
+              </Button>
+            }
+            description="Không thể kết nối dữ liệu tài khoản. Hãy kiểm tra mạng và thử lại."
             title="Không tải được dữ liệu chat"
+          />
+        ) : selectedChatChannel && !data.canAccessSelectedChannel ? (
+          <ChannelAccessView
+            channel={selectedChatChannel}
+            isPending={data.requestChannelJoinMutation.isPending}
+            onRequestJoin={() =>
+              data.requestChannelJoinMutation.mutate(selectedChatChannel.id, {
+                onError: (error) => setToast(error instanceof Error ? error.message : "Không gửi được yêu cầu tham gia."),
+                onSuccess: () => setToast("Đã gửi yêu cầu. Vui lòng chờ chủ kênh phê duyệt.")
+              })
+            }
           />
         ) : selectedChatChannel ? (
           <>
             <ChatHeader
               channel={selectedChatChannel}
+              isSearchOpen={isMessageSearchOpen}
+              onToggleSearch={handleToggleMessageSearch}
             />
-            <div className="message-toolbar">
-              <Input
-                aria-label="Tìm tin nhắn"
-                leftAddon={<Search size={17} />}
-                onChange={(event) => setMessageSearchQuery(event.target.value)}
-                placeholder="Tìm tin nhắn trong workspace..."
-                value={messageSearchQuery}
+            {isMessageSearchOpen ? (
+              <div className="message-toolbar">
+                <Input
+                  aria-label="Tìm tin nhắn"
+                  autoFocus
+                  leftAddon={<Search size={17} />}
+                  onChange={(event) => setMessageSearchQuery(event.target.value)}
+                  placeholder="Tìm tin nhắn..."
+                  value={messageSearchQuery}
+                />
+                <Tooltip label="Đóng tìm kiếm">
+                  <Button aria-label="Đóng tìm kiếm" onClick={handleCloseMessageSearch} type="button" variant="icon">
+                    <X size={18} />
+                  </Button>
+                </Tooltip>
+              </div>
+            ) : null}
+            {data.messagesQuery.isError ? (
+              <ErrorState
+                action={
+                  <Button onClick={() => void data.messagesQuery.refetch()} size="sm" variant="secondary">
+                    Thử tải lại
+                  </Button>
+                }
+                className="chat-load-error"
+                description="Kết nối có thể bị gián đoạn hoặc phiên truy cập vừa hết hạn."
+                title="Không tải được tin nhắn"
               />
-              <PresenceStatusPill onlineCount={data.presenceByUserId.size} />
-              <RealtimeStatusPill status={data.realtime.status} />
-            </div>
-            {data.messagesQuery.isLoading ? (
+            ) : data.messagesQuery.isLoading ? (
               <TimelineSkeleton />
             ) : (
               <MessageTimeline
@@ -956,6 +1180,7 @@ export function ChatWorkspace() {
                 onChangeEditingBody={setEditingBody}
                 onDeleteMessage={handleDeleteMessage}
                 onDownloadAttachment={handleDownloadAttachment}
+                onResolveAttachment={data.downloadAttachment}
                 onLoadOlderMessages={handleLoadOlderMessages}
                 onOpenThread={handleOpenThread}
                 onSearchResultSelect={(message) => {
@@ -963,18 +1188,19 @@ export function ChatWorkspace() {
                     data.setSelectedChannelId(message.rawChannelId);
                   }
                   setThreadMessageId(message.id);
+                  handleCloseMessageSearch();
                 }}
                 onStartEdit={handleStartEdit}
                 onSubmitEdit={handleSubmitEdit}
                 onTogglePin={handleToggleMessagePin}
                 onToggleReaction={handleToggleReaction}
                 pinnedMessageIds={pinnedMessageIds}
-                searchQuery={messageSearchQuery}
+                searchQuery={activeMessageSearchQuery}
                 searchResults={data.messageSearchResults}
               />
             )}
             {!canSendMessage ? (
-              <div className="permission-note">Tài khoản hiện tại chưa có quyền gửi tin nhắn trong workspace này.</div>
+              <div className="permission-note">Tài khoản hiện tại chưa có quyền gửi tin nhắn trong cuộc trò chuyện này.</div>
             ) : null}
             <div className="composer-wrap">
               {uploadQueue.items.length ? (
@@ -985,8 +1211,13 @@ export function ChatWorkspace() {
                   onRetry={uploadQueue.retry}
                 />
               ) : null}
-              {draft.trim() ? <TypingDots label="Bạn đang nhập tin nhắn" /> : null}
+              {remoteTypingLabel ? <TypingDots label={remoteTypingLabel} /> : null}
               <form className="composer" onSubmit={handleSendMessage}>
+                {isRecording ? (
+                  <div className="recording-status" role="status">
+                    <span /> Đang ghi {formatRecordingTime(recordingSeconds)}
+                  </div>
+                ) : null}
                 <Tooltip label="Thêm nội dung">
                   <Button aria-label="Thêm nội dung" type="button" variant="icon">
                     <Plus size={20} />
@@ -996,7 +1227,8 @@ export function ChatWorkspace() {
                   <input
                     aria-label="Nhập tin nhắn"
                     disabled={data.sendMessageMutation.isPending || !canSendMessage}
-                    onChange={(event) => setDraft(event.target.value)}
+                    onChange={(event) => handleDraftChange(event.target.value)}
+                    onPaste={handleComposerPaste}
                     placeholder="Nhập tin nhắn..."
                     value={draft}
                   />
@@ -1074,37 +1306,34 @@ export function ChatWorkspace() {
               <MessageCircle size={36} />
             </span>
             <h2>Chọn một cuộc trò chuyện</h2>
-            <p>Tạo workspace, chọn kênh hoặc tìm bạn bè để bắt đầu nhắn tin.</p>
+            <p>Chọn hội thoại, kênh hoặc tìm bạn bè để bắt đầu nhắn tin.</p>
           </div>
         )}
       </section>
 
-      {activeRailItem === "messages" ? (
+      {activeRailItem === "messages" && (!data.selectedChannel || data.canAccessSelectedChannel) ? (
         <RightDetailPanel
           activeTab={detailTab}
           files={data.files}
           isLoading={data.filesQuery.isLoading}
+          isSendingThread={data.sendThreadMessageMutation.isPending}
           isThreadLoading={data.threadQuery.isLoading}
           mediaItems={data.mediaItems}
           onCloseThread={() => setThreadMessageId(null)}
           onFileSelect={handleDownload}
+          onResolveMedia={data.downloadAttachment}
+          onSendThread={(body) =>
+            data.sendThreadMessageMutation.mutate(body, {
+              onError: (error) => setToast(error instanceof Error ? error.message : "Không gửi được trả lời."),
+              onSuccess: () => setToast("Đã gửi trả lời trong luồng.")
+            })
+          }
           onTabChange={setDetailTab}
           pinnedMessages={pinnedMessages}
           threadMessages={data.threadMessages}
           threadMessageId={threadMessageId}
         />
-      ) : (
-        <WorkspaceSummaryPanel
-          activeRailItem={activeRailItem}
-          apiStatus={apiStatus.status}
-          channelsCount={data.channels.length}
-          contactsCount={data.contacts.length}
-          directConversations={data.directConversations}
-          filesCount={data.files.length}
-          notificationsUnread={notificationBadgeCount}
-          workspaceName={data.selectedWorkspace?.name}
-        />
-      )}
+      ) : null}
 
       {toast ? (
         <div className="toast-stack">
@@ -1120,22 +1349,94 @@ export function ChatWorkspace() {
   );
 }
 
+function SidebarContextPanel({
+  activeRailItem,
+  onOpenMessages
+}: {
+  activeRailItem: RailItemId;
+  onOpenMessages: () => void;
+}) {
+  const config: Record<RailItemId, { description: string; title: string }> = {
+    automation: {
+      description: "Tự động hóa và webhook cho nhóm làm việc.",
+      title: "Automation"
+    },
+    bots: {
+      description: "Bot hỗ trợ kênh, thông báo và quy trình nội bộ.",
+      title: "Bot"
+    },
+    channels: {
+      description: "Không gian nhóm và kênh dùng chung.",
+      title: "Kênh"
+    },
+    contacts: {
+      description: "Tìm bạn bè bằng email, số điện thoại hoặc tên đăng nhập.",
+      title: "Bạn bè"
+    },
+    departments: {
+      description: "Tổ chức thành viên theo nhóm và phòng ban trong workspace.",
+      title: "Phòng ban"
+    },
+    files: {
+      description: "File và hình ảnh được chia sẻ gần đây.",
+      title: "File"
+    },
+    messages: {
+      description: "Hội thoại riêng và kênh đang hoạt động.",
+      title: "Tin nhắn"
+    },
+    settings: {
+      description: "Hồ sơ, giao diện và quyền riêng tư.",
+      title: "Cài đặt"
+    },
+    tickets: {
+      description: "Theo dõi yêu cầu hỗ trợ và sự cố nội bộ.",
+      title: "Ticket"
+    }
+  };
+  const current = config[activeRailItem];
+
+  return (
+    <div className="sidebar-context-panel">
+      <div>
+        <span className="section-label">Đang xem</span>
+        <h2>{current.title}</h2>
+        <p>{current.description}</p>
+      </div>
+      <Button onClick={onOpenMessages} size="sm" variant="secondary">
+        <MessageCircle size={15} />
+        Quay lại tin nhắn
+      </Button>
+    </div>
+  );
+}
+
 function WorkspaceSectionPage({
   activeRailItem,
-  apiStatus,
+  canManageDepartments,
   canCreateChannel,
   channels,
   contacts,
   currentUser,
+  departments,
   files,
   friendSearchQuery,
   isCreatingDirectConversation,
+  isCreatingDepartment,
   isLoadingChannels,
   isLoadingContacts,
+  isLoadingDepartments,
   isLoadingFiles,
+  isMutatingChannelMembership,
   isUpdatingProfile,
+  joinRequestsByChannelId,
+  onApproveChannelJoin,
   onChannelSelect,
+  onCreateDepartment,
   onDownloadFile,
+  onInviteChannelMember,
+  onRejectChannelJoin,
+  onRequestChannelJoin,
   onFriendSearchChange,
   onProfileSubmit,
   onSecondaryContactAction,
@@ -1143,23 +1444,33 @@ function WorkspaceSectionPage({
   onThemeToggle,
   theme,
   workspaceId,
-  workspaceName
+  workspaceMembers
 }: {
   activeRailItem: RailItemId;
-  apiStatus: string;
+  canManageDepartments: boolean;
   canCreateChannel: boolean;
   channels: ChatChannel[];
   contacts: ContactResult[];
   currentUser: ChatUser;
+  departments: Department[];
   files: FileItem[];
   friendSearchQuery: string;
   isCreatingDirectConversation: boolean;
+  isCreatingDepartment: boolean;
   isLoadingChannels: boolean;
   isLoadingContacts: boolean;
+  isLoadingDepartments: boolean;
   isLoadingFiles: boolean;
+  isMutatingChannelMembership: boolean;
   isUpdatingProfile: boolean;
+  joinRequestsByChannelId: Map<string, ChannelMember[]>;
+  onApproveChannelJoin: (channelId: string, userId: string) => void;
   onChannelSelect: (channelId: string) => void;
+  onCreateDepartment: (input: CreateDepartmentPayload) => void;
   onDownloadFile: (file: FileItem) => void;
+  onInviteChannelMember: (channelId: string, userId: string) => void;
+  onRejectChannelJoin: (channelId: string, userId: string) => void;
+  onRequestChannelJoin: (channelId: string) => void;
   onFriendSearchChange: (value: string) => void;
   onProfileSubmit: (input: {
     avatar_url?: string | null;
@@ -1171,7 +1482,7 @@ function WorkspaceSectionPage({
   onThemeToggle: () => void;
   theme: "dark" | "light";
   workspaceId?: string;
-  workspaceName?: string;
+  workspaceMembers: WorkspaceMember[];
 }) {
   if (activeRailItem === "contacts") {
     return (
@@ -1184,7 +1495,6 @@ function WorkspaceSectionPage({
         onStartConversation={onStartConversation}
         query={friendSearchQuery}
         workspaceId={workspaceId}
-        workspaceName={workspaceName}
       />
     );
   }
@@ -1195,26 +1505,42 @@ function WorkspaceSectionPage({
         canCreateChannel={canCreateChannel}
         channels={channels}
         isLoading={isLoadingChannels}
+        isMutatingMembership={isMutatingChannelMembership}
+        joinRequestsByChannelId={joinRequestsByChannelId}
+        onApproveJoin={onApproveChannelJoin}
         onChannelSelect={onChannelSelect}
-        workspaceName={workspaceName}
+        onInviteMember={onInviteChannelMember}
+        onRejectJoin={onRejectChannelJoin}
+        onRequestJoin={onRequestChannelJoin}
+        workspaceMembers={workspaceMembers}
+      />
+    );
+  }
+
+  if (activeRailItem === "departments") {
+    return (
+      <DepartmentsPage
+        canManage={canManageDepartments}
+        departments={departments}
+        isCreating={isCreatingDepartment}
+        isLoading={isLoadingDepartments}
+        onCreate={onCreateDepartment}
       />
     );
   }
 
   if (activeRailItem === "files") {
-    return <FilesPage files={files} isLoading={isLoadingFiles} onDownloadFile={onDownloadFile} workspaceName={workspaceName} />;
+    return <FilesPage files={files} isLoading={isLoadingFiles} onDownloadFile={onDownloadFile} />;
   }
 
   if (activeRailItem === "settings") {
     return (
       <SettingsPage
-        apiStatus={apiStatus}
         currentUser={currentUser}
         isUpdatingProfile={isUpdatingProfile}
         onProfileSubmit={onProfileSubmit}
         onThemeToggle={onThemeToggle}
         theme={theme}
-        workspaceName={workspaceName}
       />
     );
   }
@@ -1230,8 +1556,7 @@ function ContactsPage({
   onSecondaryAction,
   onStartConversation,
   query,
-  workspaceId,
-  workspaceName
+  workspaceId
 }: {
   contacts: ContactResult[];
   isCreatingDirectConversation: boolean;
@@ -1241,7 +1566,6 @@ function ContactsPage({
   onStartConversation: (contact: ContactResult) => void;
   query: string;
   workspaceId?: string;
-  workspaceName?: string;
 }) {
   const isSearching = query.trim().length >= 2;
 
@@ -1249,7 +1573,7 @@ function ContactsPage({
     <div className="workspace-page contacts-page">
       <header className="workspace-page__header">
         <div>
-          <span className="workspace-page__eyebrow">{workspaceName ?? "Workspace"}</span>
+          <span className="workspace-page__eyebrow">Danh bạ</span>
           <h1>Bạn bè</h1>
           <p>Tìm người dùng bằng email, tên đăng nhập hoặc số điện thoại, gửi lời mời kết bạn rồi nhắn tin riêng.</p>
         </div>
@@ -1323,12 +1647,12 @@ function ContactsPage({
         <EmptyState
           description={
             !workspaceId
-              ? "Tạo hoặc chọn workspace trước khi mở hội thoại riêng."
+              ? "Đang chuẩn bị dữ liệu để mở hội thoại riêng."
               : isSearching
                 ? "Không tìm thấy người dùng phù hợp với từ khóa này."
                 : "Nhập email, tên đăng nhập hoặc số điện thoại để tìm bạn bè."
           }
-          title={!workspaceId ? "Chưa có workspace" : isSearching ? "Không có kết quả" : "Tìm bạn bè để bắt đầu"}
+          title={!workspaceId ? "Đang chuẩn bị" : isSearching ? "Không có kết quả" : "Tìm bạn bè để bắt đầu"}
         />
       )}
     </div>
@@ -1365,24 +1689,36 @@ function ChannelsDirectoryPage({
   canCreateChannel,
   channels,
   isLoading,
+  isMutatingMembership,
+  joinRequestsByChannelId,
+  onApproveJoin,
   onChannelSelect,
-  workspaceName
+  onInviteMember,
+  onRejectJoin,
+  onRequestJoin,
+  workspaceMembers
 }: {
   canCreateChannel: boolean;
   channels: ChatChannel[];
   isLoading: boolean;
+  isMutatingMembership: boolean;
+  joinRequestsByChannelId: Map<string, ChannelMember[]>;
+  onApproveJoin: (channelId: string, userId: string) => void;
   onChannelSelect: (channelId: string) => void;
-  workspaceName?: string;
+  onInviteMember: (channelId: string, userId: string) => void;
+  onRejectJoin: (channelId: string, userId: string) => void;
+  onRequestJoin: (channelId: string) => void;
+  workspaceMembers: WorkspaceMember[];
 }) {
   return (
     <div className="workspace-page">
       <header className="workspace-page__header">
         <div>
-          <span className="workspace-page__eyebrow">{workspaceName ?? "Workspace"}</span>
+          <span className="workspace-page__eyebrow">Kênh & bot</span>
           <h1>Kênh</h1>
-          <p>Danh sách kênh được tải trực tiếp từ API backend.</p>
+          <p>Kênh dùng cho nhóm, bot và thông báo chung.</p>
         </div>
-        <Badge tone={canCreateChannel ? "green" : "orange"}>{canCreateChannel ? "Có quyền tạo kênh" : "Chỉ xem"}</Badge>
+        <Badge tone={canCreateChannel ? "green" : "orange"}>{canCreateChannel ? "Có thể tạo kênh" : "Chỉ xem"}</Badge>
       </header>
 
       {isLoading ? (
@@ -1390,14 +1726,36 @@ function ChannelsDirectoryPage({
       ) : channels.length ? (
         <div className="workspace-grid-list">
           {channels.map((channel) => (
-            <button className="workspace-tile" key={channel.id} onClick={() => onChannelSelect(channel.id)} type="button">
+            <article className="workspace-tile" key={channel.id}>
               <span className={`channel-hash channel-hash--${channel.tone}`}>
                 <Hash size={20} />
               </span>
               <strong>{channel.name}</strong>
               <p>{channel.description}</p>
               <small>{channel.memberCount} thành viên · {channel.unreadCount} chưa đọc</small>
-            </button>
+              {channel.isMember ? (
+                <Button onClick={() => onChannelSelect(channel.id)} size="sm">
+                  <MessageCircle size={16} /> Mở kênh
+                </Button>
+              ) : channel.membershipStatus === "invited" ? (
+                <Button disabled size="sm" variant="secondary">Đang chờ chủ kênh duyệt</Button>
+              ) : (
+                <Button disabled={isMutatingMembership} onClick={() => onRequestJoin(channel.id)} size="sm" variant="secondary">
+                  <Users size={16} /> Yêu cầu tham gia
+                </Button>
+              )}
+              {channel.canManage ? (
+                <ChannelMembershipManager
+                  channel={channel}
+                  isPending={isMutatingMembership}
+                  joinRequests={joinRequestsByChannelId.get(channel.id) ?? []}
+                  onApprove={onApproveJoin}
+                  onInvite={onInviteMember}
+                  onReject={onRejectJoin}
+                  workspaceMembers={workspaceMembers}
+                />
+              ) : null}
+            </article>
           ))}
         </div>
       ) : (
@@ -1407,24 +1765,154 @@ function ChannelsDirectoryPage({
   );
 }
 
+function ChannelMembershipManager({
+  channel,
+  isPending,
+  joinRequests,
+  onApprove,
+  onInvite,
+  onReject,
+  workspaceMembers
+}: {
+  channel: ChatChannel;
+  isPending: boolean;
+  joinRequests: ChannelMember[];
+  onApprove: (channelId: string, userId: string) => void;
+  onInvite: (channelId: string, userId: string) => void;
+  onReject: (channelId: string, userId: string) => void;
+  workspaceMembers: WorkspaceMember[];
+}) {
+  const [userId, setUserId] = useState("");
+
+  return (
+    <details className="channel-membership-manager">
+      <summary>Quản lý thành viên {joinRequests.length ? `(${joinRequests.length} chờ duyệt)` : ""}</summary>
+      <div className="channel-invite-row">
+        <select aria-label={`Chọn thành viên mời vào ${channel.name}`} onChange={(event) => setUserId(event.target.value)} value={userId}>
+          <option value="">Chọn thành viên workspace</option>
+          {workspaceMembers.map((member) => (
+            <option key={member.user_id} value={member.user_id}>
+              {member.display_name || member.username || member.email || member.user_id}
+            </option>
+          ))}
+        </select>
+        <Button disabled={isPending || !userId} onClick={() => { onInvite(channel.id, userId); setUserId(""); }} size="sm" type="button">
+          Mời vào kênh
+        </Button>
+      </div>
+      {joinRequests.length ? (
+        <div className="channel-join-requests">
+          {joinRequests.map((request) => (
+            <article key={request.user_id}>
+              <span><strong>{request.display_name || request.username || request.email || "Người dùng"}</strong><small>Yêu cầu tham gia</small></span>
+              <Button disabled={isPending} onClick={() => onApprove(channel.id, request.user_id)} size="sm">Duyệt</Button>
+              <Button disabled={isPending} onClick={() => onReject(channel.id, request.user_id)} size="sm" variant="ghost">Từ chối</Button>
+            </article>
+          ))}
+        </div>
+      ) : <small>Chưa có yêu cầu tham gia mới.</small>}
+    </details>
+  );
+}
+
+function DepartmentsPage({
+  canManage,
+  departments,
+  isCreating,
+  isLoading,
+  onCreate
+}: {
+  canManage: boolean;
+  departments: Department[];
+  isCreating: boolean;
+  isLoading: boolean;
+  onCreate: (input: CreateDepartmentPayload) => void;
+}) {
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [description, setDescription] = useState("");
+  const [parentId, setParentId] = useState("");
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanName = name.trim();
+    if (!cleanName) {
+      return;
+    }
+    onCreate({
+      description: description.trim(),
+      name: cleanName,
+      parent_id: parentId || undefined,
+      slug: slugify(slug || cleanName)
+    });
+    setName("");
+    setSlug("");
+    setDescription("");
+    setParentId("");
+    setIsFormOpen(false);
+  }
+
+  return (
+    <div className="workspace-page departments-page">
+      <header className="workspace-page__header">
+        <div>
+          <span className="workspace-page__eyebrow">Tổ chức</span>
+          <h1>Phòng ban</h1>
+          <p>Tạo nhóm phòng ban và cấu trúc phòng ban con cho workspace.</p>
+        </div>
+        <Button disabled={!canManage} onClick={() => setIsFormOpen((current) => !current)} size="sm">
+          <Plus size={16} /> Tạo phòng ban
+        </Button>
+      </header>
+
+      {isFormOpen ? (
+        <form className="department-create-form" onSubmit={handleSubmit}>
+          <label>Tên phòng ban<input onChange={(event) => { setName(event.target.value); setSlug((current) => current || slugify(event.target.value)); }} placeholder="Ví dụ: Kinh doanh" required value={name} /></label>
+          <label>Slug<input onChange={(event) => setSlug(event.target.value)} placeholder="kinh-doanh" required value={slug} /></label>
+          <label>Thuộc phòng ban<select onChange={(event) => setParentId(event.target.value)} value={parentId}><option value="">Không có phòng ban cha</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="department-create-form__description">Mô tả<textarea onChange={(event) => setDescription(event.target.value)} placeholder="Chức năng của phòng ban" value={description} /></label>
+          <div><Button disabled={isCreating || !name.trim() || !slug.trim()} size="sm" type="submit">{isCreating ? "Đang tạo..." : "Tạo phòng ban"}</Button><Button onClick={() => setIsFormOpen(false)} size="sm" type="button" variant="ghost">Hủy</Button></div>
+        </form>
+      ) : null}
+
+      {isLoading ? (
+        <PanelSkeleton />
+      ) : !canManage ? (
+        <EmptyState description="Bạn cần quyền quản lý workspace để xem và tạo phòng ban." title="Không có quyền quản lý phòng ban" />
+      ) : departments.length ? (
+        <div className="department-grid">
+          {departments.map((department) => (
+            <article key={department.id}>
+              <span><Users size={19} /></span>
+              <div><strong>{department.name}</strong><small>#{department.slug}</small><p>{department.description || "Chưa có mô tả"}</p></div>
+              {department.parent_id ? <Badge tone="slate">Phòng ban con</Badge> : <Badge tone="blue">Phòng ban</Badge>}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <EmptyState description="Tạo phòng ban đầu tiên để tổ chức thành viên theo đội nhóm." title="Chưa có phòng ban" />
+      )}
+    </div>
+  );
+}
+
 function FilesPage({
   files,
   isLoading,
-  onDownloadFile,
-  workspaceName
+  onDownloadFile
 }: {
   files: FileItem[];
   isLoading: boolean;
   onDownloadFile: (file: FileItem) => void;
-  workspaceName?: string;
 }) {
   return (
     <div className="workspace-page">
       <header className="workspace-page__header">
         <div>
-          <span className="workspace-page__eyebrow">{workspaceName ?? "Workspace"}</span>
+          <span className="workspace-page__eyebrow">Tệp tin</span>
           <h1>File</h1>
-          <p>File gần đây được tải từ API lưu trữ của backend.</p>
+          <p>File, hình ảnh và tài liệu gần đây.</p>
         </div>
         <Badge tone="blue">{files.length} file</Badge>
       </header>
@@ -1449,22 +1937,19 @@ function FilesPage({
           ))}
         </div>
       ) : (
-        <EmptyState description="Backend chưa trả về file cho workspace này." title="Chưa có file" />
+        <EmptyState description="Chưa có file được chia sẻ trong các cuộc trò chuyện." title="Chưa có file" />
       )}
     </div>
   );
 }
 
 function SettingsPage({
-  apiStatus,
   currentUser,
   isUpdatingProfile,
   onProfileSubmit,
   onThemeToggle,
-  theme,
-  workspaceName
+  theme
 }: {
-  apiStatus: string;
   currentUser: ChatUser;
   isUpdatingProfile: boolean;
   onProfileSubmit: (input: {
@@ -1474,8 +1959,35 @@ function SettingsPage({
   }) => void;
   onThemeToggle: () => void;
   theme: "dark" | "light";
-  workspaceName?: string;
 }) {
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarValue, setAvatarValue] = useState(currentUser.avatarUrl ?? "");
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
+  useEffect(() => setAvatarValue(currentUser.avatarUrl ?? ""), [currentUser.avatarUrl]);
+
+  async function handleAvatarFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setAvatarError("Vui lòng chọn file ảnh.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setAvatarError("Ảnh đại diện không được vượt quá 8 MB.");
+      return;
+    }
+    try {
+      setAvatarValue(await resizeAvatarFile(file));
+      setAvatarError(null);
+    } catch {
+      setAvatarError("Không đọc được ảnh đã chọn.");
+    }
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -1490,17 +2002,16 @@ function SettingsPage({
     <div className="workspace-page">
       <header className="workspace-page__header">
         <div>
-          <span className="workspace-page__eyebrow">{workspaceName ?? "Chưa có workspace"}</span>
+          <span className="workspace-page__eyebrow">Tài khoản</span>
           <h1>Cài đặt</h1>
-          <p>Cấu hình trải nghiệm giao diện và trạng thái kết nối frontend.</p>
+          <p>Quản lý hồ sơ cá nhân, quyền riêng tư và giao diện hiển thị.</p>
         </div>
-        <Badge tone={apiStatus === "online" ? "green" : "orange"}>{apiStatus === "online" ? "API sẵn sàng" : "Đang kiểm tra API"}</Badge>
       </header>
 
       <div className="settings-grid">
         <section className="settings-card settings-card--profile">
           <div>
-            <Avatar name={currentUser.name} src={currentUser.avatarUrl} status={currentUser.status} />
+            <Avatar name={currentUser.name} size="lg" src={avatarValue || undefined} status={currentUser.status} />
             <h2>Hồ sơ cá nhân</h2>
           </div>
           <form className="profile-form" onSubmit={handleSubmit}>
@@ -1508,10 +2019,27 @@ function SettingsPage({
               Tên hiển thị
               <input defaultValue={currentUser.name} name="display_name" placeholder="Tên của bạn" />
             </label>
-            <label>
-              Ảnh đại diện
-              <input defaultValue={currentUser.avatarUrl ?? ""} name="avatar_url" placeholder="https://..." />
-            </label>
+            <div className="avatar-upload-field">
+              <span>Ảnh đại diện</span>
+              <div>
+                <Avatar name={currentUser.name} size="lg" src={avatarValue || undefined} />
+                <span>
+                  <Button onClick={() => avatarInputRef.current?.click()} size="sm" type="button" variant="secondary">
+                    <ImageIcon size={16} /> Chọn ảnh từ máy
+                  </Button>
+                  <small>JPG, PNG hoặc WebP · tối đa 8 MB</small>
+                </span>
+              </div>
+              <input
+                accept="image/*"
+                className="visually-hidden"
+                onChange={handleAvatarFile}
+                ref={avatarInputRef}
+                type="file"
+              />
+              <input name="avatar_url" onChange={(event) => setAvatarValue(event.target.value)} placeholder="Hoặc dán URL ảnh..." value={avatarValue} />
+              {avatarError ? <small className="profile-form__error">{avatarError}</small> : null}
+            </div>
             <label>
               Số điện thoại
               <input name="phone_number" placeholder="Số điện thoại nội bộ" />
@@ -1524,9 +2052,9 @@ function SettingsPage({
         <section className="settings-card">
           <div>
             <ShieldCheck size={22} />
-            <h2>Bảo mật phiên</h2>
+            <h2>Quyền riêng tư</h2>
           </div>
-          <p>Token đăng nhập được dùng cho API production và realtime theo cấu hình hiện tại.</p>
+          <p>Tài khoản của bạn được bảo vệ trong phiên làm việc hiện tại.</p>
         </section>
         <section className="settings-card">
           <div>
@@ -1538,38 +2066,59 @@ function SettingsPage({
             Chuyển chế độ
           </Button>
         </section>
-        <section className="settings-card">
-          <div>
-            <Cloud size={22} />
-            <h2>API backend</h2>
-          </div>
-          <p>Frontend đang sử dụng endpoint production đã triển khai.</p>
-        </section>
       </div>
     </div>
   );
 }
 
+function resizeAvatarFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const source = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      const maxSize = 320;
+      const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) {
+        URL.revokeObjectURL(source);
+        reject(new Error("Canvas is not available"));
+        return;
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(source);
+      resolve(canvas.toDataURL("image/jpeg", 0.86));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(source);
+      reject(new Error("Image could not be loaded"));
+    };
+    image.src = source;
+  });
+}
+
 function OperationalPage({ activeRailItem }: { activeRailItem: RailItemId }) {
   const pageConfig: Partial<Record<RailItemId, { description: string; icon: typeof Ticket; title: string }>> = {
     automation: {
-      description: "Khu vực webhook, luồng tự động và module runner sẽ cần endpoint quản trị tương ứng từ backend.",
+      description: "Tự động hóa các tác vụ lặp lại, kết nối webhook và quy trình nội bộ.",
       icon: Workflow,
       title: "Automation"
     },
     bots: {
-      description: "Trang bot đã sẵn sàng khung UI, chờ API bot token, bot profile và message webhook.",
+      description: "Quản lý trợ lý tự động cho kênh, thông báo và các luồng hỗ trợ nội bộ.",
       icon: Bot,
       title: "Bot"
     },
     tickets: {
-      description: "Ticket nội bộ cần API ticket hoặc tích hợp hệ thống ticket trước khi thao tác production.",
+      description: "Theo dõi yêu cầu hỗ trợ, sự cố và công việc cần xử lý.",
       icon: Ticket,
       title: "Ticket"
     }
   };
   const config = pageConfig[activeRailItem] ?? {
-    description: "Màn hình này đang chờ API backend tương ứng.",
+    description: "Màn hình này đang được hoàn thiện cho quy trình làm việc nội bộ.",
     icon: Archive,
     title: "Chức năng"
   };
@@ -1579,95 +2128,18 @@ function OperationalPage({ activeRailItem }: { activeRailItem: RailItemId }) {
     <div className="workspace-page">
       <header className="workspace-page__header">
         <div>
-          <span className="workspace-page__eyebrow">Chưa có dữ liệu giả</span>
+          <span className="workspace-page__eyebrow">Đang hoàn thiện</span>
           <h1>{config.title}</h1>
           <p>{config.description}</p>
         </div>
-        <Badge tone="orange">Chờ API</Badge>
+        <Badge tone="orange">Sắp có</Badge>
       </header>
       <section className="operational-empty">
         <Icon size={42} />
-        <h2>Đã có khung giao diện</h2>
-        <p>Khi backend bổ sung endpoint, trang này có thể gắn query/mutation theo cùng pattern đang dùng cho chat, file và thông báo.</p>
+        <h2>Tính năng đang được hoàn thiện</h2>
+        <p>WebTui Chat sẽ mở phần này khi quy trình sử dụng đã sẵn sàng cho người dùng.</p>
       </section>
     </div>
-  );
-}
-
-function WorkspaceSummaryPanel({
-  activeRailItem,
-  apiStatus,
-  channelsCount,
-  contactsCount,
-  directConversations,
-  filesCount,
-  notificationsUnread,
-  workspaceName
-}: {
-  activeRailItem: RailItemId;
-  apiStatus: string;
-  channelsCount: number;
-  contactsCount: number;
-  directConversations: ChatWorkspaceData["directConversations"];
-  filesCount: number;
-  notificationsUnread: number;
-  workspaceName?: string;
-}) {
-  const label = railItems.find((item) => item.id === activeRailItem)?.label ?? "Workspace";
-
-  return (
-    <aside className="detail-panel workspace-summary-panel" aria-label="Tóm tắt workspace">
-      <header>
-        <span>{workspaceName ?? "Chưa có workspace"}</span>
-        <h2>{label}</h2>
-        <p>Dữ liệu hiển thị từ API backend hiện có.</p>
-      </header>
-
-      <div className="summary-stat-grid">
-        <article>
-          <Users size={18} />
-          <strong>{contactsCount}</strong>
-          <span>Thành viên</span>
-        </article>
-        <article>
-          <Hash size={18} />
-          <strong>{channelsCount}</strong>
-          <span>Kênh</span>
-        </article>
-        <article>
-          <Bell size={18} />
-          <strong>{notificationsUnread}</strong>
-          <span>Chưa đọc</span>
-        </article>
-        <article>
-          <FileText size={18} />
-          <strong>{filesCount}</strong>
-          <span>File</span>
-        </article>
-      </div>
-
-      <section className="summary-card">
-        <h3>Trạng thái API</h3>
-        <Badge tone={apiStatus === "online" ? "green" : "orange"}>{apiStatus === "online" ? "Sẵn sàng" : "Đang kiểm tra"}</Badge>
-      </section>
-
-      <section className="summary-card">
-        <h3>Hội thoại gần đây</h3>
-        {directConversations.slice(0, 4).length ? (
-          directConversations.slice(0, 4).map((conversation) => (
-            <div className="summary-conversation" key={conversation.id}>
-              <Avatar name={conversation.user.name} size="sm" src={conversation.user.avatarUrl} />
-              <span>
-                <strong>{conversation.user.name}</strong>
-                <small>{conversation.lastMessage}</small>
-              </span>
-            </div>
-          ))
-        ) : (
-          <p>Chưa có hội thoại riêng từ API.</p>
-        )}
-      </section>
-    </aside>
   );
 }
 
@@ -1745,7 +2217,14 @@ function CreateChannelForm({
   );
 }
 
-const quickEmojis = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "✅", "🎉", "🤝", "😊", "💪"];
+const quickEmojis = [
+  "😀", "😃", "😄", "😁", "😆", "🥹", "😂", "🤣", "😊", "😍", "🥰", "😘",
+  "😎", "🤓", "🧐", "🤩", "🥳", "😇", "🙂", "🙃", "😉", "😌", "😋", "🤗",
+  "🤔", "🤭", "🫢", "😮", "😲", "😴", "🥱", "😢", "😭", "😤", "😡", "🤯",
+  "👍", "👎", "👏", "🙌", "🙏", "🤝", "💪", "✌️", "👌", "🤞", "🫶", "👀",
+  "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "💔", "💯", "✨", "🔥",
+  "✅", "❌", "❓", "⚠️", "🎉", "🎊", "🎁", "🏆", "🚀", "💡", "📌", "💬"
+];
 
 function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
   return (
@@ -1762,6 +2241,7 @@ function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
 function TypingDots({ label }: { label: string }) {
   return (
     <div className="typing-dots" aria-label={label}>
+      <small>{label}</small>
       <span />
       <span />
       <span />
@@ -1770,9 +2250,13 @@ function TypingDots({ label }: { label: string }) {
 }
 
 function ChatHeader({
-  channel
+  channel,
+  isSearchOpen,
+  onToggleSearch
 }: {
   channel: ChatChannel;
+  isSearchOpen: boolean;
+  onToggleSearch: () => void;
 }) {
   return (
     <header className="chat-header">
@@ -1788,7 +2272,13 @@ function ChatHeader({
           <Users size={18} /> {channel.memberCount}
         </span>
         <Tooltip label="Tìm kiếm">
-          <Button aria-label="Tìm kiếm" variant="icon">
+          <Button
+            aria-label={isSearchOpen ? "Đóng tìm kiếm" : "Tìm kiếm"}
+            className={isSearchOpen ? "chat-action-active" : undefined}
+            onClick={onToggleSearch}
+            type="button"
+            variant="icon"
+          >
             <Search size={19} />
           </Button>
         </Tooltip>
@@ -1807,30 +2297,33 @@ function ChatHeader({
   );
 }
 
-function RealtimeStatusPill({ status }: { status: RealtimeConnectionStatus }) {
-  const labels: Record<RealtimeConnectionStatus, string> = {
-    connected: "Realtime đang kết nối",
-    connecting: "Đang kết nối realtime",
-    idle: "Realtime chờ phiên",
-    offline: "Realtime ngoại tuyến",
-    reconnecting: "Đang nối lại realtime"
-  };
-  const Icon = status === "connected" ? Wifi : WifiOff;
+function ChannelAccessView({
+  channel,
+  isPending,
+  onRequestJoin
+}: {
+  channel: ChatChannel;
+  isPending: boolean;
+  onRequestJoin: () => void;
+}) {
+  const isWaiting = channel.membershipStatus === "invited";
 
   return (
-    <span className={`realtime-status realtime-status--${status}`}>
-      <Icon size={16} />
-      {labels[status]}
-    </span>
-  );
-}
-
-function PresenceStatusPill({ onlineCount }: { onlineCount: number }) {
-  return (
-    <span className="presence-status-pill">
-      <Users size={16} />
-      {onlineCount ? `${onlineCount} đang online` : "Đang đồng bộ hiện diện"}
-    </span>
+    <div className="channel-access-view">
+      <ChatHeader channel={channel} isSearchOpen={false} onToggleSearch={() => undefined} />
+      <section>
+        <span><ShieldCheck size={30} /></span>
+        <h2>{isWaiting ? "Yêu cầu đang chờ phê duyệt" : "Bạn chưa tham gia kênh này"}</h2>
+        <p>
+          {isWaiting
+            ? "Chủ kênh cần phê duyệt trước khi bạn có thể xem và gửi tin nhắn."
+            : "Nội dung kênh chỉ hiển thị cho thành viên đã được chủ kênh phê duyệt."}
+        </p>
+        <Button disabled={isPending || isWaiting} onClick={onRequestJoin}>
+          {isPending ? "Đang gửi..." : isWaiting ? "Đang chờ duyệt" : "Yêu cầu tham gia kênh"}
+        </Button>
+      </section>
+    </div>
   );
 }
 
@@ -1919,7 +2412,7 @@ function NotificationDropdown({
           ))}
         </div>
       ) : !contactRequests.length ? (
-        <EmptyState description="Backend chưa trả về thông báo nào cho workspace này." title="Chưa có thông báo" />
+        <EmptyState description="Bạn chưa có thông báo mới." title="Chưa có thông báo" />
       ) : null}
     </section>
   );
@@ -1943,13 +2436,25 @@ function UploadQueue({
     uploading: "Đang tải"
   };
 
+  const imageCount = items.filter((item) => item.isImage).length;
+
   return (
-    <div className="upload-queue" aria-label="Hàng đợi upload">
+    <div className={imageCount ? "upload-queue upload-queue--media" : "upload-queue"} aria-label="Hàng đợi upload">
+      {imageCount ? (
+        <header className="upload-queue__header">
+          <strong>{imageCount} ảnh</strong>
+          <span>{items.length > imageCount ? `${items.length - imageCount} file khác` : "Sẵn sàng gửi"}</span>
+        </header>
+      ) : null}
       {items.map((item) => (
         <article className={`upload-queue__item upload-queue__item--${item.status}`} key={item.id}>
-          <span className="upload-queue__icon">
-            {item.status === "attached" ? <CheckCircle2 size={16} /> : <Cloud size={16} />}
-          </span>
+          {item.isImage && item.previewUrl ? (
+            <img alt={item.name} className="upload-queue__thumb" src={item.previewUrl} />
+          ) : (
+            <span className="upload-queue__icon">
+              {item.status === "attached" ? <CheckCircle2 size={16} /> : <Cloud size={16} />}
+            </span>
+          )}
           <div>
             <strong>{item.name}</strong>
             <small>
@@ -1984,6 +2489,7 @@ function MessageTimeline({
   onChangeEditingBody,
   onDeleteMessage,
   onDownloadAttachment,
+  onResolveAttachment,
   onLoadOlderMessages,
   onOpenThread,
   onSearchResultSelect,
@@ -2005,6 +2511,7 @@ function MessageTimeline({
   onChangeEditingBody: (value: string) => void;
   onDeleteMessage: (message: ChatMessage) => void;
   onDownloadAttachment: (attachment: MessageAttachmentItem) => void;
+  onResolveAttachment: (fileId: string) => Promise<Blob>;
   onLoadOlderMessages: () => void;
   onOpenThread: (messageId: string) => void;
   onSearchResultSelect: (message: ChatMessage) => void;
@@ -2016,6 +2523,22 @@ function MessageTimeline({
   searchQuery: string;
   searchResults: ChatMessage[];
 }) {
+  const lastMessageId = messages.at(-1)?.id;
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!lastMessageId) {
+      return;
+    }
+
+    bottomRef.current?.scrollIntoView({ behavior: messages.length > 1 ? "smooth" : "auto", block: "end" });
+    const timeout = window.setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    }, 120);
+
+    return () => window.clearTimeout(timeout);
+  }, [lastMessageId, messages.length]);
+
   if (!messages.length) {
     return (
       <div className="message-timeline">
@@ -2024,7 +2547,7 @@ function MessageTimeline({
             {isLoadingOlderMessages ? "Đang tải..." : "Tải tin nhắn cũ"}
           </Button>
         ) : null}
-        <EmptyState description="Tin nhắn từ backend sẽ xuất hiện tại đây." title="Kênh này chưa có tin nhắn" />
+        <EmptyState description="Tin nhắn mới sẽ xuất hiện tại đây." title="Kênh này chưa có tin nhắn" />
       </div>
     );
   }
@@ -2060,7 +2583,10 @@ function MessageTimeline({
       ) : null}
 
       {messages.map((message) => (
-        <article className={message.isMine ? "message-row message-row--local" : "message-row"} key={message.id}>
+        <article
+          className={`${message.isMine ? "message-row message-row--local" : "message-row"}${isImageOnlyMessage(message) ? " message-row--media-only" : ""}`}
+          key={message.id}
+        >
           <Avatar name={message.author.name} src={message.author.avatarUrl} status={message.author.status} />
           <div className="message-row__content">
             <header>
@@ -2117,27 +2643,36 @@ function MessageTimeline({
                   Hủy
                 </Button>
               </form>
-            ) : (
+            ) : shouldRenderMessageBody(message) ? (
               <p>{message.body}</p>
-            )}
+            ) : null}
             {message.attachments?.length ? (
               <div className="attachment-list">
-                {message.attachments.map((attachment) => (
-                  <button
-                    className="attachment-chip"
-                    key={attachment.id}
-                    onClick={() => onDownloadAttachment(attachment)}
-                    type="button"
-                  >
-                    <span className={`file-icon file-icon--${attachment.tone}`}>
-                      <FileText size={16} />
-                    </span>
-                    <span>
-                      <strong>{attachment.name}</strong>
-                      <small>{attachment.size ?? attachment.mimeType ?? "File đính kèm"}</small>
-                    </span>
-                  </button>
-                ))}
+                {message.attachments.map((attachment) =>
+                  attachment.isAudio || attachment.isImage ? (
+                    <AttachmentMedia
+                      attachment={attachment}
+                      key={attachment.id}
+                      onDownload={onDownloadAttachment}
+                      onResolve={onResolveAttachment}
+                    />
+                  ) : (
+                    <button
+                      className="attachment-chip"
+                      key={attachment.id}
+                      onClick={() => onDownloadAttachment(attachment)}
+                      type="button"
+                    >
+                      <span className={`file-icon file-icon--${attachment.tone}`}>
+                        <FileText size={16} />
+                      </span>
+                      <span>
+                        <strong>{attachment.name}</strong>
+                        <small>{attachment.size ?? attachment.mimeType ?? "File đính kèm"}</small>
+                      </span>
+                    </button>
+                  )
+                )}
               </div>
             ) : null}
             {message.reactions?.length ? (
@@ -2155,15 +2690,138 @@ function MessageTimeline({
               </div>
             ) : null}
             {!message.isDeleted ? (
-              <button className="reaction-add-button" onClick={() => onToggleReaction(message, "👍")} type="button">
+              <button
+                aria-label="Thả cảm xúc"
+                className="reaction-add-button"
+                onClick={() => onToggleReaction(message, "👍")}
+                type="button"
+              >
                 <Smile size={15} />
-                Reaction
               </button>
             ) : null}
           </div>
         </article>
       ))}
+      <div ref={bottomRef} aria-hidden="true" />
     </div>
+  );
+}
+
+function AttachmentMedia({
+  attachment,
+  onDownload,
+  onResolve
+}: {
+  attachment: MessageAttachmentItem;
+  onDownload: (attachment: MessageAttachmentItem) => void;
+  onResolve: (fileId: string) => Promise<Blob>;
+}) {
+  const directSource = attachment.previewUrl ?? attachment.url;
+  const [resolvedSource, setResolvedSource] = useState<string | undefined>(directSource ?? getCachedMediaUrl(attachment.fileId));
+
+  useEffect(() => {
+    if (directSource) {
+      setResolvedSource(directSource);
+      return undefined;
+    }
+
+    let disposed = false;
+    void resolveCachedMediaUrl(attachment.fileId, () => onResolve(attachment.fileId))
+      .then((url) => {
+        if (disposed) {
+          return;
+        }
+        setResolvedSource(url);
+      })
+      .catch(() => setResolvedSource(undefined));
+
+    return () => {
+      disposed = true;
+    };
+  }, [attachment.fileId, directSource, onResolve]);
+
+  if (attachment.isAudio) {
+    return (
+      <div className="attachment-audio">
+        <span className="attachment-audio__mic"><Mic size={17} /></span>
+        {resolvedSource ? (
+          <audio controls preload="metadata" src={resolvedSource}>
+            Trình duyệt của bạn không hỗ trợ phát tin nhắn thoại.
+          </audio>
+        ) : <span className="attachment-media-loading">Đang tải voice...</span>}
+      </div>
+    );
+  }
+
+  return (
+    <button className="attachment-image" disabled={!resolvedSource} onClick={() => onDownload(attachment)} type="button">
+      {resolvedSource ? <img alt={attachment.name} decoding="async" loading="lazy" src={resolvedSource} /> : <span className="attachment-media-loading">Đang tải ảnh...</span>}
+      <span>{attachment.name}</span>
+    </button>
+  );
+}
+
+function shouldRenderMessageBody(message: ChatMessage): boolean {
+  if (!message.body.trim()) {
+    return false;
+  }
+
+  const attachments = message.attachments ?? [];
+  const hasOnlyImages = attachments.length > 0 && attachments.every((attachment) => attachment.isImage);
+  if (!hasOnlyImages) {
+    return true;
+  }
+
+  return !/^Đã gửi(?: \d+)? ảnh$/.test(message.body.trim());
+}
+
+function isImageOnlyMessage(message: ChatMessage): boolean {
+  const attachments = message.attachments ?? [];
+  return attachments.length > 0 && attachments.every((attachment) => attachment.isImage) && !shouldRenderMessageBody(message);
+}
+
+function formatRecordingTime(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function MediaGalleryThumbnail({
+  item,
+  onResolve
+}: {
+  item: MediaItem;
+  onResolve: (fileId: string) => Promise<Blob>;
+}) {
+  const [source, setSource] = useState(item.url ?? getCachedMediaUrl(item.id));
+
+  useEffect(() => {
+    if (item.url) {
+      setSource(item.url);
+      return undefined;
+    }
+    let disposed = false;
+    void resolveCachedMediaUrl(item.id, () => onResolve(item.id))
+      .then((url) => {
+        if (!disposed) {
+          setSource(url);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [item.id, item.url, onResolve]);
+
+  return (
+    <span
+      aria-label={item.label}
+      className={source ? "media-file-thumb media-file-thumb--loaded" : "media-file-thumb"}
+      role="img"
+      style={source ? { backgroundImage: `url(${source})` } : undefined}
+    >
+      {!source ? <ImageIcon size={18} /> : null}
+    </span>
   );
 }
 
@@ -2171,10 +2829,13 @@ function RightDetailPanel({
   activeTab,
   files,
   isLoading,
+  isSendingThread,
   isThreadLoading,
   mediaItems,
   onCloseThread,
   onFileSelect,
+  onResolveMedia,
+  onSendThread,
   onTabChange,
   pinnedMessages,
   threadMessageId,
@@ -2183,17 +2844,32 @@ function RightDetailPanel({
   activeTab: DetailTab;
   files: FileItem[];
   isLoading: boolean;
+  isSendingThread: boolean;
   isThreadLoading: boolean;
   mediaItems: MediaItem[];
   onCloseThread: () => void;
   onFileSelect: (file: FileItem) => void;
+  onResolveMedia: (fileId: string) => Promise<Blob>;
+  onSendThread: (body: string) => void;
   onTabChange: (tab: DetailTab) => void;
   pinnedMessages: PinnedMessage[];
   threadMessageId: string | null;
   threadMessages: ChatMessage[];
 }) {
+  const [threadDraft, setThreadDraft] = useState("");
+
+  function handleThreadSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const body = threadDraft.trim();
+    if (!body || isSendingThread) {
+      return;
+    }
+    onSendThread(body);
+    setThreadDraft("");
+  }
+
   return (
-    <aside className="detail-panel" aria-label="Thông tin kênh">
+    <aside className={threadMessageId ? "detail-panel detail-panel--thread-open" : "detail-panel"} aria-label="Thông tin kênh">
       {threadMessageId ? (
         <section className="thread-panel">
           <header>
@@ -2221,8 +2897,19 @@ function RightDetailPanel({
               ))}
             </div>
           ) : (
-            <EmptyState description="Backend chưa trả về tin nhắn trong luồng này." title="Luồng trống" />
+            <EmptyState description="Luồng này chưa có tin nhắn." title="Luồng trống" />
           )}
+          <form className="thread-composer" onSubmit={handleThreadSubmit}>
+            <input
+              aria-label="Trả lời trong luồng"
+              onChange={(event) => setThreadDraft(event.target.value)}
+              placeholder="Trả lời trong luồng..."
+              value={threadDraft}
+            />
+            <Button aria-label="Gửi trả lời" disabled={isSendingThread || !threadDraft.trim()} size="sm" type="submit" variant="icon">
+              <Send size={17} />
+            </Button>
+          </form>
         </section>
       ) : null}
 
@@ -2253,7 +2940,7 @@ function RightDetailPanel({
               </article>
             ))
           ) : (
-            <EmptyState description="Backend chưa trả về danh sách ghim cho kênh này." title="Chưa có tin ghim" />
+            <EmptyState description="Kênh này chưa có tin nhắn được ghim." title="Chưa có tin ghim" />
           )}
         </section>
       ) : null}
@@ -2268,19 +2955,11 @@ function RightDetailPanel({
           ) : mediaItems.length ? (
             <div className="media-grid">
               {mediaItems.map((item) => (
-                <span
-                  aria-label={item.label}
-                  className="media-file-thumb"
-                  key={item.id}
-                  role="img"
-                  style={item.url ? { backgroundImage: `url(${item.url})` } : undefined}
-                >
-                  {!item.url ? item.name.slice(0, 2).toUpperCase() : null}
-                </span>
+                <MediaGalleryThumbnail item={item} key={item.id} onResolve={onResolveMedia} />
               ))}
             </div>
           ) : (
-            <EmptyState description="Chưa có file ảnh nào từ API." title="Chưa có ảnh" />
+            <EmptyState description="Chưa có ảnh nào được chia sẻ." title="Chưa có ảnh" />
           )}
         </section>
       ) : null}
@@ -2307,7 +2986,7 @@ function RightDetailPanel({
               </button>
             ))
           ) : (
-            <EmptyState description="Danh sách file từ backend đang trống." title="Chưa có file" />
+            <EmptyState description="Chưa có file nào được chia sẻ." title="Chưa có file" />
           )}
         </section>
       ) : null}

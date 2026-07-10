@@ -9,6 +9,7 @@ export { createAdminClient } from "./admin-client";
 export { createAuthClient } from "./auth-client";
 export { createChannelsClient } from "./channels-client";
 export { createContactsClient } from "./contacts-client";
+export { createDepartmentsClient } from "./departments-client";
 export type { SendContactRequestInput } from "./contacts-client";
 export { createWebTuiApiClient } from "./client-factory";
 export type { WebTuiApiClient } from "./client-factory";

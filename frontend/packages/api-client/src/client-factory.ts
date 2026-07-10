@@ -2,6 +2,7 @@ import { createAdminClient } from "./admin-client";
 import { createAuthClient } from "./auth-client";
 import { createChannelsClient } from "./channels-client";
 import { createContactsClient } from "./contacts-client";
+import { createDepartmentsClient } from "./departments-client";
 import {
   createApiTokensClient,
   createBackupsClient,
@@ -31,6 +32,7 @@ export function createWebTuiApiClient(options: HttpClientOptions) {
     channels: createChannelsClient(http),
     contacts: createContactsClient(http),
     cronjobs: createCronjobsClient(http),
+    departments: createDepartmentsClient(http),
     files: createFilesClient(http),
     health: createHealthClient(http),
     http,

@@ -12,11 +12,17 @@ export const queryKeys = {
     all: (workspaceId: string) => ["channels", workspaceId] as const,
     detail: (workspaceId: string, channelId: string) => ["channels", workspaceId, channelId] as const,
     directConversations: (workspaceId: string) => ["direct-conversations", workspaceId] as const,
+    joinRequests: (workspaceId: string, channelId: string) => ["channels", workspaceId, channelId, "join-requests"] as const,
     members: (workspaceId: string, channelId: string) => ["channels", workspaceId, channelId, "members"] as const
   },
   contacts: {
     all: ["contacts"] as const,
     requests: (status = "pending") => ["contact-requests", status] as const
+  },
+  departments: {
+    all: (workspaceId: string) => ["departments", workspaceId] as const,
+    detail: (workspaceId: string, departmentId: string) => ["departments", workspaceId, departmentId] as const,
+    members: (workspaceId: string, departmentId: string) => ["departments", workspaceId, departmentId, "members"] as const
   },
   files: {
     all: (workspaceId: string) => ["files", workspaceId] as const,

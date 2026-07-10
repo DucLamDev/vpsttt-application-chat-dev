@@ -62,15 +62,50 @@ WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
 	return scanFile(row)
 }
 
+func (r *Repository) CanAccessFile(ctx context.Context, workspaceID string, fileID string, userID string) (bool, error) {
+	var allowed bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM files f
+    WHERE f.workspace_id = $1::uuid
+      AND f.id = $2::uuid
+      AND f.deleted_at IS NULL
+      AND (
+          f.owner_id = $3::uuid
+          OR EXISTS (
+              SELECT 1
+              FROM message_attachments ma
+              JOIN messages m ON m.workspace_id = ma.workspace_id AND m.id = ma.message_id AND m.deleted_at IS NULL
+              JOIN channel_members cm ON cm.channel_id = m.channel_id AND cm.user_id = $3::uuid AND cm.status IN ('active', 'muted')
+              WHERE ma.workspace_id = f.workspace_id AND ma.file_id = f.id
+          )
+      )
+)
+`, workspaceID, fileID, userID).Scan(&allowed)
+	return allowed, err
+}
+
 func (r *Repository) ListFiles(ctx context.Context, params filesapp.ListFilesParams) ([]filesdomain.File, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT id::text, workspace_id::text, owner_id::text, storage_provider, bucket, object_key,
        original_name, mime_type, byte_size, checksum_sha256, status, metadata::text, created_at, updated_at
 FROM files
-WHERE workspace_id = $1::uuid AND deleted_at IS NULL
+WHERE workspace_id = $1::uuid
+  AND deleted_at IS NULL
+  AND (
+      owner_id = $2::uuid
+      OR EXISTS (
+          SELECT 1
+          FROM message_attachments ma
+          JOIN messages m ON m.workspace_id = ma.workspace_id AND m.id = ma.message_id AND m.deleted_at IS NULL
+          JOIN channel_members cm ON cm.channel_id = m.channel_id AND cm.user_id = $2::uuid AND cm.status IN ('active', 'muted')
+          WHERE ma.workspace_id = files.workspace_id AND ma.file_id = files.id
+      )
+  )
 ORDER BY created_at DESC
-LIMIT $2
-`, params.WorkspaceID, params.Limit)
+LIMIT $3
+`, params.WorkspaceID, params.ActorUserID, params.Limit)
 	if err != nil {
 		return nil, err
 	}

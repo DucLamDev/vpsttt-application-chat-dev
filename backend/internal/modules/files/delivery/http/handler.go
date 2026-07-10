@@ -131,9 +131,13 @@ func (h *Handler) Download(c *gin.Context) {
 	defer download.Body.Close()
 
 	headers := map[string]string{
+		"Cache-Control": "private, max-age=3600",
 		"Content-Disposition": mime.FormatMediaType("attachment", map[string]string{
 			"filename": download.File.OriginalName,
 		}),
+	}
+	if download.File.ChecksumSHA256 != nil && *download.File.ChecksumSHA256 != "" {
+		headers["ETag"] = `"` + *download.File.ChecksumSHA256 + `"`
 	}
 	c.DataFromReader(nethttp.StatusOK, download.File.ByteSize, download.File.MimeType, download.Body, headers)
 }

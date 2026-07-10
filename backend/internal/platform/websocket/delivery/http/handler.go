@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -18,6 +19,11 @@ import (
 type Handler struct {
 	manager *platformws.Manager
 	tokens  *sharedauth.Manager
+	authorizer RoomAuthorizer
+}
+
+type RoomAuthorizer interface {
+	CanJoinRoom(ctx context.Context, userID string, room string) bool
 }
 
 type clientCommand struct {
@@ -25,8 +31,12 @@ type clientCommand struct {
 	Room string `json:"room"`
 }
 
-func NewHandler(manager *platformws.Manager, tokens *sharedauth.Manager) *Handler {
-	return &Handler{manager: manager, tokens: tokens}
+func NewHandler(manager *platformws.Manager, tokens *sharedauth.Manager, authorizers ...RoomAuthorizer) *Handler {
+	handler := &Handler{manager: manager, tokens: tokens}
+	if len(authorizers) > 0 {
+		handler.authorizer = authorizers[0]
+	}
+	return handler
 }
 
 func (h *Handler) RegisterRoutes(router gin.IRouter) {
@@ -156,7 +166,7 @@ func (h *Handler) serve(conn *xwebsocket.Conn, userID string) {
 			}
 			return
 		}
-		h.handleCommand(client.ID, command)
+		h.handleCommand(client, command)
 		select {
 		case <-done:
 			return
@@ -165,16 +175,34 @@ func (h *Handler) serve(conn *xwebsocket.Conn, userID string) {
 	}
 }
 
-func (h *Handler) handleCommand(clientID string, command clientCommand) {
+func (h *Handler) handleCommand(client *platformws.Client, command clientCommand) {
+	if client == nil {
+		return
+	}
 	room := strings.TrimSpace(command.Room)
 	if room == "" {
 		return
 	}
 	switch strings.TrimSpace(command.Type) {
 	case "join":
-		h.manager.Join(room, clientID)
+		if h.authorizer != nil && !h.authorizer.CanJoinRoom(context.Background(), client.UserID, room) {
+			return
+		}
+		h.manager.Join(room, client.ID)
 	case "leave":
-		h.manager.Leave(room, clientID)
+		h.manager.Leave(room, client.ID)
+	case "TypingStarted", "TypingStopped":
+		if !h.manager.IsMember(room, client.ID) {
+			return
+		}
+		_ = h.manager.Broadcast(context.Background(), room, platformws.Event{
+			Type:   strings.TrimSpace(command.Type),
+			Room:   room,
+			UserID: client.UserID,
+			Payload: map[string]any{
+				"user_id": client.UserID,
+			},
+		})
 	}
 }
 

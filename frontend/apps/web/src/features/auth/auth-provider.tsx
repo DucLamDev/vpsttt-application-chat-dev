@@ -7,6 +7,7 @@ import type { AuthUser, LoginInput, RegisterInput } from "@webtui/types";
 import { queryKeys } from "@webtui/api-client";
 import { api } from "@/lib/api";
 import { useAuthStore } from "./auth-store";
+import { clearMediaObjectUrlCache } from "@/features/chat/model/media-cache";
 
 type AuthContextValue = {
   isAuthenticated: boolean;
@@ -74,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: () =>
       refreshToken ? api.auth.logout({ refresh_token: refreshToken }) : Promise.resolve({ status: "ok" }),
     onSettled: () => {
+      clearMediaObjectUrlCache();
       clearSession();
       queryClient.clear();
     }

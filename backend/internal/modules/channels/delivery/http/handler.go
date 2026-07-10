@@ -58,6 +58,10 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.GET("/channels/:channel_id/members", h.ListMembers)
 	private.POST("/channels/:channel_id/members", h.AddMember)
 	private.PATCH("/channels/:channel_id/members/:user_id", h.UpdateMemberStatus)
+	private.POST("/channels/:channel_id/join-requests", h.RequestJoin)
+	private.GET("/channels/:channel_id/join-requests", h.ListJoinRequests)
+	private.POST("/channels/:channel_id/join-requests/:user_id/approve", h.ApproveJoinRequest)
+	private.DELETE("/channels/:channel_id/join-requests/:user_id", h.RejectJoinRequest)
 	private.PUT("/channels/:channel_id/read-state", h.UpdateReadState)
 	private.GET("/direct-conversations", h.ListDirects)
 	private.POST("/direct-conversations", h.CreateDirect)
@@ -178,6 +182,41 @@ func (h *Handler) UpdateMemberStatus(c *gin.Context) {
 		return
 	}
 	response.OK(c, nethttp.StatusOK, member)
+}
+
+func (h *Handler) RequestJoin(c *gin.Context) {
+	member, err := h.service.RequestJoin(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"), c.Param("channel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, member)
+}
+
+func (h *Handler) ListJoinRequests(c *gin.Context) {
+	members, err := h.service.ListJoinRequests(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"), c.Param("channel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, gin.H{"join_requests": members})
+}
+
+func (h *Handler) ApproveJoinRequest(c *gin.Context) {
+	member, err := h.service.ApproveJoinRequest(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"), c.Param("channel_id"), c.Param("user_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, member)
+}
+
+func (h *Handler) RejectJoinRequest(c *gin.Context) {
+	if err := h.service.RejectJoinRequest(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"), c.Param("channel_id"), c.Param("user_id")); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.NoContent(c)
 }
 
 func (h *Handler) UpdateReadState(c *gin.Context) {

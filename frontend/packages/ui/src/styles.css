@@ -77,7 +77,7 @@ a {
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  cursor: default;
+  cursor: pointer;
   display: inline-flex;
   font-weight: 600;
   gap: 8px;
@@ -496,6 +496,14 @@ a {
   padding: 8px 4px;
   position: relative;
   width: 100%;
+}
+
+.ui-navigation-rail__item.ui-button > span {
+  font-size: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ui-navigation-rail__item--active.ui-button {
@@ -1137,4 +1145,117 @@ a {
   .auth-form {
     gap: 8px;
   }
+}
+
+/* Auth redesign: split hero + focused form, inspired by the supplied product mockup. */
+.auth-screen {
+  align-items: stretch;
+  background: #f5f8ff;
+  grid-template-columns: minmax(340px, 0.88fr) minmax(460px, 1.12fr);
+  grid-template-rows: 1fr auto;
+  justify-items: stretch;
+  padding: 18px;
+}
+
+.auth-screen::before {
+  background: radial-gradient(circle at 82% 12%, rgb(70 133 255 / 12%), transparent 30rem);
+  opacity: 1;
+}
+
+.auth-screen::after { display: none; }
+
+.auth-hero {
+  background:
+    radial-gradient(circle at 74% 42%, rgb(29 115 255 / 40%), transparent 15rem),
+    linear-gradient(145deg, #03143f, #062b83 64%, #031944);
+  border-radius: 26px 0 0 26px;
+  box-sizing: border-box;
+  display: block;
+  grid-row: 1 / 3;
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(34px, 4vw, 62px);
+  pointer-events: auto;
+  position: relative;
+  text-align: left;
+}
+
+.auth-header-brand { left: auto; position: relative; top: auto; transform: none; }
+.auth-header-brand { animation: none; }
+.auth-header-brand strong { font-size: 22px; }
+.auth-header-brand__logo { height: 52px; width: 52px; }
+
+.auth-hero__copy { margin-top: clamp(52px, 8vh, 96px); max-width: 570px; position: relative; z-index: 2; }
+.auth-hero__eyebrow { color: #8cc2ff !important; font-size: 12px !important; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+.auth-hero__copy h1 { font-size: clamp(34px, 3.25vw, 54px); letter-spacing: -.035em; line-height: 1.08; margin: 12px 0 20px; }
+.auth-hero__copy h1 span { color: #49a2ff; display: block; }
+.auth-hero__copy > p { color: #c9d9fa; font-size: 16px; line-height: 1.65; margin: 0; max-width: 500px; }
+
+.auth-visual { background: none; border: 0; box-shadow: none; display: block; height: min(34vh, 310px); opacity: 1; padding: 24px 0 0; position: relative; top: auto; width: 100%; }
+.auth-product-preview { background: #f8fbff; border: 1px solid rgb(255 255 255 / 68%); border-radius: 18px; box-shadow: 0 28px 65px rgb(0 8 35 / 38%); display: grid; grid-template-columns: 42px 34% 1fr; height: 100%; max-height: 275px; overflow: hidden; transform: perspective(900px) rotateX(2deg); width: min(530px, 100%); }
+.auth-product-preview__rail { align-items: center; background: #075ee8; display: flex; flex-direction: column; gap: 15px; padding-top: 15px; }
+.auth-product-preview__rail i { border: 2px solid rgb(255 255 255 / 76%); border-radius: 8px; display: block; height: 17px; width: 17px; }
+.auth-product-preview__contacts { background: #fff; border-right: 1px solid #dae5f5; display: grid; gap: 13px; padding: 14px 12px; }
+.auth-product-preview__contacts > span { background: #edf3fb; border-radius: 999px; display: block; height: 22px; }
+.auth-product-preview__contacts p { align-items: center; display: grid; gap: 8px; grid-template-columns: 28px 1fr; margin: 0; }
+.auth-product-preview__contacts p i { background: #d7e7ff; border-radius: 50%; display: block; height: 28px; width: 28px; }
+.auth-product-preview__contacts p b { background: #dce5f2; border-radius: 999px; display: block; height: 8px; }
+.auth-product-preview__chat { background: #edf4fd; display: grid; grid-template-rows: 42px 1fr auto auto 44px; padding-bottom: 10px; }
+.auth-product-preview__chat header { align-items: center; background: #fff; border-bottom: 1px solid #dce7f5; display: flex; gap: 8px; padding: 0 12px; }
+.auth-product-preview__chat header i { background: #b9d6ff; border-radius: 50%; display: block; height: 23px; width: 23px; }
+.auth-product-preview__chat header span { background: #cbd9eb; border-radius: 999px; height: 8px; width: 78px; }
+.auth-preview-message { border-radius: 10px; display: grid; gap: 7px; margin: 10px 12px 0; padding: 10px; width: 58%; }
+.auth-preview-message i { background: rgb(82 119 168 / 28%); border-radius: 999px; display: block; height: 7px; }
+.auth-preview-message i:last-child { width: 58%; }
+.auth-preview-message--incoming { align-self: end; background: #fff; }
+.auth-preview-message--outgoing { background: #cfe4ff; justify-self: end; }
+.auth-product-preview__chat footer { align-items: center; align-self: end; background: #fff; border-radius: 999px; display: flex; justify-content: space-between; margin: 8px 10px 0; padding: 0 11px; }
+.auth-product-preview__chat footer > span { background: #d9e3f1; border-radius: 999px; height: 7px; width: 48%; }
+.auth-product-preview__chat footer b { display: flex; gap: 3px; }
+.auth-product-preview__chat footer i { animation: authTyping 1.2s ease-in-out infinite; background: #438df6; border-radius: 50%; height: 4px; width: 4px; }
+.auth-product-preview__chat footer i:nth-child(2) { animation-delay: 150ms; }
+.auth-product-preview__chat footer i:nth-child(3) { animation-delay: 300ms; }
+@keyframes authTyping { 50% { opacity: .28; transform: translateY(-2px); } }
+
+.auth-benefits { bottom: clamp(28px, 4vh, 52px); display: grid; grid-template-columns: repeat(3, 1fr); left: clamp(34px, 4vw, 62px); position: absolute; right: clamp(34px, 4vw, 62px); }
+.auth-benefits > span { display: grid; grid-template-columns: 38px 1fr; grid-template-rows: auto auto; }
+.auth-benefits b { align-items: center; background: rgb(43 131 255 / 25%); border: 1px solid rgb(103 172 255 / 28%); border-radius: 50%; display: flex; grid-row: 1 / 3; height: 34px; justify-content: center; margin-right: 10px; width: 34px; }
+.auth-benefits strong { color: white; font-size: 12px; }
+.auth-benefits small { color: #aabfe8; font-size: 11px; }
+
+.auth-panel {
+  align-self: center;
+  background: rgb(255 255 255 / 88%);
+  border: 1px solid #dfe7f5;
+  border-radius: 18px;
+  box-shadow: 0 26px 70px rgb(31 65 120 / 12%);
+  margin: 0 auto;
+  max-height: calc(100dvh - 100px);
+  overflow: auto;
+  padding: clamp(24px, 3.2vh, 38px);
+  width: min(500px, calc(100% - 56px));
+}
+.auth-screen--register .auth-panel { padding: clamp(20px, 2.2vh, 30px); width: min(520px, calc(100% - 56px)); }
+.auth-panel__icon { align-items: center; background: #e8f0ff; border-radius: 14px; box-shadow: 0 10px 24px rgb(36 105 230 / 14%); color: #1263e5; display: flex; font-size: 25px; font-weight: 800; height: 54px; justify-content: center; margin: 0 auto; width: 54px; }
+.auth-panel__header h2 { font-size: 24px; }
+.auth-form .ui-input-shell { border-radius: 10px; box-shadow: none; }
+.auth-submit.ui-button { background: linear-gradient(135deg, #0871ff, #276be7); border-radius: 10px; }
+.auth-trust-row { color: #60708c; grid-column: 2; margin: 0; padding: 14px 24px 4px; }
+.auth-trust-row span::before { border-color: #5794ef; }
+
+@media (max-width: 980px) {
+  .auth-screen { display: grid; grid-template-columns: 1fr; padding: 0; }
+  .auth-hero { border-radius: 0; grid-row: auto; min-height: 150px; padding: 24px; }
+  .auth-header-brand { justify-content: center; }
+  .auth-hero__copy { margin: 22px auto 0; text-align: center; }
+  .auth-hero__copy h1 { font-size: 26px; margin: 8px 0; }
+  .auth-hero__copy h1 span { display: inline; }
+  .auth-hero__copy > p, .auth-hero__eyebrow, .auth-visual, .auth-benefits { display: none; }
+  .auth-panel { margin: 18px auto; max-height: calc(100dvh - 190px); width: min(500px, calc(100% - 28px)); }
+  .auth-screen--register .auth-panel { width: min(520px, calc(100% - 28px)); }
+  .auth-trust-row { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-product-preview__chat footer i, .auth-header-brand, .auth-header-brand__logo { animation: none; }
 }
