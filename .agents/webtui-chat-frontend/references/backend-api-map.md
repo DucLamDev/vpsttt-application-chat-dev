@@ -11,8 +11,9 @@ Nguồn đã quét:
 
 ## Quy ước chung
 
-- Base local: `http://localhost:8080`.
-- Base production hiện dùng trong tài liệu deploy: `https://api.vpsttt.com`.
+- Base REST mặc định cho frontend: `https://api.vpsttt.com`.
+- WebSocket endpoint mặc định cho frontend: `wss://api.vpsttt.com/api/v1/ws`.
+- Không dùng `localhost` trong app web/admin khi làm frontend MVP/production; local backend chỉ dùng khi user yêu cầu riêng cho phiên backend-dev.
 - REST nghiệp vụ nằm dưới `/api/v1`.
 - Auth user dùng `Authorization: Bearer <access_token>`.
 - Response JSON:
@@ -31,7 +32,7 @@ type ApiEnvelope<T, M = unknown> = {
 - `204` không có body.
 - Pagination cursor phổ biến: `limit`, `before`; `meta` có `has_more`, `next_cursor`, `prev_cursor`.
 - Normalize `limit`: mặc định `50`, tối đa `100`.
-- CORS local mặc định cho `http://localhost:3000` và `http://localhost:5173`.
+- Khi chạy frontend local nhưng gọi backend deploy, vẫn giữ base API là `https://api.vpsttt.com`; nếu gặp CORS thì xử lý allowlist backend/proxy frontend, không đổi sang backend `localhost`.
 - Route Go trong `backend/internal/**/delivery/http/handler.go` là nguồn sự thật cuối cùng. OpenAPI hiện có thể thiếu một vài operation như user update/delete hoặc revoke role.
 
 ## Health Và Platform
@@ -84,13 +85,28 @@ Backend hiện cấp access token 15 phút và refresh token 30 ngày trong boot
 | Method | Path | Body/query | Data key |
 | --- | --- | --- | --- |
 | GET | `/api/v1/users/me` | JWT | user |
-| PATCH | `/api/v1/users/me` | `display_name?`, `avatar_url?`, `locale?`, `timezone?` | user |
-| GET | `/api/v1/users` | `q?`, `status?`, `limit?` | `users` + `meta` |
+| PATCH | `/api/v1/users/me` | `display_name?`, `avatar_url?`, `phone_number?`, `locale?`, `timezone?` | user |
+| GET | `/api/v1/users` | `q?`, `status?`, `limit?`; `q` tìm theo tên, email, username, số điện thoại | `users` + `meta` |
 | GET | `/api/v1/users/{user_id}` | path | user |
-| PATCH | `/api/v1/users/{user_id}` | profile fields + `status?` | user |
-| DELETE | `/api/v1/users/{user_id}` | path | none |
+| PATCH | `/api/v1/users/{user_id}` | profile fields + `phone_number?` + `status?` + `workspace_id` | user |
+| DELETE | `/api/v1/users/{user_id}` | query `workspace_id` | none |
 
-Ghi chú hardening: code backend hiện gate nhóm user admin này bằng JWT, chưa kiểm tra `admin.view` hoặc permission riêng. Frontend admin vẫn phải gate UI bằng permission; nếu triển khai production, nên bổ sung RBAC backend cho update/delete/list user.
+Ghi chú hardening: update/delete user backend kiểm permission `user.manage` theo `workspace_id`. Frontend admin vẫn phải gate/disable UI bằng permission; list users vẫn là API auth dùng cho tìm bạn bè và admin.
+
+## Contacts Và Friend Requests
+
+Luồng Zalo-like cho DM 1-1: tìm user, gửi lời mời, người nhận đồng ý, sau đó mới tạo direct conversation.
+
+| Method | Path | Body/query | Data key |
+| --- | --- | --- | --- |
+| GET | `/api/v1/contacts` | JWT | `contacts` |
+| GET | `/api/v1/contact-requests` | `status?=pending/all` | `contact_requests` |
+| POST | `/api/v1/contact-requests` | `user_id` | contact request |
+| POST | `/api/v1/contact-requests/{request_id}/accept` | path | contact request |
+| POST | `/api/v1/contact-requests/{request_id}/reject` | path | contact request |
+| DELETE | `/api/v1/contact-requests/{request_id}` | path | none |
+
+Direct conversation backend kiểm `accepted` contact trước khi tạo hội thoại. Nếu hợp lệ, backend tự đảm bảo participants là workspace members với role `workspace_member`.
 
 ## RBAC Và Permission
 
@@ -108,6 +124,7 @@ Ghi chú hardening: code backend hiện gate nhóm user admin này bằng JWT, c
 Permission codes quan trọng cho frontend:
 
 - `workspace.manage`, `workspace.invite_user`, `workspace.view_members`
+- `user.manage`
 - `role.manage`
 - `channel.create`, `channel.manage`, `channel.delete`
 - `message.send`, `message.manage`
@@ -163,6 +180,9 @@ Permission codes quan trọng cho frontend:
 | PATCH | `/api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}` | `body` | message |
 | DELETE | `/api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}` | path | none |
 | GET | `/api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/thread` | `limit?` | `messages` + `meta` |
+| GET | `/api/v1/workspaces/{workspace_id}/channels/{channel_id}/pins` | path | `messages` |
+| POST | `/api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/pin` | path | message |
+| DELETE | `/api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/pin` | path | none |
 | POST | `/api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/reactions` | `emoji` | message |
 | DELETE | `/api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/reactions/{emoji}` | encoded emoji | message |
 | GET | `/api/v1/workspaces/{workspace_id}/files` | `limit?` | `files` |
@@ -179,16 +199,18 @@ Message realtime:
 - Room format: `workspace:{workspace_id}:channel:{channel_id}`.
 - Join command: `{"type":"join","room":"workspace:...:channel:..."}`.
 - Leave command: `{"type":"leave","room":"workspace:...:channel:..."}`.
+- Backend tự đăng ký socket vào room cá nhân `user:{user_id}` sau khi xác thực.
 - Event shape: `{type, room, user_id?, payload, timestamp}`.
-- Message event types: `MessageCreated`, `MessageUpdated`, `MessageDeleted`, `ReactionChanged`.
-- Payload currently contains `{ "message": MessageDTO }`.
+- Message event types: `MessageCreated`, `MessageUpdated`, `MessageDeleted`, `ReactionChanged`, `MessagePinned`, `MessageUnpinned`.
+- Contact event types trên room cá nhân: `ContactRequestCreated`, `ContactRequestUpdated`, `ContactRequestCancelled`.
+- Payload contains `{ "message": MessageDTO }` for message events or `{ "contact_request": ContactRequestDTO }` for contact events.
 
 Browser auth cho WebSocket:
 
 ```ts
-const ws = new WebSocket(wsUrl, ["webtui.jwt", accessToken]);
-// Fallback khi cần debug/dev:
 const ws = new WebSocket(`${wsUrl}?access_token=${encodeURIComponent(accessToken)}`);
+// Fallback khi cần debug/dev và muốn tránh token trong URL:
+const ws = new WebSocket(wsUrl, ["webtui.jwt", accessToken]);
 ```
 
 Ưu tiên `wss://` ở production và không log URL có `access_token`.
@@ -250,8 +272,9 @@ Run status values: `running`, `success`, `failed`, `cancelled`.
 
 - Login/session: Auth API, Users `/me`, session revoke.
 - Workspace switcher: `GET /workspaces`, `GET /workspaces/{id}`, `GET /rbac/me`.
-- Sidebar channel list: `GET /channels`, `GET /direct-conversations`, `GET /notifications`, `GET /presence`.
-- Chat timeline: messages list/send/update/delete/reaction/thread plus WebSocket events.
+- Sidebar hội thoại: `GET /contacts`, `GET /contact-requests`, `GET /direct-conversations`, `GET /notifications`, `GET /presence`.
+- Kênh & bot: `GET /channels`, create/manage channel, bot/webhook endpoints.
+- Chat timeline: messages list/send/update/delete/reaction/thread/pins plus WebSocket events.
 - File panel: files list, attachments list, upload, download blob.
 - Admin dashboard: admin stats/health, users, members, RBAC, audit logs.
 - Integration settings: API scopes/tokens, bots, incoming/outgoing webhooks/deliveries.

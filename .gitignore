@@ -30,6 +30,7 @@ dist/
 coverage/
 playwright-report/
 test-results/
+*.tsbuildinfo
 
 # Dữ liệu deploy / runtime
 data/
@@ -39,6 +40,7 @@ deploy/data/
 # Local planning / generated docs
 .agents/webtui-chat-architecture/references/architecture.md
 .env.example
+!frontend/.env.example
 Task_list.md
 backend/ARCHITECTURE.md
 backend/db/schema/erd.mmd
