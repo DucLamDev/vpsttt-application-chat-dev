@@ -69,6 +69,7 @@ export type ChatChannel = {
   membershipStatus?: string;
   memberCount: number;
   messages: ChatMessage[];
+  relativeTime: string;
   type?: string;
 };
 

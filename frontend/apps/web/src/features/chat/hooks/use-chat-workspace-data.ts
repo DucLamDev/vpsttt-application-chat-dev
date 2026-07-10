@@ -528,9 +528,13 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
       void api.channels
         .updateReadState(workspaceId, channelId, messageId ? { last_read_message_id: messageId } : {})
+        .then(() => Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.channels.directConversations(workspaceId) })
+        ]))
         .catch(() => undefined);
     },
-    [workspaceId]
+    [queryClient, workspaceId]
   );
 
   useEffect(() => {
@@ -660,6 +664,7 @@ function mapChannel(channel: ApiChannel, index: number): ChatChannel {
     memberCount: channel.member_count ?? 0,
     messages: [],
     name: channel.name,
+    relativeTime: formatConversationTime(channel.updated_at ?? channel.created_at),
     tone: channelTones[index % channelTones.length],
     type: channel.type ?? channel.kind,
     unreadCount: channel.unread_count ?? 0
@@ -683,7 +688,7 @@ function mapDirectConversation(
   return {
     id: item.channel_id ?? item.id,
     lastMessage: lastMessage?.body ?? "Chưa có tin nhắn",
-    relativeTime: formatRelative(lastMessage?.created_at ?? lastMessage?.updated_at ?? item.updated_at),
+    relativeTime: formatConversationTime(lastMessage?.created_at ?? lastMessage?.updated_at ?? item.updated_at),
     unreadCount: item.unread_count,
     user: {
       avatarUrl: participant.avatar_url ?? undefined,
@@ -706,6 +711,7 @@ function directConversationToChannel(conversation: DirectConversation): ChatChan
     memberCount: 2,
     messages: [],
     name: conversation.user.name,
+    relativeTime: conversation.relativeTime,
     tone: "purple",
     type: "direct",
     unreadCount: conversation.unreadCount ?? 0
@@ -724,6 +730,7 @@ function placeholderChannel(channelId: string): ChatChannel {
     memberCount: 2,
     messages: [],
     name: "Hội thoại",
+    relativeTime: "",
     tone: "purple",
     type: "direct",
     unreadCount: 0
@@ -841,6 +848,31 @@ function formatRelative(value?: string): string {
     month: "2-digit",
     year: "numeric"
   }).format(new Date(value));
+}
+
+function formatConversationTime(value?: string): string {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDifference = Math.round((startOfToday.getTime() - startOfMessageDay.getTime()) / 86_400_000);
+
+  if (dayDifference === 0) {
+    return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  }
+  if (dayDifference === 1) {
+    return "Hôm qua";
+  }
+  if (dayDifference > 1 && dayDifference < 7) {
+    return `${dayDifference} ngày`;
+  }
+  return new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit" }).format(date);
 }
 
 function formatFileSize(size?: number): string {

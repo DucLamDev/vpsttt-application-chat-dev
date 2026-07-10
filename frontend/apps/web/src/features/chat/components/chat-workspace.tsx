@@ -31,8 +31,11 @@ import {
   LogOut,
   MessageCircle,
   Mic,
+  Monitor,
   MoreVertical,
   Moon,
+  PanelRightClose,
+  PanelRightOpen,
   Paperclip,
   Pin,
   Plus,
@@ -40,16 +43,20 @@ import {
   Search,
   Send,
   Share2,
+  Smartphone,
   Settings,
   ShieldCheck,
   Smile,
+  Sparkles,
   StopCircle,
+  Star,
   Sun,
   Ticket,
   Trash2,
   Users,
   Workflow,
-  X
+  X,
+  Zap
 } from "@webtui/icons";
 import { useAuth } from "@/features/auth/auth-provider";
 import { useAuthStore } from "@/features/auth/auth-store";
@@ -77,7 +84,7 @@ import { useUploadStore, type UploadQueueItem } from "../stores/upload-store";
 import { getCachedMediaUrl, resolveCachedMediaUrl } from "../model/media-cache";
 import { buildChatTargets } from "../model/chat-targets";
 import { buildDepartmentRows, departmentDescendantIds } from "../model/department-tree";
-import type { AuthSession, AuthUser, ChannelMember, ContactRequest, Department, DepartmentMember, WorkspaceMember } from "@webtui/types";
+import type { AuthSession, AuthUser, Bot as BotRecord, ChannelMember, ContactRequest, Department, DepartmentMember, WorkspaceMember } from "@webtui/types";
 
 const railItems = [
   { id: "messages", label: "Tin nhắn", icon: MessageCircle },
@@ -120,6 +127,8 @@ const detailTabs: Array<{ label: string; value: DetailTab }> = [
   { label: "File", value: "files" }
 ];
 
+const quickReactions = ["👍", "❤️", "😂", "😮", "😢", "😡"] as const;
+
 export function ChatWorkspace() {
   const { logout, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -144,6 +153,10 @@ export function ChatWorkspace() {
   const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
   const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const [isDetailPanelOpen, setIsDetailPanelOpen] = useState(true);
+  const [favoriteChatIds, setFavoriteChatIds] = useState<Set<string>>(() => new Set());
+  const [manuallyUnreadChatIds, setManuallyUnreadChatIds] = useState<Set<string>>(() => new Set());
+  const [locallyReadChatIds, setLocallyReadChatIds] = useState<Set<string>>(() => new Set());
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -170,6 +183,11 @@ export function ChatWorkspace() {
     messageSearchQuery: activeMessageSearchQuery,
     threadMessageId: threadMessageId ?? undefined
   });
+  const selectedChannelMembersQuery = useQuery({
+    enabled: Boolean(data.workspaceId && data.selectedChannelId && data.canAccessSelectedChannel),
+    queryFn: () => api.channels.members(data.workspaceId, data.selectedChannelId),
+    queryKey: queryKeys.channels.members(data.workspaceId, data.selectedChannelId)
+  });
   const chatTargets = useMemo(() => {
     return buildChatTargets(data.channels, data.directConversations);
   }, [data.channels, data.directConversations]);
@@ -190,6 +208,16 @@ export function ChatWorkspace() {
   const canUploadFile = data.can("file.upload") || isDirectChat;
   const canUseComposer = canSendMessage && (!uploadQueue.items.length || canUploadFile);
 
+  const effectiveUnreadCount = (chatId: string, unreadCount = 0) => {
+    if (manuallyUnreadChatIds.has(chatId)) {
+      return Math.max(1, unreadCount);
+    }
+    return locallyReadChatIds.has(chatId) ? 0 : unreadCount;
+  };
+
+  const isFavoriteChat = (chatId: string, serverFavorite = false) =>
+    serverFavorite || favoriteChatIds.has(chatId);
+
   const sidebarChannels = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
@@ -198,27 +226,35 @@ export function ChatWorkspace() {
         return false;
       }
 
+      const matchesFilter =
+        channelFilter === "all" ||
+        (channelFilter === "unread" && effectiveUnreadCount(channel.id, channel.unreadCount) > 0) ||
+        (channelFilter === "favorite" && isFavoriteChat(channel.id, channel.isFavorite));
+
       return (
-        !normalizedQuery ||
-        channel.name.toLowerCase().includes(normalizedQuery) ||
-        channel.description.toLowerCase().includes(normalizedQuery)
+        matchesFilter &&
+        (!normalizedQuery ||
+          channel.name.toLowerCase().includes(normalizedQuery) ||
+          channel.description.toLowerCase().includes(normalizedQuery))
       );
     });
-  }, [data.channels, searchQuery]);
+  }, [channelFilter, data.channels, favoriteChatIds, locallyReadChatIds, manuallyUnreadChatIds, searchQuery]);
 
   const filteredConversations = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    if (!normalizedQuery) {
-      return data.directConversations;
-    }
-
-    return data.directConversations.filter(
-      (conversation) =>
+    return data.directConversations.filter((conversation) => {
+      const matchesFilter =
+        channelFilter === "all" ||
+        (channelFilter === "unread" && effectiveUnreadCount(conversation.id, conversation.unreadCount) > 0) ||
+        (channelFilter === "favorite" && isFavoriteChat(conversation.id));
+      const matchesQuery =
+        !normalizedQuery ||
         conversation.user.name.toLowerCase().includes(normalizedQuery) ||
-        conversation.lastMessage.toLowerCase().includes(normalizedQuery)
-    );
-  }, [data.directConversations, searchQuery]);
+        conversation.lastMessage.toLowerCase().includes(normalizedQuery);
+      return matchesFilter && matchesQuery;
+    });
+  }, [channelFilter, data.directConversations, favoriteChatIds, locallyReadChatIds, manuallyUnreadChatIds, searchQuery]);
 
   const contactResults = useMemo(
     () =>
@@ -299,6 +335,42 @@ export function ChatWorkspace() {
       setToast(`${name} vừa gửi lời mời kết bạn.`);
     }
   }, [incomingContactRequests]);
+
+  useEffect(() => {
+    if (!data.workspaceId || typeof window === "undefined") {
+      return;
+    }
+    try {
+      const stored = window.localStorage.getItem(`vpsttt:chat-preferences:${data.workspaceId}`);
+      if (!stored) {
+        setFavoriteChatIds(new Set());
+        setManuallyUnreadChatIds(new Set());
+        return;
+      }
+      const preferences = JSON.parse(stored) as { favorites?: string[]; unread?: string[] };
+      setFavoriteChatIds(new Set(preferences.favorites ?? []));
+      setManuallyUnreadChatIds(new Set(preferences.unread ?? []));
+    } catch {
+      setFavoriteChatIds(new Set());
+      setManuallyUnreadChatIds(new Set());
+    }
+  }, [data.workspaceId]);
+
+  useEffect(() => {
+    setLocallyReadChatIds((current) => {
+      const next = new Set(current);
+      let changed = false;
+      for (const chatId of current) {
+        const channel = data.channels.find((item) => item.id === chatId);
+        const conversation = data.directConversations.find((item) => item.id === chatId);
+        if ((channel && channel.unreadCount === 0) || (conversation && !conversation.unreadCount)) {
+          next.delete(chatId);
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [data.channels, data.directConversations]);
   const selectedChatChannel = useMemo(() => {
     if (!data.selectedChannelWithMessages) {
       return null;
@@ -355,7 +427,13 @@ export function ChatWorkspace() {
 
   function handleChannelSelect(channelId: string) {
     data.setSelectedChannelId(channelId);
-    data.markChannelRead(channelId, data.messages.at(-1)?.id);
+    setLocallyReadChatIds((current) => new Set(current).add(channelId));
+    if (manuallyUnreadChatIds.has(channelId)) {
+      const nextUnread = new Set(manuallyUnreadChatIds);
+      nextUnread.delete(channelId);
+      setManuallyUnreadChatIds(nextUnread);
+      persistChatPreferences(favoriteChatIds, nextUnread);
+    }
     setThreadMessageId(null);
     setIsMessageSearchOpen(false);
     setMessageSearchQuery("");
@@ -399,8 +477,40 @@ export function ChatWorkspace() {
     setMessageSearchDateTo("");
   }
 
-  function handleToggleFavorite() {
-    setToast("Tính năng yêu thích kênh đang được hoàn thiện.");
+  function persistChatPreferences(favorites: Set<string>, unread: Set<string>) {
+    if (!data.workspaceId || typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      `vpsttt:chat-preferences:${data.workspaceId}`,
+      JSON.stringify({ favorites: [...favorites], unread: [...unread] })
+    );
+  }
+
+  function handleToggleFavorite(chatId: string) {
+    const next = new Set(favoriteChatIds);
+    const serverFavorite = data.channels.find((channel) => channel.id === chatId)?.isFavorite ?? false;
+    const isCurrentlyFavorite = serverFavorite || next.has(chatId);
+    if (isCurrentlyFavorite) {
+      next.delete(chatId);
+    } else {
+      next.add(chatId);
+    }
+    setFavoriteChatIds(next);
+    persistChatPreferences(next, manuallyUnreadChatIds);
+    setToast(isCurrentlyFavorite ? "Đã bỏ khỏi danh sách yêu thích." : "Đã thêm vào danh sách yêu thích.");
+  }
+
+  function handleMarkUnread(chatId: string) {
+    const next = new Set(manuallyUnreadChatIds).add(chatId);
+    setManuallyUnreadChatIds(next);
+    setLocallyReadChatIds((current) => {
+      const updated = new Set(current);
+      updated.delete(chatId);
+      return updated;
+    });
+    persistChatPreferences(favoriteChatIds, next);
+    setToast("Đã đánh dấu cuộc trò chuyện là chưa đọc.");
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -871,7 +981,7 @@ export function ChatWorkspace() {
 
   return (
     <main
-      className={`chat-app-shell chat-app-shell--zalo${activeRailItem === "messages" ? "" : " chat-app-shell--section"}${activeRailItem === "messages" && data.selectedChannel && !data.canAccessSelectedChannel ? " chat-app-shell--no-detail" : ""}`}
+      className={`chat-app-shell chat-app-shell--zalo${activeRailItem === "messages" ? "" : " chat-app-shell--section"}${activeRailItem === "messages" && data.selectedChannel && !data.canAccessSelectedChannel ? " chat-app-shell--no-detail" : ""}${activeRailItem === "messages" && isDetailPanelOpen ? " chat-app-shell--detail-open" : " chat-app-shell--detail-closed"}`}
       aria-label="Màn hình chat WebTui"
     >
       <NavigationRail
@@ -981,29 +1091,60 @@ export function ChatWorkspace() {
               {data.directConversationsQuery.isLoading || data.createWorkspaceMutation.isPending ? (
                 <PanelSkeleton />
               ) : filteredConversations.length ? (
-                filteredConversations.map((item) => (
-                  <button
-                    className={item.id === data.selectedChannelId ? "conversation-row conversation-row--active" : "conversation-row"}
-                    key={item.id}
-                    onClick={() => handleChannelSelect(item.id)}
-                    type="button"
-                  >
-                    <Avatar name={item.user.name} size="md" src={item.user.avatarUrl} status={item.user.status} />
-                    <span>
-                      <strong>{item.user.name}</strong>
-                      <small>{item.lastMessage}</small>
-                    </span>
-                    <em>{item.relativeTime}</em>
-                    {item.unreadCount ? <Badge tone="red">{item.unreadCount}</Badge> : null}
-                  </button>
-                ))
+                filteredConversations.map((item) => {
+                  const unreadCount = effectiveUnreadCount(item.id, item.unreadCount);
+                  return (
+                    <button
+                      className={`conversation-row${item.id === data.selectedChannelId ? " conversation-row--active" : ""}${unreadCount ? " conversation-row--unread" : ""}`}
+                      key={item.id}
+                      onClick={() => handleChannelSelect(item.id)}
+                      type="button"
+                    >
+                      <Avatar name={item.user.name} size="md" src={item.user.avatarUrl} status={item.user.status} />
+                      <span className="conversation-row__body">
+                        <strong>{item.user.name}</strong>
+                        <small>{item.lastMessage}</small>
+                      </span>
+                      <span className="conversation-row__meta">
+                        <time>{item.relativeTime}</time>
+                        {unreadCount ? <Badge className="conversation-row__unread-badge" tone="red">{unreadCount}</Badge> : null}
+                        <Tooltip label={isFavoriteChat(item.id) ? "Bỏ yêu thích" : "Yêu thích"}>
+                          <span
+                            aria-label={isFavoriteChat(item.id) ? "Bỏ yêu thích" : "Yêu thích"}
+                            className={isFavoriteChat(item.id) ? "pin-action pin-action--active" : "pin-action"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleToggleFavorite(item.id);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                handleToggleFavorite(item.id);
+                              }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <Star size={15} />
+                          </span>
+                        </Tooltip>
+                      </span>
+                    </button>
+                  );
+                })
               ) : (
                 <div className="conversation-empty">
-                  <EmptyState description="Tìm bạn bè, gửi lời mời và bắt đầu nhắn tin riêng như Zalo." title="Chưa có hội thoại" />
-                  <Button onClick={() => setActiveRailItem("contacts")} size="sm" variant="secondary">
-                    <Users size={15} />
-                    Tìm bạn bè
-                  </Button>
+                  <EmptyState
+                    description={channelFilter === "all" ? "Tìm bạn bè, gửi lời mời và bắt đầu nhắn tin riêng như Zalo." : "Không có hội thoại nào phù hợp với bộ lọc hiện tại."}
+                    title={channelFilter === "unread" ? "Không có tin chưa đọc" : channelFilter === "favorite" ? "Chưa có hội thoại yêu thích" : "Chưa có hội thoại"}
+                  />
+                  {channelFilter === "all" ? (
+                    <Button onClick={() => setActiveRailItem("contacts")} size="sm" variant="secondary">
+                      <Users size={15} />
+                      Tìm bạn bè
+                    </Button>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -1013,38 +1154,52 @@ export function ChatWorkspace() {
               {data.workspacesQuery.isLoading || data.channelsQuery.isLoading ? (
                 <PanelSkeleton />
               ) : sidebarChannels.length ? (
-                sidebarChannels.map((channel) => (
-                  <button
-                    className={channel.id === data.selectedChannelId ? "channel-row channel-row--active" : "channel-row"}
-                    key={channel.id}
-                    onClick={() => handleChannelSelect(channel.id)}
-                    type="button"
-                  >
-                    <span className={`channel-hash channel-hash--${channel.tone}`}>#</span>
-                    <span className="channel-row__body">
-                      <strong>{channel.name}</strong>
-                      <small>{channel.description}</small>
-                    </span>
-                    {channel.unreadCount ? <Badge tone="red">{channel.unreadCount}</Badge> : null}
-                    <Tooltip label={channel.isFavorite ? "Bỏ yêu thích" : "Yêu thích"}>
-                      <span
-                        className={channel.isFavorite ? "pin-action pin-action--active" : "pin-action"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleToggleFavorite();
-                        }}
-                        role="button"
-                        tabIndex={0}
-                      >
-                        <Pin size={15} />
+                sidebarChannels.map((channel) => {
+                  const unreadCount = effectiveUnreadCount(channel.id, channel.unreadCount);
+                  return (
+                    <button
+                      className={`channel-row${channel.id === data.selectedChannelId ? " channel-row--active" : ""}${unreadCount ? " channel-row--unread" : ""}`}
+                      key={channel.id}
+                      onClick={() => handleChannelSelect(channel.id)}
+                      type="button"
+                    >
+                      <span className={`channel-hash channel-hash--${channel.tone}`}>#</span>
+                      <span className="channel-row__body">
+                        <strong>{channel.name}</strong>
+                        <small>{channel.description}</small>
                       </span>
-                    </Tooltip>
-                  </button>
-                ))
+                      <span className="conversation-row__meta">
+                        <time>{channel.relativeTime}</time>
+                        {unreadCount ? <Badge className="conversation-row__unread-badge" tone="red">{unreadCount}</Badge> : null}
+                        <Tooltip label={isFavoriteChat(channel.id, channel.isFavorite) ? "Bỏ yêu thích" : "Yêu thích"}>
+                          <span
+                            aria-label={isFavoriteChat(channel.id, channel.isFavorite) ? "Bỏ yêu thích" : "Yêu thích"}
+                            className={isFavoriteChat(channel.id, channel.isFavorite) ? "pin-action pin-action--active" : "pin-action"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleToggleFavorite(channel.id);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                handleToggleFavorite(channel.id);
+                              }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <Star size={15} />
+                          </span>
+                        </Tooltip>
+                      </span>
+                    </button>
+                  );
+                })
               ) : (
                 <EmptyState
-                  description="Kênh dùng cho nhóm, bot và thông báo chung."
-                  title="Chưa có kênh"
+                  description={channelFilter === "all" ? "Kênh dùng cho nhóm, bot và thông báo chung." : "Không có kênh nào phù hợp với bộ lọc hiện tại."}
+                  title={channelFilter === "unread" ? "Không có kênh chưa đọc" : channelFilter === "favorite" ? "Chưa có kênh yêu thích" : "Chưa có kênh"}
                 />
               )}
             </div>
@@ -1070,6 +1225,7 @@ export function ChatWorkspace() {
         {activeRailItem !== "messages" ? (
           <WorkspaceSectionPage
             activeRailItem={activeRailItem}
+            canManageBots={data.can("bot.manage")}
             canCreateChannel={canCreateChannel}
             channels={data.channels.filter((channel) => channel.type !== "direct")}
             contacts={contactResults}
@@ -1174,7 +1330,14 @@ export function ChatWorkspace() {
           <>
             <ChatHeader
               channel={selectedChatChannel}
+              isDetailPanelOpen={isDetailPanelOpen}
+              isFavorite={isFavoriteChat(selectedChatChannel.id, selectedChatChannel.isFavorite)}
+              isMembersLoading={selectedChannelMembersQuery.isLoading}
               isSearchOpen={isMessageSearchOpen}
+              members={selectedChannelMembersQuery.data ?? []}
+              onMarkUnread={() => handleMarkUnread(selectedChatChannel.id)}
+              onToggleDetailPanel={() => setIsDetailPanelOpen((current) => !current)}
+              onToggleFavorite={() => handleToggleFavorite(selectedChatChannel.id)}
               onToggleSearch={handleToggleMessageSearch}
             />
             {isMessageSearchOpen ? (
@@ -1361,6 +1524,7 @@ export function ChatWorkspace() {
                   type="submit"
                 >
                   <Send size={19} />
+                  <span>Gửi</span>
                 </Button>
               </form>
             </div>
@@ -1376,7 +1540,7 @@ export function ChatWorkspace() {
         )}
       </section>
 
-      {activeRailItem === "messages" && (!data.selectedChannel || data.canAccessSelectedChannel) ? (
+      {activeRailItem === "messages" && isDetailPanelOpen && (!data.selectedChannel || data.canAccessSelectedChannel) ? (
         <RightDetailPanel
           activeTab={detailTab}
           files={data.files}
@@ -1384,6 +1548,7 @@ export function ChatWorkspace() {
           isSendingThread={data.sendThreadMessageMutation.isPending}
           isThreadLoading={data.threadQuery.isLoading}
           mediaItems={data.mediaItems}
+          onClose={() => setIsDetailPanelOpen(false)}
           onCloseThread={() => setThreadMessageId(null)}
           onFileSelect={handleDownload}
           onResolveMedia={data.downloadAttachment}
@@ -1498,6 +1663,7 @@ function SidebarContextPanel({
 
 function WorkspaceSectionPage({
   activeRailItem,
+  canManageBots,
   canManageDepartments,
   canCreateChannel,
   channels,
@@ -1532,6 +1698,7 @@ function WorkspaceSectionPage({
   workspaceMembers
 }: {
   activeRailItem: RailItemId;
+  canManageBots: boolean;
   canManageDepartments: boolean;
   canCreateChannel: boolean;
   channels: ChatChannel[];
@@ -1629,6 +1796,16 @@ function WorkspaceSectionPage({
         onProfileSubmit={onProfileSubmit}
         onThemeToggle={onThemeToggle}
         theme={theme}
+      />
+    );
+  }
+
+  if (activeRailItem === "bots") {
+    return (
+      <BotsPage
+        canManage={canManageBots}
+        channels={channels}
+        workspaceId={workspaceId}
       />
     );
   }
@@ -2386,6 +2563,7 @@ function SettingsPage({
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarValue, setAvatarValue] = useState(currentUser.avatarUrl ?? "");
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [sessionActionError, setSessionActionError] = useState<string | null>(null);
 
   useEffect(() => setAvatarValue(currentUser.avatarUrl ?? ""), [currentUser.avatarUrl]);
 
@@ -2395,7 +2573,9 @@ function SettingsPage({
   });
   const revokeSessionMutation = useMutation({
     mutationFn: (sessionId: string) => api.auth.revokeSession(sessionId),
+    onError: (error) => setSessionActionError(error instanceof Error ? error.message : "Không thu hồi được phiên đăng nhập."),
     onSuccess: async (_, sessionId) => {
+      setSessionActionError(null);
       if (sessionId === currentSessionId) {
         logout();
         return;
@@ -2405,8 +2585,19 @@ function SettingsPage({
   });
   const revokeAllSessionsMutation = useMutation({
     mutationFn: () => api.auth.revokeAllSessions(),
+    onError: (error) => setSessionActionError(error instanceof Error ? error.message : "Không thu hồi được các phiên đăng nhập."),
     onSuccess: () => logout()
   });
+  const sessions = useMemo(
+    () => [...(sessionsQuery.data ?? [])].sort((left, right) => {
+      if (left.id === currentSessionId) return -1;
+      if (right.id === currentSessionId) return 1;
+      if (Boolean(left.revoked_at) !== Boolean(right.revoked_at)) return left.revoked_at ? 1 : -1;
+      return new Date(right.last_seen_at || right.created_at || 0).getTime() - new Date(left.last_seen_at || left.created_at || 0).getTime();
+    }),
+    [currentSessionId, sessionsQuery.data]
+  );
+  const activeSessionCount = sessions.filter((session) => !session.revoked_at).length;
 
   async function handleAvatarFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -2509,13 +2700,19 @@ function SettingsPage({
           </Button>
         </section>
         <section className="settings-card settings-card--sessions">
-          <div>
-            <ShieldCheck size={22} />
-            <h2>Phiên đăng nhập</h2>
+          <div className="sessions-heading">
+            <span className="sessions-heading__icon"><ShieldCheck size={22} /></span>
+            <div>
+              <h2>Phiên đăng nhập</h2>
+              <p>Kiểm tra thiết bị đang đăng nhập và thu hồi ngay những phiên bạn không nhận ra.</p>
+            </div>
+            <span className="sessions-count"><strong>{activeSessionCount}</strong> phiên đang hoạt động</span>
           </div>
-          <p>Kiểm tra thiết bị đang đăng nhập và thu hồi ngay những phiên bạn không nhận ra.</p>
           {sessionsQuery.isLoading ? (
-            <Skeleton style={{ height: 96 }} />
+            <div className="session-list session-list--loading">
+              <Skeleton style={{ height: 116 }} />
+              <Skeleton style={{ height: 116 }} />
+            </div>
           ) : sessionsQuery.isError ? (
             <ErrorState
               action={<Button onClick={() => void sessionsQuery.refetch()} size="sm" variant="secondary">Thử lại</Button>}
@@ -2524,39 +2721,65 @@ function SettingsPage({
             />
           ) : (
             <div className="session-list">
-              {(sessionsQuery.data ?? []).map((session: AuthSession) => (
-                <article className={session.id === currentSessionId ? "session-item session-item--current" : "session-item"} key={session.id}>
-                  <span>
-                    <strong>{session.device_name || "Thiết bị không xác định"}</strong>
-                    <small>{session.ip_address || "Không có IP"} · {formatSessionDate(session.created_at)}</small>
-                    {session.expires_at ? <small>Hết hạn {formatSessionDate(session.expires_at)}</small> : null}
-                  </span>
-                  {session.id === currentSessionId ? <Badge tone="green">Phiên hiện tại</Badge> : null}
-                  {session.revoked_at ? (
-                    <Badge tone="slate">Đã thu hồi</Badge>
-                  ) : (
+              {sessions.map((session: AuthSession) => {
+                const isCurrent = session.id === currentSessionId;
+                const isRevoked = Boolean(session.revoked_at);
+                const isMobile = isMobileSession(session);
+                return (
+                  <article className={`session-item${isCurrent ? " session-item--current" : ""}${isRevoked ? " session-item--revoked" : ""}`} key={session.id}>
+                    <span className="session-device-icon" aria-hidden="true">
+                      {isMobile ? <Smartphone size={22} /> : <Monitor size={22} />}
+                    </span>
+                    <div className="session-item__body">
+                      <div className="session-item__title">
+                        <strong>{session.device_name || sessionDeviceLabel(session)}</strong>
+                        {isCurrent ? <Badge tone="green">Thiết bị này</Badge> : null}
+                        {isRevoked ? <Badge tone="slate">Đã thu hồi</Badge> : null}
+                      </div>
+                      <div className="session-item__meta">
+                        <span><strong>IP</strong>{session.ip_address || "Không xác định"}</span>
+                        <span><strong>Hoạt động</strong>{formatRelativeSessionDate(session.last_seen_at || session.created_at)}</span>
+                        {session.expires_at ? <span><strong>Hết hạn</strong>{formatSessionDate(session.expires_at)}</span> : null}
+                      </div>
+                      {session.user_agent ? <small title={session.user_agent}>{session.user_agent}</small> : null}
+                    </div>
+                    {!isCurrent && !isRevoked ? (
                     <Button
-                      disabled={revokeSessionMutation.isPending}
-                      onClick={() => revokeSessionMutation.mutate(session.id)}
+                      disabled={revokeSessionMutation.isPending || revokeAllSessionsMutation.isPending}
+                      onClick={() => {
+                        if (window.confirm(`Thu hồi phiên trên ${session.device_name || sessionDeviceLabel(session)}?`)) {
+                          revokeSessionMutation.mutate(session.id);
+                        }
+                      }}
                       size="sm"
                       variant="secondary"
                     >
-                      Thu hồi
+                      {revokeSessionMutation.isPending && revokeSessionMutation.variables === session.id ? "Đang thu hồi..." : "Thu hồi phiên"}
                     </Button>
-                  )}
-                </article>
-              ))}
-              {!(sessionsQuery.data ?? []).length ? <p>Không có phiên đăng nhập nào.</p> : null}
+                    ) : null}
+                  </article>
+                );
+              })}
+              {!sessions.length ? <EmptyState description="Các thiết bị đăng nhập sẽ xuất hiện tại đây." title="Chưa có phiên đăng nhập" /> : null}
             </div>
           )}
-          <Button
-            disabled={revokeAllSessionsMutation.isPending || !(sessionsQuery.data ?? []).some((session) => !session.revoked_at)}
-            onClick={() => revokeAllSessionsMutation.mutate()}
-            size="sm"
-            variant="secondary"
-          >
-            {revokeAllSessionsMutation.isPending ? "Đang thu hồi..." : "Thu hồi tất cả phiên"}
-          </Button>
+          {sessionActionError ? <p className="session-action-error" role="alert">{sessionActionError}</p> : null}
+          <footer className="sessions-footer">
+            <p>Thao tác này sẽ đăng xuất tài khoản khỏi tất cả thiết bị, gồm cả thiết bị hiện tại.</p>
+            <Button
+              disabled={revokeAllSessionsMutation.isPending || !activeSessionCount}
+              onClick={() => {
+                if (window.confirm("Đăng xuất khỏi tất cả thiết bị? Bạn sẽ cần đăng nhập lại.")) {
+                  revokeAllSessionsMutation.mutate();
+                }
+              }}
+              size="sm"
+              variant="secondary"
+            >
+              <LogOut size={16} />
+              {revokeAllSessionsMutation.isPending ? "Đang đăng xuất..." : "Đăng xuất tất cả thiết bị"}
+            </Button>
+          </footer>
         </section>
       </div>
     </div>
@@ -2569,6 +2792,281 @@ function formatSessionDate(value?: string | null) {
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("vi-VN");
+}
+
+function formatRelativeSessionDate(value?: string | null) {
+  if (!value) {
+    return "Không rõ";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return formatSessionDate(value);
+  }
+  const difference = Date.now() - date.getTime();
+  const minutes = Math.max(0, Math.round(difference / 60_000));
+  if (minutes < 1) return "Vừa xong";
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days} ngày trước`;
+  return formatSessionDate(value);
+}
+
+function isMobileSession(session: AuthSession) {
+  return /android|iphone|ipad|mobile/i.test(`${session.device_name ?? ""} ${session.user_agent ?? ""}`);
+}
+
+function sessionDeviceLabel(session: AuthSession) {
+  if (isMobileSession(session)) {
+    return "Thiết bị di động";
+  }
+  if (/windows/i.test(session.user_agent ?? "")) return "Máy tính Windows";
+  if (/macintosh|mac os/i.test(session.user_agent ?? "")) return "Máy tính Mac";
+  if (/linux/i.test(session.user_agent ?? "")) return "Máy tính Linux";
+  return "Trình duyệt web";
+}
+
+function BotsPage({
+  canManage,
+  channels,
+  workspaceId
+}: {
+  canManage: boolean;
+  channels: ChatChannel[];
+  workspaceId?: string;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedBotId, setSelectedBotId] = useState("");
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createSlug, setCreateSlug] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
+  const [targetChannelId, setTargetChannelId] = useState("");
+  const [testMessage, setTestMessage] = useState("");
+  const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
+  const availableChannels = useMemo(() => channels.filter((channel) => channel.isMember), [channels]);
+
+  const botsQuery = useQuery({
+    enabled: Boolean(workspaceId && canManage),
+    queryFn: () => api.bots.list(workspaceId as string),
+    queryKey: queryKeys.integrations.bots(workspaceId ?? "")
+  });
+  const bots: BotRecord[] = botsQuery.data ?? [];
+  const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0];
+
+  useEffect(() => {
+    if (bots.length && !bots.some((bot) => bot.id === selectedBotId)) {
+      setSelectedBotId(bots[0].id);
+    }
+  }, [bots, selectedBotId]);
+
+  useEffect(() => {
+    if (availableChannels.length && !availableChannels.some((channel) => channel.id === targetChannelId)) {
+      setTargetChannelId(availableChannels[0].id);
+    }
+  }, [availableChannels, targetChannelId]);
+
+  const installationsQuery = useQuery({
+    enabled: Boolean(workspaceId && canManage && selectedBot?.id),
+    queryFn: () => api.bots.installations(workspaceId as string, selectedBot?.id ?? ""),
+    queryKey: queryKeys.integrations.botInstallations(workspaceId ?? "", selectedBot?.id ?? "")
+  });
+  const createBotMutation = useMutation({
+    mutationFn: (input: { description?: string; name: string; slug: string }) => api.bots.create(workspaceId as string, input),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không tạo được bot."), tone: "error" }),
+    onSuccess: async (bot) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.integrations.bots(workspaceId ?? "") });
+      setSelectedBotId(bot.id);
+      setCreateName("");
+      setCreateSlug("");
+      setCreateDescription("");
+      setIsCreateOpen(false);
+      setFeedback({ message: `Đã tạo ${bot.name}.`, tone: "success" });
+    }
+  });
+  const installBotMutation = useMutation({
+    mutationFn: ({ botId, channelId }: { botId: string; channelId: string }) =>
+      api.bots.install(workspaceId as string, botId, { channel_id: channelId, config: {} }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không cài được bot vào kênh."), tone: "error" }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.integrations.botInstallations(workspaceId ?? "", selectedBot?.id ?? "")
+      });
+      const channel = availableChannels.find((item) => item.id === targetChannelId);
+      setFeedback({ message: `Đã kết nối bot với #${channel?.name ?? "kênh"}.`, tone: "success" });
+    }
+  });
+  const sendBotMessageMutation = useMutation({
+    mutationFn: ({ botId, body, channelId }: { botId: string; body: string; channelId: string }) =>
+      api.bots.sendMessage(workspaceId as string, botId, {
+        body,
+        channel_id: channelId,
+        metadata: { source: "bot-console" }
+      }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Bot chưa gửi được tin nhắn."), tone: "error" }),
+    onSuccess: async (_, input) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messages.channel(workspaceId ?? "", input.channelId) });
+      setTestMessage("");
+      setFeedback({ message: "Bot đã gửi tin nhắn thử nghiệm.", tone: "success" });
+    }
+  });
+
+  function handleCreateBot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = createName.trim();
+    const slug = slugify(createSlug || createName);
+    if (!name || slug.length < 3 || !workspaceId) {
+      setFeedback({ message: "Tên bot và slug từ 3 ký tự là bắt buộc.", tone: "error" });
+      return;
+    }
+    createBotMutation.mutate({ description: createDescription.trim() || undefined, name, slug });
+  }
+
+  const activeBots = bots.filter((bot) => bot.status === "active").length;
+  const installations = installationsQuery.data ?? [];
+
+  return (
+    <div className="workspace-page bot-page">
+      <header className="workspace-page__header bot-page__header">
+        <div>
+          <span className="workspace-page__eyebrow">Trung tâm tự động</span>
+          <h1>Bot</h1>
+          <p>Tạo trợ lý, kết nối vào kênh và thử luồng thông báo ngay trong workspace.</p>
+        </div>
+        {canManage ? (
+          <Button onClick={() => setIsCreateOpen((current) => !current)} size="sm">
+            {isCreateOpen ? <X size={16} /> : <Plus size={16} />}
+            {isCreateOpen ? "Đóng" : "Tạo bot"}
+          </Button>
+        ) : null}
+      </header>
+
+      <section className="bot-hero">
+        <div className="bot-hero__copy">
+          <Badge tone="blue"><Sparkles size={13} /> Bot workspace</Badge>
+          <h2>Tự động hóa thông báo, cảnh báo và chăm sóc nội bộ</h2>
+          <p>Phù hợp cho Ticket Bot, Server Alert Bot và Gia Hạn Bot của VPSTTT.</p>
+          <div className="bot-hero__stats">
+            <span><strong>{bots.length}</strong> tổng bot</span>
+            <span><strong>{activeBots}</strong> đang hoạt động</span>
+            <span><strong>{installations.length}</strong> kết nối đã chọn</span>
+          </div>
+        </div>
+        <div className="bot-animation" aria-hidden="true">
+          <span className="bot-animation__orbit bot-animation__orbit--one"><i /></span>
+          <span className="bot-animation__orbit bot-animation__orbit--two"><i /></span>
+          <span className="bot-animation__signal bot-animation__signal--one" />
+          <span className="bot-animation__signal bot-animation__signal--two" />
+          <span className="bot-animation__core"><Bot size={44} /><b /></span>
+          <Sparkles className="bot-animation__spark bot-animation__spark--one" size={18} />
+          <Zap className="bot-animation__spark bot-animation__spark--two" size={17} />
+        </div>
+      </section>
+
+      {!canManage ? (
+        <section className="bot-permission-state">
+          <ShieldCheck size={30} />
+          <div>
+            <h2>Cần quyền quản lý bot</h2>
+            <p>Liên hệ quản trị viên workspace để được cấp quyền <code>bot.manage</code>.</p>
+          </div>
+        </section>
+      ) : null}
+
+      {canManage && isCreateOpen ? (
+        <form className="bot-create-form" onSubmit={handleCreateBot}>
+          <header>
+            <span><Bot size={20} /></span>
+            <div><strong>Tạo bot mới</strong><small>Bot sẽ sẵn sàng để kết nối với kênh sau khi tạo.</small></div>
+          </header>
+          <label>Tên bot<input autoFocus onChange={(event) => {
+            setCreateName(event.target.value);
+            setCreateSlug((current) => current || slugify(event.target.value));
+          }} placeholder="Ví dụ: Server Alert Bot" value={createName} /></label>
+          <label>Slug<input onChange={(event) => setCreateSlug(slugify(event.target.value))} placeholder="server-alert-bot" value={createSlug} /></label>
+          <label className="bot-create-form__description">Mô tả<textarea onChange={(event) => setCreateDescription(event.target.value)} placeholder="Bot dùng để làm gì?" value={createDescription} /></label>
+          <Button disabled={createBotMutation.isPending} size="sm" type="submit">
+            {createBotMutation.isPending ? "Đang tạo..." : "Tạo bot"}
+          </Button>
+        </form>
+      ) : null}
+
+      {feedback ? (
+        <div className={`bot-feedback bot-feedback--${feedback.tone}`} role="status">
+          <span>{feedback.tone === "success" ? <CheckCircle2 size={17} /> : <Info size={17} />}{feedback.message}</span>
+          <button aria-label="Đóng thông báo" onClick={() => setFeedback(null)} type="button"><X size={15} /></button>
+        </div>
+      ) : null}
+
+      {canManage ? (
+        <div className="bot-workspace-grid">
+          <section className="bot-catalog">
+            <header>
+              <div><h2>Bot trong workspace</h2><p>Chọn một bot để cấu hình và gửi thử.</p></div>
+              <Badge tone={activeBots ? "green" : "slate"}>{activeBots} hoạt động</Badge>
+            </header>
+            {botsQuery.isLoading ? (
+              <div className="bot-card-grid"><Skeleton style={{ height: 150 }} /><Skeleton style={{ height: 150 }} /></div>
+            ) : botsQuery.isError ? (
+              <ErrorState action={<Button onClick={() => void botsQuery.refetch()} size="sm" variant="secondary">Thử lại</Button>} description="Không tải được danh sách bot." title="Lỗi dữ liệu bot" />
+            ) : bots.length ? (
+              <div className="bot-card-grid">
+                {bots.map((bot) => (
+                  <button className={bot.id === selectedBot?.id ? "bot-card bot-card--active" : "bot-card"} key={bot.id} onClick={() => setSelectedBotId(bot.id)} type="button">
+                    <span className="bot-card__avatar">{bot.avatar_url ? <img alt="" src={bot.avatar_url} /> : <Bot size={23} />}</span>
+                    <span className="bot-card__body"><strong>{bot.name}</strong><small>@{bot.slug}</small><p>{bot.description || "Chưa có mô tả cho bot này."}</p></span>
+                    <span className={bot.status === "active" ? "bot-status bot-status--active" : "bot-status"}><i />{bot.status === "active" ? "Hoạt động" : bot.status}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <EmptyState action={<Button onClick={() => setIsCreateOpen(true)} size="sm"><Plus size={15} />Tạo bot đầu tiên</Button>} description="Tạo Ticket Bot, Server Alert Bot hoặc Gia Hạn Bot để bắt đầu." title="Chưa có bot" />
+            )}
+          </section>
+
+          <aside className="bot-control-panel">
+            {selectedBot ? (
+              <>
+                <header>
+                  <span className="bot-control-panel__avatar">{selectedBot.avatar_url ? <img alt="" src={selectedBot.avatar_url} /> : <Bot size={26} />}</span>
+                  <div><h2>{selectedBot.name}</h2><p>Cập nhật {formatSessionDate(selectedBot.updated_at)}</p></div>
+                </header>
+                <section>
+                  <div className="bot-section-title"><span><Zap size={16} /></span><div><strong>Kết nối kênh</strong><small>{installations.length} cài đặt hiện có</small></div></div>
+                  <div className="bot-channel-action">
+                    <select aria-label="Chọn kênh cài bot" onChange={(event) => setTargetChannelId(event.target.value)} value={targetChannelId}>
+                      {availableChannels.map((channel) => <option key={channel.id} value={channel.id}>#{channel.name}</option>)}
+                    </select>
+                    <Button disabled={!targetChannelId || installBotMutation.isPending} onClick={() => selectedBot && installBotMutation.mutate({ botId: selectedBot.id, channelId: targetChannelId })} size="sm" variant="secondary">
+                      {installBotMutation.isPending ? "Đang nối..." : "Kết nối"}
+                    </Button>
+                  </div>
+                  {!availableChannels.length ? <small>Bạn cần tham gia ít nhất một kênh trước khi cài bot.</small> : null}
+                </section>
+                <section>
+                  <div className="bot-section-title"><span><MessageCircle size={16} /></span><div><strong>Gửi thử tin nhắn</strong><small>Kiểm tra bot trực tiếp trong kênh đã chọn.</small></div></div>
+                  <form className="bot-test-form" onSubmit={(event) => {
+                    event.preventDefault();
+                    if (selectedBot && targetChannelId && testMessage.trim()) {
+                      sendBotMessageMutation.mutate({ botId: selectedBot.id, body: testMessage.trim(), channelId: targetChannelId });
+                    }
+                  }}>
+                    <textarea onChange={(event) => setTestMessage(event.target.value)} placeholder="Nhập nội dung bot sẽ gửi..." value={testMessage} />
+                    <Button disabled={!targetChannelId || !testMessage.trim() || sendBotMessageMutation.isPending} size="sm" type="submit">
+                      <Send size={15} />{sendBotMessageMutation.isPending ? "Đang gửi..." : "Gửi thử"}
+                    </Button>
+                  </form>
+                </section>
+              </>
+            ) : (
+              <EmptyState description="Chọn hoặc tạo một bot để bắt đầu cấu hình." title="Chưa chọn bot" />
+            )}
+          </aside>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function resizeAvatarFile(file: File): Promise<string> {
@@ -2751,13 +3249,31 @@ function TypingDots({ label }: { label: string }) {
 
 function ChatHeader({
   channel,
+  isDetailPanelOpen = false,
+  isFavorite = false,
+  isMembersLoading = false,
   isSearchOpen,
+  members = [],
+  onMarkUnread,
+  onToggleDetailPanel,
+  onToggleFavorite,
   onToggleSearch
 }: {
   channel: ChatChannel;
+  isDetailPanelOpen?: boolean;
+  isFavorite?: boolean;
+  isMembersLoading?: boolean;
   isSearchOpen: boolean;
+  members?: ChannelMember[];
+  onMarkUnread?: () => void;
+  onToggleDetailPanel?: () => void;
+  onToggleFavorite?: () => void;
   onToggleSearch: () => void;
 }) {
+  const [openPopover, setOpenPopover] = useState<"members" | "more" | null>(null);
+
+  useEffect(() => setOpenPopover(null), [channel.id]);
+
   return (
     <header className="chat-header">
       <div className="chat-title">
@@ -2768,30 +3284,113 @@ function ChatHeader({
         </div>
       </div>
       <div className="chat-actions">
-        <span className="member-count">
-          <Users size={18} /> {channel.memberCount}
-        </span>
+        <div className="chat-header-control">
+          <Tooltip label="Thành viên">
+            <Button
+              aria-expanded={openPopover === "members"}
+              aria-label={`Xem ${channel.memberCount} thành viên`}
+              className={openPopover === "members" ? "member-count chat-action-active" : "member-count"}
+              onClick={() => setOpenPopover((current) => current === "members" ? null : "members")}
+              size="sm"
+              variant="ghost"
+            >
+              <Users size={18} /> {channel.memberCount}
+            </Button>
+          </Tooltip>
+          {openPopover === "members" ? (
+            <div className="chat-header-popover chat-members-popover" role="dialog" aria-label="Danh sách thành viên">
+              <header>
+                <div>
+                  <strong>Thành viên</strong>
+                  <small>{channel.memberCount} người trong cuộc trò chuyện</small>
+                </div>
+                <button aria-label="Đóng danh sách thành viên" onClick={() => setOpenPopover(null)} type="button"><X size={16} /></button>
+              </header>
+              <div className="chat-members-list">
+                {isMembersLoading ? <Skeleton style={{ height: 84 }} /> : members.length ? members.map((member) => {
+                  const name = member.display_name || member.username || member.email || "Thành viên";
+                  return (
+                    <article key={member.user_id}>
+                      <Avatar name={name} size="sm" src={member.avatar_url ?? undefined} />
+                      <span>
+                        <strong>{name}</strong>
+                        <small>{member.status === "active" ? "Đang hoạt động" : member.status || "Thành viên"}</small>
+                      </span>
+                    </article>
+                  );
+                }) : <p>Chưa tải được danh sách thành viên.</p>}
+              </div>
+            </div>
+          ) : null}
+        </div>
         <Tooltip label="Tìm kiếm">
           <Button
             aria-label={isSearchOpen ? "Đóng tìm kiếm" : "Tìm kiếm"}
             className={isSearchOpen ? "chat-action-active" : undefined}
-            onClick={onToggleSearch}
+            onClick={() => {
+              setOpenPopover(null);
+              onToggleSearch();
+            }}
             type="button"
             variant="icon"
           >
             <Search size={19} />
           </Button>
         </Tooltip>
-        <Tooltip label="Thông tin kênh">
-          <Button aria-label="Thông tin kênh" variant="icon">
+        <Tooltip label={isDetailPanelOpen ? "Ẩn thông tin cuộc trò chuyện" : "Hiện thông tin cuộc trò chuyện"}>
+          <Button
+            aria-label={isDetailPanelOpen ? "Ẩn thông tin cuộc trò chuyện" : "Hiện thông tin cuộc trò chuyện"}
+            className={isDetailPanelOpen ? "chat-action-active" : undefined}
+            disabled={!onToggleDetailPanel}
+            onClick={() => {
+              setOpenPopover(null);
+              onToggleDetailPanel?.();
+            }}
+            variant="icon"
+          >
             <Info size={19} />
           </Button>
         </Tooltip>
-        <Tooltip label="Tùy chọn khác">
-          <Button aria-label="Tùy chọn khác" variant="icon">
-            <MoreVertical size={19} />
-          </Button>
-        </Tooltip>
+        <div className="chat-header-control">
+          <Tooltip label="Tùy chọn khác">
+            <Button
+              aria-expanded={openPopover === "more"}
+              aria-label="Tùy chọn khác"
+              className={openPopover === "more" ? "chat-action-active" : undefined}
+              onClick={() => setOpenPopover((current) => current === "more" ? null : "more")}
+              variant="icon"
+            >
+              <MoreVertical size={19} />
+            </Button>
+          </Tooltip>
+          {openPopover === "more" ? (
+            <div className="chat-header-popover chat-more-menu" role="menu">
+              <button onClick={() => { onToggleFavorite?.(); setOpenPopover(null); }} role="menuitem" type="button">
+                <Star fill={isFavorite ? "currentColor" : "none"} size={17} />
+                {isFavorite ? "Bỏ khỏi yêu thích" : "Thêm vào yêu thích"}
+              </button>
+              <button onClick={() => { onMarkUnread?.(); setOpenPopover(null); }} role="menuitem" type="button">
+                <MessageCircle size={17} />
+                Đánh dấu chưa đọc
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {!isDetailPanelOpen && onToggleDetailPanel ? (
+          <Tooltip label="Mở bảng thông tin">
+            <Button
+              aria-label="Mở bảng thông tin cuộc trò chuyện"
+              className="chat-panel-open-button"
+              onClick={() => {
+                setOpenPopover(null);
+                onToggleDetailPanel();
+              }}
+              variant="icon"
+            >
+              <PanelRightOpen size={19} />
+            </Button>
+          </Tooltip>
+        ) : null}
       </div>
     </header>
   );
@@ -3065,6 +3664,7 @@ function MessageTimeline({
 }) {
   const lastMessageId = messages.at(-1)?.id;
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!lastMessageId) {
@@ -3238,14 +3838,35 @@ function MessageTimeline({
               </div>
             ) : null}
             {!message.isDeleted ? (
-              <button
-                aria-label="Thả cảm xúc"
-                className="reaction-add-button"
-                onClick={() => onToggleReaction(message, "👍")}
-                type="button"
-              >
-                <Smile size={15} />
-              </button>
+              <div className="message-reaction-control">
+                <button
+                  aria-expanded={reactionPickerMessageId === message.id}
+                  aria-label="Thả cảm xúc"
+                  className="reaction-add-button"
+                  onClick={() => setReactionPickerMessageId((current) => current === message.id ? null : message.id)}
+                  type="button"
+                >
+                  <Smile size={15} />
+                </button>
+                {reactionPickerMessageId === message.id ? (
+                  <div className="message-reaction-picker" role="menu" aria-label="Chọn cảm xúc">
+                    {quickReactions.map((emoji) => (
+                      <button
+                        aria-label={`Thả cảm xúc ${emoji}`}
+                        key={emoji}
+                        onClick={() => {
+                          onToggleReaction(message, emoji);
+                          setReactionPickerMessageId(null);
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </article>
@@ -3444,6 +4065,7 @@ function RightDetailPanel({
   isSendingThread,
   isThreadLoading,
   mediaItems,
+  onClose,
   onCloseThread,
   onFileSelect,
   onResolveMedia,
@@ -3459,6 +4081,7 @@ function RightDetailPanel({
   isSendingThread: boolean;
   isThreadLoading: boolean;
   mediaItems: MediaItem[];
+  onClose: () => void;
   onCloseThread: () => void;
   onFileSelect: (file: FileItem) => void;
   onResolveMedia: (fileId: string) => Promise<Blob>;
@@ -3527,9 +4150,9 @@ function RightDetailPanel({
 
       <div className="detail-tabs">
         <SegmentedControl aria-label="Tab thông tin kênh" onValueChange={onTabChange} options={detailTabs} value={activeTab} />
-        <Tooltip label="Cấu hình panel">
-          <Button aria-label="Cấu hình panel" variant="icon">
-            <Settings size={18} />
+        <Tooltip label="Ẩn bảng thông tin">
+          <Button aria-label="Ẩn bảng thông tin" onClick={onClose} variant="icon">
+            <PanelRightClose size={18} />
           </Button>
         </Tooltip>
       </div>
