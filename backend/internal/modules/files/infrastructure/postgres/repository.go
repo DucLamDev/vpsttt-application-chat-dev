@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	filesapp "github.com/duclamdev/application-chat/backend/internal/modules/files/application"
@@ -13,6 +14,22 @@ import (
 
 type Repository struct {
 	pool *pgxpool.Pool
+}
+
+func (r *Repository) RecordAudit(ctx context.Context, event filesapp.AuditEvent) error {
+	metadata := event.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, `
+INSERT INTO audit_logs (workspace_id, actor_user_id, action, entity_type, entity_id, metadata)
+VALUES (NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, $3, 'file', NULLIF($4, '')::uuid, $5::jsonb)
+`, event.WorkspaceID, event.ActorUserID, event.Action, event.FileID, string(encoded))
+	return err
 }
 
 func NewRepository(pool *pgxpool.Pool) *Repository {

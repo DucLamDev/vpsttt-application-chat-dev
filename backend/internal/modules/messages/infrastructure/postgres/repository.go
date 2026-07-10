@@ -220,9 +220,14 @@ JOIN channel_members cm
 WHERE m.workspace_id = $1::uuid
   AND m.deleted_at IS NULL
   AND m.search_vector @@ plainto_tsquery('simple', $3)
+	AND ($5 = '' OR m.channel_id = NULLIF($5, '')::uuid)
+	AND ($6 = '' OR m.sender_id = NULLIF($6, '')::uuid)
+	AND ($7 = '' OR m.kind = $7)
+	AND ($8::timestamptz IS NULL OR m.created_at >= $8::timestamptz)
+	AND ($9::timestamptz IS NULL OR m.created_at < $9::timestamptz)
 ORDER BY ts_rank(m.search_vector, plainto_tsquery('simple', $3)) DESC, m.created_at DESC
 LIMIT $4
-`, params.WorkspaceID, params.ActorUserID, params.Query, params.Limit)
+`, params.WorkspaceID, params.ActorUserID, params.Query, params.Limit, params.ChannelID, params.SenderID, params.Kind, params.DateFrom, params.DateTo)
 	if err != nil {
 		return nil, err
 	}
@@ -233,6 +238,99 @@ LIMIT $4
 		return nil, err
 	}
 	return r.hydrateMessages(ctx, messages, params.ActorUserID)
+}
+
+func (r *Repository) Forward(ctx context.Context, params messagesapp.ForwardParams) (messagesdomain.Message, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return messagesdomain.Message{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	row := tx.QueryRow(ctx, `
+WITH source_message AS (
+    SELECT m.*
+    FROM messages m
+    JOIN channel_members source_member
+      ON source_member.channel_id = m.channel_id
+     AND source_member.user_id = $5::uuid
+     AND source_member.status IN ('active', 'muted')
+    WHERE m.workspace_id = $1::uuid
+      AND m.channel_id = $2::uuid
+      AND m.id = $3::uuid
+      AND m.deleted_at IS NULL
+), target_channel AS (
+    SELECT c.id, c.workspace_id
+    FROM channels c
+    JOIN channel_members target_member
+      ON target_member.channel_id = c.id
+     AND target_member.user_id = $5::uuid
+     AND target_member.status IN ('active', 'muted')
+    WHERE c.workspace_id = $1::uuid
+      AND c.id = $4::uuid
+      AND c.status = 'active'
+      AND c.deleted_at IS NULL
+)
+INSERT INTO messages (workspace_id, channel_id, sender_id, kind, body, metadata)
+SELECT target.workspace_id,
+       target.id,
+       $5::uuid,
+       source.kind,
+       source.body,
+       source.metadata || jsonb_build_object(
+           'forwarded_from', jsonb_build_object(
+               'message_id', source.id,
+               'channel_id', source.channel_id,
+               'sender_id', source.sender_id
+           )
+       )
+FROM source_message source
+CROSS JOIN target_channel target
+RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, parent_id::text,
+          thread_root_id::text, kind, body, metadata::text, edited_at, deleted_at, created_at, updated_at
+`, params.WorkspaceID, params.SourceChannelID, params.MessageID, params.TargetChannelID, params.ActorUserID)
+	message, err := scanMessage(row)
+	if err != nil {
+		return messagesdomain.Message{}, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO message_attachments (workspace_id, message_id, file_id, sort_order)
+SELECT workspace_id, $3::uuid, file_id, sort_order
+FROM message_attachments
+WHERE workspace_id = $1::uuid AND message_id = $2::uuid
+`, params.WorkspaceID, params.MessageID, message.ID); err != nil {
+		return messagesdomain.Message{}, err
+	}
+	if err := upsertSearchDocument(ctx, tx, message); err != nil {
+		return messagesdomain.Message{}, err
+	}
+	if err := insertOutbox(ctx, tx, "message", message.ID, "MessageCreated", map[string]any{
+		"workspace_id":        message.WorkspaceID,
+		"channel_id":          message.ChannelID,
+		"message_id":          message.ID,
+		"sender_id":           params.ActorUserID,
+		"forwarded_message_id": params.MessageID,
+	}); err != nil {
+		return messagesdomain.Message{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO audit_logs (workspace_id, actor_user_id, action, entity_type, entity_id, metadata)
+VALUES ($1::uuid, $2::uuid, 'message.forward', 'message', $3::uuid,
+        jsonb_build_object('source_message_id', $4, 'source_channel_id', $5, 'target_channel_id', $6))
+`, params.WorkspaceID, params.ActorUserID, message.ID, params.MessageID, params.SourceChannelID, params.TargetChannelID); err != nil {
+		return messagesdomain.Message{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return messagesdomain.Message{}, err
+	}
+	return r.Get(ctx, messagesapp.MessageRef{
+		WorkspaceID: params.WorkspaceID,
+		ChannelID:   params.TargetChannelID,
+		MessageID:   message.ID,
+		ActorUserID: params.ActorUserID,
+	})
 }
 
 func (r *Repository) Update(ctx context.Context, params messagesapp.UpdateParams) (messagesdomain.Message, error) {
@@ -330,6 +428,12 @@ WHERE workspace_id = $1::uuid AND source_type = 'message' AND source_id = $2::uu
 		"message_id":    params.MessageID,
 		"actor_user_id": params.ActorUserID,
 	}); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO audit_logs (workspace_id, actor_user_id, action, entity_type, entity_id, metadata)
+VALUES ($1::uuid, $4::uuid, 'message.delete', 'message', $3::uuid, jsonb_build_object('channel_id', $2))
+`, params.WorkspaceID, params.ChannelID, params.MessageID, params.ActorUserID); err != nil {
 		return err
 	}
 

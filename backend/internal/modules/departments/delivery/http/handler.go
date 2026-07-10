@@ -22,6 +22,7 @@ type createDepartmentRequest struct {
 
 type updateDepartmentRequest struct {
 	ParentID    *string `json:"parent_id"`
+	Slug        *string `json:"slug"`
 	Name        *string `json:"name"`
 	Description *string `json:"description"`
 }
@@ -98,6 +99,7 @@ func (h *Handler) Update(c *gin.Context) {
 		WorkspaceID:  c.Param("workspace_id"),
 		DepartmentID: c.Param("department_id"),
 		ParentID:     req.ParentID,
+		Slug:         req.Slug,
 		Name:         req.Name,
 		Description:  req.Description,
 	})

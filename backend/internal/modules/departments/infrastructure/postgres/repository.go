@@ -69,20 +69,59 @@ ORDER BY name
 	return departments, rows.Err()
 }
 
+func (r *Repository) CanSetParent(ctx context.Context, workspaceID string, departmentID string, parentID string) (bool, error) {
+	var allowed bool
+	err := r.pool.QueryRow(ctx, `
+WITH RECURSIVE descendants AS (
+    SELECT id
+    FROM departments
+    WHERE $2 <> ''
+      AND workspace_id = $1::uuid
+      AND parent_id = NULLIF($2, '')::uuid
+      AND deleted_at IS NULL
+    UNION
+    SELECT child.id
+    FROM departments child
+    JOIN descendants parent ON child.parent_id = parent.id
+    WHERE child.workspace_id = $1::uuid AND child.deleted_at IS NULL
+)
+SELECT EXISTS (
+    SELECT 1
+    FROM departments candidate
+    WHERE candidate.workspace_id = $1::uuid
+      AND candidate.id = $3::uuid
+      AND candidate.deleted_at IS NULL
+      AND ($2 = '' OR candidate.id <> NULLIF($2, '')::uuid)
+      AND NOT EXISTS (SELECT 1 FROM descendants WHERE id = candidate.id)
+)
+`, workspaceID, departmentID, parentID).Scan(&allowed)
+	return allowed, err
+}
+
 func (r *Repository) Update(ctx context.Context, params departmentsapp.UpdateParams) (departmentsdomain.Department, error) {
 	row := r.pool.QueryRow(ctx, `
 UPDATE departments
-SET parent_id = COALESCE(NULLIF($3, '')::uuid, parent_id),
-    name = COALESCE($4, name),
-    description = COALESCE($5, description)
+SET parent_id = CASE WHEN $3::text IS NULL THEN parent_id ELSE NULLIF($3::text, '')::uuid END,
+    slug = COALESCE($4, slug),
+    name = COALESCE($5, name),
+    description = COALESCE($6, description)
 WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
 RETURNING id::text, workspace_id::text, parent_id::text, slug::text, name, description, created_by::text, created_at, updated_at
-`, params.WorkspaceID, params.DepartmentID, params.ParentID, params.Name, params.Description)
-	return scanDepartment(row)
+`, params.WorkspaceID, params.DepartmentID, params.ParentID, params.Slug, params.Name, params.Description)
+	department, err := scanDepartment(row)
+	if err != nil && isUniqueViolation(err) {
+		return departmentsdomain.Department{}, departmentsdomain.ErrDepartmentConflict
+	}
+	return department, err
 }
 
 func (r *Repository) Delete(ctx context.Context, workspaceID string, departmentID string) error {
-	command, err := r.pool.Exec(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	command, err := tx.Exec(ctx, `
 UPDATE departments
 SET deleted_at = now()
 WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
@@ -93,7 +132,21 @@ WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
 	if command.RowsAffected() == 0 {
 		return departmentsdomain.ErrDepartmentNotFound
 	}
-	return nil
+	if _, err := tx.Exec(ctx, `
+UPDATE departments
+SET parent_id = NULL
+WHERE workspace_id = $1::uuid AND parent_id = $2::uuid AND deleted_at IS NULL
+`, workspaceID, departmentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE channels
+SET department_id = NULL
+WHERE workspace_id = $1::uuid AND department_id = $2::uuid AND deleted_at IS NULL
+`, workspaceID, departmentID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) AddMember(ctx context.Context, params departmentsapp.AddMemberParams) (departmentsdomain.Member, error) {

@@ -2,6 +2,7 @@ import type {
   AddReactionInput,
   ApiEnvelope,
   CursorMeta,
+  ForwardMessageInput,
   Message,
   SendMessageInput,
   UpdateMessageInput
@@ -55,6 +56,12 @@ export function createMessagesClient(http: HttpClient) {
     delete(workspaceId: string, channelId: string, messageId: string) {
       return http.delete<void>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`
+      );
+    },
+    forward(workspaceId: string, channelId: string, messageId: string, input: ForwardMessageInput) {
+      return http.post<Message>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/forward`,
+        input
       );
     },
     async pins(workspaceId: string, channelId: string) {

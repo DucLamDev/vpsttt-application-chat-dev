@@ -21,6 +21,7 @@ type Repository interface {
 	Create(ctx context.Context, params CreateParams) (departmentsdomain.Department, error)
 	Find(ctx context.Context, workspaceID string, departmentID string) (departmentsdomain.Department, error)
 	List(ctx context.Context, workspaceID string) ([]departmentsdomain.Department, error)
+	CanSetParent(ctx context.Context, workspaceID string, departmentID string, parentID string) (bool, error)
 	Update(ctx context.Context, params UpdateParams) (departmentsdomain.Department, error)
 	Delete(ctx context.Context, workspaceID string, departmentID string) error
 	AddMember(ctx context.Context, params AddMemberParams) (departmentsdomain.Member, error)
@@ -57,6 +58,7 @@ type UpdateInput struct {
 	WorkspaceID  string
 	DepartmentID string
 	ParentID     *string
+	Slug         *string
 	Name         *string
 	Description  *string
 }
@@ -65,6 +67,7 @@ type UpdateParams struct {
 	WorkspaceID  string
 	DepartmentID string
 	ParentID     *string
+	Slug         *string
 	Name         *string
 	Description  *string
 }
@@ -131,9 +134,19 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (DepartmentDTO,
 	if input.Name == "" {
 		return DepartmentDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Tên phòng ban không được để trống.")
 	}
+	parentID := strings.TrimSpace(input.ParentID)
+	if parentID != "" {
+		allowed, err := s.repo.CanSetParent(ctx, strings.TrimSpace(input.WorkspaceID), "", parentID)
+		if err != nil {
+			return DepartmentDTO{}, err
+		}
+		if !allowed {
+			return DepartmentDTO{}, apperrors.BadRequest("DEPARTMENT_PARENT_INVALID", "Phòng ban cha không hợp lệ hoặc không thuộc workspace hiện tại.")
+		}
+	}
 	department, err := s.repo.Create(ctx, CreateParams{
 		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
-		ParentID:    strings.TrimSpace(input.ParentID),
+		ParentID:    parentID,
 		Slug:        input.Slug,
 		Name:        input.Name,
 		Description: strings.TrimSpace(input.Description),
@@ -179,11 +192,38 @@ func (s *Service) Update(ctx context.Context, input UpdateInput) (DepartmentDTO,
 	if err := s.ensureManage(ctx, input.ActorUserID, input.WorkspaceID); err != nil {
 		return DepartmentDTO{}, err
 	}
+	slug := cleanOptional(input.Slug)
+	if slug != nil {
+		*slug = strings.ToLower(*slug)
+		if !departmentSlugPattern.MatchString(*slug) {
+			return DepartmentDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Slug phòng ban không hợp lệ.")
+		}
+	}
+	name := cleanOptional(input.Name)
+	if name != nil && *name == "" {
+		return DepartmentDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Tên phòng ban không được để trống.")
+	}
+	parentID := cleanOptional(input.ParentID)
+	if parentID != nil && *parentID != "" {
+		allowed, err := s.repo.CanSetParent(
+			ctx,
+			strings.TrimSpace(input.WorkspaceID),
+			strings.TrimSpace(input.DepartmentID),
+			*parentID,
+		)
+		if err != nil {
+			return DepartmentDTO{}, err
+		}
+		if !allowed {
+			return DepartmentDTO{}, apperrors.BadRequest("DEPARTMENT_PARENT_INVALID", "Không thể chọn chính phòng ban này, phòng ban con hoặc phòng ban ngoài workspace làm cấp cha.")
+		}
+	}
 	department, err := s.repo.Update(ctx, UpdateParams{
 		WorkspaceID:  strings.TrimSpace(input.WorkspaceID),
 		DepartmentID: strings.TrimSpace(input.DepartmentID),
-		ParentID:     cleanOptional(input.ParentID),
-		Name:         cleanOptional(input.Name),
+		ParentID:     parentID,
+		Slug:         slug,
+		Name:         name,
 		Description:  cleanOptional(input.Description),
 	})
 	if err != nil {
@@ -224,6 +264,14 @@ func (s *Service) AddMember(ctx context.Context, input AddMemberInput) (MemberDT
 	if err != nil {
 		return MemberDTO{}, mapDepartmentError(err)
 	}
+	_ = s.repo.RecordAudit(ctx, AuditEvent{
+		ActorUserID: input.ActorUserID,
+		WorkspaceID: input.WorkspaceID,
+		Action:      "department.member.upsert",
+		EntityType:  "department",
+		EntityID:    input.DepartmentID,
+		Metadata:    map[string]any{"user_id": input.UserID, "role": role},
+	})
 	return toMemberDTO(member), nil
 }
 
@@ -234,6 +282,14 @@ func (s *Service) RemoveMember(ctx context.Context, actorUserID string, workspac
 	if err := s.repo.RemoveMember(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(departmentID), strings.TrimSpace(userID)); err != nil {
 		return mapDepartmentError(err)
 	}
+	_ = s.repo.RecordAudit(ctx, AuditEvent{
+		ActorUserID: actorUserID,
+		WorkspaceID: workspaceID,
+		Action:      "department.member.remove",
+		EntityType:  "department",
+		EntityID:    departmentID,
+		Metadata:    map[string]any{"user_id": userID},
+	})
 	return nil
 }
 
@@ -269,6 +325,9 @@ func mapDepartmentError(err error) error {
 	}
 	if errors.Is(err, departmentsdomain.ErrMemberNotFound) {
 		return apperrors.NotFound("DEPARTMENT_MEMBER_NOT_FOUND", "Không tìm thấy thành viên phòng ban hoặc user chưa thuộc workspace.")
+	}
+	if errors.Is(err, departmentsdomain.ErrDepartmentConflict) {
+		return apperrors.Conflict("DEPARTMENT_ALREADY_EXISTS", "Slug phòng ban đã tồn tại.")
 	}
 	return err
 }

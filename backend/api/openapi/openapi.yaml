@@ -318,6 +318,27 @@ paths:
       responses:
         "204":
           description: Đã xóa mềm
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/{message_id}/forward:
+    post:
+      summary: Chuyển tiếp tin nhắn và file đính kèm sang kênh khác
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - $ref: "#/components/parameters/MessageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_channel_id]
+              properties:
+                target_channel_id:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          description: Tin nhắn đã được chuyển tiếp
   /api/v1/workspaces/{workspace_id}/members:
     get:
       summary: Danh sách thành viên workspace
@@ -401,6 +422,47 @@ paths:
       responses:
         "204":
           description: Đã xóa mềm
+  /api/v1/workspaces/{workspace_id}/departments/{department_id}/members:
+    get:
+      summary: Danh sách thành viên phòng ban
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/DepartmentID"
+      responses:
+        "200":
+          description: Danh sách trưởng phòng và thành viên
+    post:
+      summary: Thêm thành viên hoặc cập nhật vai trò trong phòng ban
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/DepartmentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, role]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                role:
+                  type: string
+                  enum: [lead, member]
+      responses:
+        "201":
+          description: Thành viên phòng ban đã được cập nhật
+  /api/v1/workspaces/{workspace_id}/departments/{department_id}/members/{user_id}:
+    delete:
+      summary: Xóa thành viên khỏi phòng ban
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/DepartmentID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: Đã xóa thành viên khỏi phòng ban
   /api/v1/workspaces/{workspace_id}/channels:
     get:
       summary: Danh sách kênh
@@ -464,6 +526,31 @@ paths:
           in: query
           schema:
             type: integer
+        - name: channel_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: sender_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [text, file, system, bot, event]
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: Danh sách tin nhắn khớp từ khóa

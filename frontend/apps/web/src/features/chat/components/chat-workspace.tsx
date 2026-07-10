@@ -1,6 +1,8 @@
 "use client";
 
-import { type ChangeEvent, type ClipboardEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ChangeEvent, type ClipboardEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@webtui/api-client";
 import {
   Avatar,
   Badge,
@@ -37,6 +39,7 @@ import {
   Reply,
   Search,
   Send,
+  Share2,
   Settings,
   ShieldCheck,
   Smile,
@@ -49,6 +52,8 @@ import {
   X
 } from "@webtui/icons";
 import { useAuth } from "@/features/auth/auth-provider";
+import { useAuthStore } from "@/features/auth/auth-store";
+import { api } from "@/lib/api";
 import {
   mapAuthUser,
   type CreateChannelPayload,
@@ -70,7 +75,9 @@ import type {
 } from "../model/types";
 import { useUploadStore, type UploadQueueItem } from "../stores/upload-store";
 import { getCachedMediaUrl, resolveCachedMediaUrl } from "../model/media-cache";
-import type { AuthUser, ChannelMember, ContactRequest, Department, WorkspaceMember } from "@webtui/types";
+import { buildChatTargets } from "../model/chat-targets";
+import { buildDepartmentRows, departmentDescendantIds } from "../model/department-tree";
+import type { AuthSession, AuthUser, ChannelMember, ContactRequest, Department, DepartmentMember, WorkspaceMember } from "@webtui/types";
 
 const railItems = [
   { id: "messages", label: "Tin nhắn", icon: MessageCircle },
@@ -128,8 +135,14 @@ export function ChatWorkspace() {
   const [editingBody, setEditingBody] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const [messageSearchChannelId, setMessageSearchChannelId] = useState("");
+  const [messageSearchSenderId, setMessageSearchSenderId] = useState("");
+  const [messageSearchKind, setMessageSearchKind] = useState("");
+  const [messageSearchDateFrom, setMessageSearchDateFrom] = useState("");
+  const [messageSearchDateTo, setMessageSearchDateTo] = useState("");
   const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
   const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
+  const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -147,9 +160,23 @@ export function ChatWorkspace() {
   const activeMessageSearchQuery = isMessageSearchOpen ? messageSearchQuery : "";
   const data = useChatWorkspaceData(currentUser, {
     friendSearchQuery,
+    messageSearchFilters: {
+      channelId: messageSearchChannelId,
+      dateFrom: messageSearchDateFrom,
+      dateTo: messageSearchDateTo,
+      kind: messageSearchKind,
+      senderId: messageSearchSenderId
+    },
     messageSearchQuery: activeMessageSearchQuery,
     threadMessageId: threadMessageId ?? undefined
   });
+  const chatTargets = useMemo(() => {
+    return buildChatTargets(data.channels, data.directConversations);
+  }, [data.channels, data.directConversations]);
+  const forwardTargets = useMemo(
+    () => chatTargets.filter((target) => target.id !== data.selectedChannelId),
+    [chatTargets, data.selectedChannelId]
+  );
   const uploadQueue = useUploadStore();
   const queuedUploads = useMemo(
     () => uploadQueue.items.filter((item) => item.status === "queued" || item.status === "failed"),
@@ -332,6 +359,11 @@ export function ChatWorkspace() {
     setThreadMessageId(null);
     setIsMessageSearchOpen(false);
     setMessageSearchQuery("");
+    setMessageSearchChannelId("");
+    setMessageSearchSenderId("");
+    setMessageSearchKind("");
+    setMessageSearchDateFrom("");
+    setMessageSearchDateTo("");
     setActiveRailItem("messages");
   }
 
@@ -339,6 +371,11 @@ export function ChatWorkspace() {
     setIsMessageSearchOpen((current) => {
       if (current) {
         setMessageSearchQuery("");
+        setMessageSearchChannelId("");
+        setMessageSearchSenderId("");
+        setMessageSearchKind("");
+        setMessageSearchDateFrom("");
+        setMessageSearchDateTo("");
       }
       return !current;
     });
@@ -355,6 +392,11 @@ export function ChatWorkspace() {
   function handleCloseMessageSearch() {
     setIsMessageSearchOpen(false);
     setMessageSearchQuery("");
+    setMessageSearchChannelId("");
+    setMessageSearchSenderId("");
+    setMessageSearchKind("");
+    setMessageSearchDateFrom("");
+    setMessageSearchDateTo("");
   }
 
   function handleToggleFavorite() {
@@ -1137,14 +1179,36 @@ export function ChatWorkspace() {
             />
             {isMessageSearchOpen ? (
               <div className="message-toolbar">
-                <Input
-                  aria-label="Tìm tin nhắn"
-                  autoFocus
-                  leftAddon={<Search size={17} />}
-                  onChange={(event) => setMessageSearchQuery(event.target.value)}
-                  placeholder="Tìm tin nhắn..."
-                  value={messageSearchQuery}
-                />
+                <div className="message-toolbar__search">
+                  <Input
+                    aria-label="Tìm tin nhắn"
+                    autoFocus
+                    leftAddon={<Search size={17} />}
+                    onChange={(event) => setMessageSearchQuery(event.target.value)}
+                    placeholder="Tìm tin nhắn..."
+                    value={messageSearchQuery}
+                  />
+                  <div className="message-search-filters">
+                    <select aria-label="Lọc theo kênh" onChange={(event) => setMessageSearchChannelId(event.target.value)} value={messageSearchChannelId}>
+                      <option value="">Tất cả kênh</option>
+                      {chatTargets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
+                    </select>
+                    <select aria-label="Lọc theo người gửi" onChange={(event) => setMessageSearchSenderId(event.target.value)} value={messageSearchSenderId}>
+                      <option value="">Tất cả người gửi</option>
+                      {data.members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name || member.username || member.email}</option>)}
+                    </select>
+                    <select aria-label="Lọc theo loại nội dung" onChange={(event) => setMessageSearchKind(event.target.value)} value={messageSearchKind}>
+                      <option value="">Mọi nội dung</option>
+                      <option value="text">Văn bản</option>
+                      <option value="file">File</option>
+                      <option value="system">Hệ thống</option>
+                      <option value="bot">Bot</option>
+                      <option value="event">Sự kiện</option>
+                    </select>
+                    <label>Từ ngày<input onChange={(event) => setMessageSearchDateFrom(event.target.value)} type="date" value={messageSearchDateFrom} /></label>
+                    <label>Đến ngày<input onChange={(event) => setMessageSearchDateTo(event.target.value)} type="date" value={messageSearchDateTo} /></label>
+                  </div>
+                </div>
                 <Tooltip label="Đóng tìm kiếm">
                   <Button aria-label="Đóng tìm kiếm" onClick={handleCloseMessageSearch} type="button" variant="icon">
                     <X size={18} />
@@ -1180,6 +1244,7 @@ export function ChatWorkspace() {
                 onChangeEditingBody={setEditingBody}
                 onDeleteMessage={handleDeleteMessage}
                 onDownloadAttachment={handleDownloadAttachment}
+                onForwardMessage={setForwardingMessageId}
                 onResolveAttachment={data.downloadAttachment}
                 onLoadOlderMessages={handleLoadOlderMessages}
                 onOpenThread={handleOpenThread}
@@ -1332,6 +1397,26 @@ export function ChatWorkspace() {
           pinnedMessages={pinnedMessages}
           threadMessages={data.threadMessages}
           threadMessageId={threadMessageId}
+        />
+      ) : null}
+
+      {forwardingMessageId ? (
+        <ForwardMessageDialog
+          channels={forwardTargets}
+          isPending={data.forwardMessageMutation.isPending}
+          onCancel={() => setForwardingMessageId(null)}
+          onSubmit={(targetChannelId) =>
+            data.forwardMessageMutation.mutate(
+              { messageId: forwardingMessageId, targetChannelId },
+              {
+                onError: (error) => setToast(error instanceof Error ? error.message : "Không chuyển tiếp được tin nhắn."),
+                onSuccess: () => {
+                  setForwardingMessageId(null);
+                  setToast("Đã chuyển tiếp tin nhắn.");
+                }
+              }
+            )
+          }
         />
       ) : null}
 
@@ -1521,10 +1606,13 @@ function WorkspaceSectionPage({
     return (
       <DepartmentsPage
         canManage={canManageDepartments}
+        channels={channels}
         departments={departments}
         isCreating={isCreatingDepartment}
         isLoading={isLoadingDepartments}
         onCreate={onCreateDepartment}
+        workspaceId={workspaceId}
+        workspaceMembers={workspaceMembers}
       />
     );
   }
@@ -1817,22 +1905,139 @@ function ChannelMembershipManager({
 
 function DepartmentsPage({
   canManage,
+  channels,
   departments,
   isCreating,
   isLoading,
-  onCreate
+  onCreate,
+  workspaceId,
+  workspaceMembers
 }: {
   canManage: boolean;
+  channels: ChatChannel[];
   departments: Department[];
   isCreating: boolean;
   isLoading: boolean;
   onCreate: (input: CreateDepartmentPayload) => void;
+  workspaceId?: string;
+  workspaceMembers: WorkspaceMember[];
 }) {
+  const queryClient = useQueryClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
   const [parentId, setParentId] = useState("");
+  const [query, setQuery] = useState("");
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editSlug, setEditSlug] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editParentId, setEditParentId] = useState("");
+  const [memberUserId, setMemberUserId] = useState("");
+  const [memberRole, setMemberRole] = useState<"lead" | "member">("member");
+  const [channelId, setChannelId] = useState("");
+  const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
+  const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
+
+  const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId) ?? null;
+  const departmentRows = useMemo(() => buildDepartmentRows(departments), [departments]);
+  const normalizedQuery = query.trim().toLocaleLowerCase("vi");
+  const visibleRows = normalizedQuery
+    ? departmentRows.filter(({ department }) =>
+        `${department.name} ${department.slug} ${department.description ?? ""}`.toLocaleLowerCase("vi").includes(normalizedQuery)
+      )
+    : departmentRows;
+  const invalidParentIds = useMemo(
+    () => selectedDepartment ? departmentDescendantIds(departments, selectedDepartment.id) : new Set<string>(),
+    [departments, selectedDepartment]
+  );
+
+  const membersQuery = useQuery({
+    enabled: Boolean(workspaceId && selectedDepartmentId),
+    queryFn: () => api.departments.members(workspaceId ?? "", selectedDepartmentId),
+    queryKey: workspaceId && selectedDepartmentId
+      ? queryKeys.departments.members(workspaceId, selectedDepartmentId)
+      : ["departments", "members", "none"]
+  });
+  const departmentMembers = membersQuery.data ?? [];
+  const memberIds = new Set(departmentMembers.map((member) => member.user_id));
+  const assignableMembers = workspaceMembers.filter((member) => !memberIds.has(member.user_id));
+  const assignedChannels = channels.filter((channel) => channel.departmentId === selectedDepartmentId);
+  const assignableChannels = channels.filter((channel) => channel.departmentId !== selectedDepartmentId);
+
+  const updateMutation = useMutation({
+    mutationFn: (input: { departmentId: string; description: string; name: string; parentId: string; slug: string }) =>
+      api.departments.update(workspaceId ?? "", input.departmentId, {
+        description: input.description,
+        name: input.name,
+        parent_id: input.parentId,
+        slug: input.slug
+      }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không cập nhật được phòng ban."), tone: "error" }),
+    onSuccess: async (department) => {
+      setEditName(department.name);
+      setEditSlug(department.slug);
+      setEditDescription(department.description ?? "");
+      setEditParentId(department.parent_id ?? "");
+      setFeedback({ message: "Đã cập nhật thông tin phòng ban.", tone: "success" });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.departments.all(workspaceId ?? "") });
+    }
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (departmentId: string) => api.departments.delete(workspaceId ?? "", departmentId),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không xóa được phòng ban."), tone: "error" }),
+    onSuccess: async () => {
+      setSelectedDepartmentId("");
+      setIsDeleteConfirming(false);
+      setFeedback({ message: "Đã xóa phòng ban. Các phòng ban con được đưa về cấp gốc.", tone: "success" });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.departments.all(workspaceId ?? "") }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId ?? "") })
+      ]);
+    }
+  });
+  const upsertMemberMutation = useMutation({
+    mutationFn: (input: { departmentId: string; role: "lead" | "member"; userId: string }) =>
+      api.departments.addMember(workspaceId ?? "", input.departmentId, input.userId, input.role),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không cập nhật được thành viên phòng ban."), tone: "error" }),
+    onSuccess: async (_member, input) => {
+      setMemberUserId("");
+      setFeedback({ message: "Đã cập nhật thành viên phòng ban.", tone: "success" });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.departments.members(workspaceId ?? "", input.departmentId) });
+    }
+  });
+  const removeMemberMutation = useMutation({
+    mutationFn: (input: { departmentId: string; userId: string }) =>
+      api.departments.removeMember(workspaceId ?? "", input.departmentId, input.userId),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không xóa được thành viên khỏi phòng ban."), tone: "error" }),
+    onSuccess: async (_result, input) => {
+      setFeedback({ message: "Đã xóa thành viên khỏi phòng ban.", tone: "success" });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.departments.members(workspaceId ?? "", input.departmentId) });
+    }
+  });
+  const assignChannelMutation = useMutation({
+    mutationFn: (input: { channelId: string; departmentId: string }) =>
+      api.channels.update(workspaceId ?? "", input.channelId, { department_id: input.departmentId }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không cập nhật được kênh của phòng ban."), tone: "error" }),
+    onSuccess: async () => {
+      setChannelId("");
+      setFeedback({ message: "Đã cập nhật kênh của phòng ban.", tone: "success" });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId ?? "") });
+    }
+  });
+
+  const isMutating = updateMutation.isPending || deleteMutation.isPending || upsertMemberMutation.isPending || removeMemberMutation.isPending || assignChannelMutation.isPending;
+
+  function openDepartment(department: Department) {
+    setSelectedDepartmentId(department.id);
+    setEditName(department.name);
+    setEditSlug(department.slug);
+    setEditDescription(department.description ?? "");
+    setEditParentId(department.parent_id ?? "");
+    setIsDeleteConfirming(false);
+    setFeedback(null);
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1876,25 +2081,224 @@ function DepartmentsPage({
         </form>
       ) : null}
 
+      {canManage ? (
+        <div className="department-toolbar">
+          <Input
+            aria-label="Tìm phòng ban"
+            leftAddon={<Search size={17} />}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Tìm theo tên, slug hoặc mô tả..."
+            value={query}
+          />
+          <Badge tone="blue">{departments.length} phòng ban</Badge>
+        </div>
+      ) : null}
+
+      {feedback ? (
+        <div className={`department-feedback department-feedback--${feedback.tone}`} role="status">
+          <span>{feedback.message}</span>
+          <button aria-label="Đóng thông báo" onClick={() => setFeedback(null)} type="button"><X size={15} /></button>
+        </div>
+      ) : null}
+
       {isLoading ? (
         <PanelSkeleton />
       ) : !canManage ? (
         <EmptyState description="Bạn cần quyền quản lý workspace để xem và tạo phòng ban." title="Không có quyền quản lý phòng ban" />
-      ) : departments.length ? (
+      ) : visibleRows.length ? (
         <div className="department-grid">
-          {departments.map((department) => (
-            <article key={department.id}>
-              <span><Users size={19} /></span>
-              <div><strong>{department.name}</strong><small>#{department.slug}</small><p>{department.description || "Chưa có mô tả"}</p></div>
-              {department.parent_id ? <Badge tone="slate">Phòng ban con</Badge> : <Badge tone="blue">Phòng ban</Badge>}
+          {visibleRows.map(({ department, depth }) => (
+            <article className={department.id === selectedDepartmentId ? "department-card department-card--active" : "department-card"} key={department.id}>
+              <span style={{ marginLeft: `${Math.min(depth, 4) * 12}px` }}><Users size={19} /></span>
+              <div>
+                <strong>{department.name}</strong>
+                <small>#{department.slug}{department.parent_id ? ` · thuộc ${departmentName(departments, department.parent_id)}` : " · cấp gốc"}</small>
+                <p>{department.description || "Chưa có mô tả"}</p>
+              </div>
+              <aside>
+                {department.parent_id ? <Badge tone="slate">Cấp {depth + 1}</Badge> : <Badge tone="blue">Phòng ban</Badge>}
+                <Button onClick={() => openDepartment(department)} size="sm" variant="secondary">Quản lý</Button>
+              </aside>
             </article>
           ))}
         </div>
+      ) : query.trim() ? (
+        <EmptyState description="Thử tên hoặc slug phòng ban khác." title="Không tìm thấy phòng ban" />
       ) : (
         <EmptyState description="Tạo phòng ban đầu tiên để tổ chức thành viên theo đội nhóm." title="Chưa có phòng ban" />
       )}
+
+      {selectedDepartment ? (
+        <section className="department-detail-panel">
+          <header>
+            <div>
+              <span className="workspace-page__eyebrow">Chi tiết phòng ban</span>
+              <h2>{selectedDepartment.name}</h2>
+              <p>#{selectedDepartment.slug} · {departmentMembers.length} thành viên · {assignedChannels.length} kênh</p>
+            </div>
+            <Button aria-label="Đóng chi tiết phòng ban" onClick={() => setSelectedDepartmentId("")} variant="icon"><X size={18} /></Button>
+          </header>
+
+          <div className="department-detail-grid">
+            <form
+              className="department-editor"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!editName.trim()) return;
+                updateMutation.mutate({
+                  departmentId: selectedDepartment.id,
+                  description: editDescription.trim(),
+                  name: editName.trim(),
+                  parentId: editParentId,
+                  slug: slugify(editSlug)
+                });
+              }}
+            >
+              <h3>Thông tin</h3>
+              <label>Tên phòng ban<input onChange={(event) => setEditName(event.target.value)} required value={editName} /></label>
+              <label>Slug<input onChange={(event) => setEditSlug(event.target.value)} required value={editSlug} /></label>
+              <label>
+                Phòng ban cấp trên
+                <select onChange={(event) => setEditParentId(event.target.value)} value={editParentId}>
+                  <option value="">Không có · cấp gốc</option>
+                  {departments
+                    .filter((department) => !invalidParentIds.has(department.id))
+                    .map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+                </select>
+              </label>
+              <label>Mô tả<textarea onChange={(event) => setEditDescription(event.target.value)} value={editDescription} /></label>
+              <div className="department-editor__actions">
+                <Button disabled={isMutating || !editName.trim() || !editSlug.trim()} size="sm" type="submit">Lưu thay đổi</Button>
+                {!isDeleteConfirming ? (
+                  <Button disabled={isMutating} onClick={() => setIsDeleteConfirming(true)} size="sm" type="button" variant="ghost">Xóa phòng ban</Button>
+                ) : (
+                  <span className="department-delete-confirm">
+                    <strong>Xác nhận xóa?</strong>
+                    <Button disabled={isMutating} onClick={() => deleteMutation.mutate(selectedDepartment.id)} size="sm" type="button">Xóa</Button>
+                    <Button disabled={isMutating} onClick={() => setIsDeleteConfirming(false)} size="sm" type="button" variant="ghost">Hủy</Button>
+                  </span>
+                )}
+              </div>
+            </form>
+
+            <div className="department-members-manager">
+              <h3>Thành viên</h3>
+              <div className="department-member-add">
+                <select aria-label="Chọn thành viên workspace" onChange={(event) => setMemberUserId(event.target.value)} value={memberUserId}>
+                  <option value="">Chọn thành viên</option>
+                  {assignableMembers.map((member) => (
+                    <option key={member.user_id} value={member.user_id}>{workspaceMemberName(member)}</option>
+                  ))}
+                </select>
+                <select aria-label="Vai trò phòng ban" onChange={(event) => setMemberRole(event.target.value as "lead" | "member")} value={memberRole}>
+                  <option value="member">Thành viên</option>
+                  <option value="lead">Trưởng phòng</option>
+                </select>
+                <Button
+                  disabled={isMutating || !memberUserId}
+                  onClick={() => upsertMemberMutation.mutate({ departmentId: selectedDepartment.id, role: memberRole, userId: memberUserId })}
+                  size="sm"
+                  type="button"
+                >
+                  Thêm
+                </Button>
+              </div>
+              {membersQuery.isLoading ? <Skeleton style={{ height: 90 }} /> : membersQuery.isError ? (
+                <ErrorState
+                  action={<Button onClick={() => void membersQuery.refetch()} size="sm" variant="secondary">Thử lại</Button>}
+                  description="Không tải được danh sách thành viên phòng ban."
+                  title="Lỗi dữ liệu thành viên"
+                />
+              ) : departmentMembers.length ? (
+                <div className="department-member-list">
+                  {departmentMembers.map((member: DepartmentMember) => (
+                    <article key={member.user_id}>
+                      <Avatar name={departmentMemberName(member)} size="sm" />
+                      <span><strong>{departmentMemberName(member)}</strong><small>{member.email || member.username}</small></span>
+                      <select
+                        aria-label={`Vai trò của ${departmentMemberName(member)}`}
+                        disabled={isMutating}
+                        onChange={(event) => upsertMemberMutation.mutate({
+                          departmentId: selectedDepartment.id,
+                          role: event.target.value as "lead" | "member",
+                          userId: member.user_id
+                        })}
+                        value={member.role}
+                      >
+                        <option value="member">Thành viên</option>
+                        <option value="lead">Trưởng phòng</option>
+                      </select>
+                      <Button
+                        aria-label={`Xóa ${departmentMemberName(member)} khỏi phòng ban`}
+                        disabled={isMutating}
+                        onClick={() => removeMemberMutation.mutate({ departmentId: selectedDepartment.id, userId: member.user_id })}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        Xóa
+                      </Button>
+                    </article>
+                  ))}
+                </div>
+              ) : <EmptyState description="Thêm người trong workspace và gán vai trò trưởng phòng hoặc thành viên." title="Chưa có thành viên" />}
+            </div>
+
+            <div className="department-channel-manager">
+              <h3>Kênh của phòng ban</h3>
+              <div className="department-channel-add">
+                <select aria-label="Chọn kênh để gán" onChange={(event) => setChannelId(event.target.value)} value={channelId}>
+                  <option value="">Chọn kênh</option>
+                  {assignableChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+                </select>
+                <Button
+                  disabled={isMutating || !channelId}
+                  onClick={() => assignChannelMutation.mutate({ channelId, departmentId: selectedDepartment.id })}
+                  size="sm"
+                  type="button"
+                >
+                  Gán kênh
+                </Button>
+              </div>
+              {assignedChannels.length ? (
+                <div className="department-channel-list">
+                  {assignedChannels.map((channel) => (
+                    <article key={channel.id}>
+                      <span className={`channel-hash channel-hash--${channel.tone}`}>#</span>
+                      <span><strong>{channel.name}</strong><small>{channel.description}</small></span>
+                      <Button
+                        disabled={isMutating}
+                        onClick={() => assignChannelMutation.mutate({ channelId: channel.id, departmentId: "" })}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        Bỏ khỏi phòng ban
+                      </Button>
+                    </article>
+                  ))}
+                </div>
+              ) : <small>Chưa có kênh nào được gán cho phòng ban.</small>}
+            </div>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
+}
+
+function departmentName(departments: Department[], departmentId: string) {
+  return departments.find((department) => department.id === departmentId)?.name ?? "phòng ban đã xóa";
+}
+
+function workspaceMemberName(member: WorkspaceMember) {
+  return member.display_name || member.username || member.email || member.user_id;
+}
+
+function departmentMemberName(member: DepartmentMember) {
+  return member.display_name || member.username || member.email || member.user_id;
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function FilesPage({
@@ -1906,6 +2310,12 @@ function FilesPage({
   isLoading: boolean;
   onDownloadFile: (file: FileItem) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase("vi");
+  const visibleFiles = normalizedQuery
+    ? files.filter((file) => `${file.name} ${file.mimeType ?? ""}`.toLocaleLowerCase("vi").includes(normalizedQuery))
+    : files;
+
   return (
     <div className="workspace-page">
       <header className="workspace-page__header">
@@ -1917,11 +2327,19 @@ function FilesPage({
         <Badge tone="blue">{files.length} file</Badge>
       </header>
 
+      <Input
+        aria-label="Tìm file"
+        leftAddon={<Search size={17} />}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Tìm theo tên hoặc loại file..."
+        value={query}
+      />
+
       {isLoading ? (
         <PanelSkeleton />
-      ) : files.length ? (
+      ) : visibleFiles.length ? (
         <div className="file-directory">
-          {files.map((file) => (
+          {visibleFiles.map((file) => (
             <article className="file-directory__item" key={file.id}>
               <span className={`file-icon file-icon--${file.tone}`}>
                 <FileText size={20} />
@@ -1936,6 +2354,8 @@ function FilesPage({
             </article>
           ))}
         </div>
+      ) : query.trim() ? (
+        <EmptyState description="Thử một tên file hoặc loại nội dung khác." title="Không tìm thấy file" />
       ) : (
         <EmptyState description="Chưa có file được chia sẻ trong các cuộc trò chuyện." title="Chưa có file" />
       )}
@@ -1960,11 +2380,33 @@ function SettingsPage({
   onThemeToggle: () => void;
   theme: "dark" | "light";
 }) {
+  const { logout } = useAuth();
+  const queryClient = useQueryClient();
+  const currentSessionId = useAuthStore((state) => state.sessionId);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarValue, setAvatarValue] = useState(currentUser.avatarUrl ?? "");
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
   useEffect(() => setAvatarValue(currentUser.avatarUrl ?? ""), [currentUser.avatarUrl]);
+
+  const sessionsQuery = useQuery({
+    queryFn: () => api.auth.sessions(),
+    queryKey: queryKeys.auth.sessions
+  });
+  const revokeSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => api.auth.revokeSession(sessionId),
+    onSuccess: async (_, sessionId) => {
+      if (sessionId === currentSessionId) {
+        logout();
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.sessions });
+    }
+  });
+  const revokeAllSessionsMutation = useMutation({
+    mutationFn: () => api.auth.revokeAllSessions(),
+    onSuccess: () => logout()
+  });
 
   async function handleAvatarFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -2066,9 +2508,67 @@ function SettingsPage({
             Chuyển chế độ
           </Button>
         </section>
+        <section className="settings-card settings-card--sessions">
+          <div>
+            <ShieldCheck size={22} />
+            <h2>Phiên đăng nhập</h2>
+          </div>
+          <p>Kiểm tra thiết bị đang đăng nhập và thu hồi ngay những phiên bạn không nhận ra.</p>
+          {sessionsQuery.isLoading ? (
+            <Skeleton style={{ height: 96 }} />
+          ) : sessionsQuery.isError ? (
+            <ErrorState
+              action={<Button onClick={() => void sessionsQuery.refetch()} size="sm" variant="secondary">Thử lại</Button>}
+              description="Không tải được danh sách thiết bị."
+              title="Lỗi phiên đăng nhập"
+            />
+          ) : (
+            <div className="session-list">
+              {(sessionsQuery.data ?? []).map((session: AuthSession) => (
+                <article className={session.id === currentSessionId ? "session-item session-item--current" : "session-item"} key={session.id}>
+                  <span>
+                    <strong>{session.device_name || "Thiết bị không xác định"}</strong>
+                    <small>{session.ip_address || "Không có IP"} · {formatSessionDate(session.created_at)}</small>
+                    {session.expires_at ? <small>Hết hạn {formatSessionDate(session.expires_at)}</small> : null}
+                  </span>
+                  {session.id === currentSessionId ? <Badge tone="green">Phiên hiện tại</Badge> : null}
+                  {session.revoked_at ? (
+                    <Badge tone="slate">Đã thu hồi</Badge>
+                  ) : (
+                    <Button
+                      disabled={revokeSessionMutation.isPending}
+                      onClick={() => revokeSessionMutation.mutate(session.id)}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      Thu hồi
+                    </Button>
+                  )}
+                </article>
+              ))}
+              {!(sessionsQuery.data ?? []).length ? <p>Không có phiên đăng nhập nào.</p> : null}
+            </div>
+          )}
+          <Button
+            disabled={revokeAllSessionsMutation.isPending || !(sessionsQuery.data ?? []).some((session) => !session.revoked_at)}
+            onClick={() => revokeAllSessionsMutation.mutate()}
+            size="sm"
+            variant="secondary"
+          >
+            {revokeAllSessionsMutation.isPending ? "Đang thu hồi..." : "Thu hồi tất cả phiên"}
+          </Button>
+        </section>
       </div>
     </div>
   );
+}
+
+function formatSessionDate(value?: string | null) {
+  if (!value) {
+    return "Không rõ thời gian";
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("vi-VN");
 }
 
 function resizeAvatarFile(file: File): Promise<string> {
@@ -2478,6 +2978,44 @@ function UploadQueue({
   );
 }
 
+function ForwardMessageDialog({
+  channels,
+  isPending,
+  onCancel,
+  onSubmit
+}: {
+  channels: Array<{ id: string; name: string }>;
+  isPending: boolean;
+  onCancel: () => void;
+  onSubmit: (channelId: string) => void;
+}) {
+  const [channelId, setChannelId] = useState(channels[0]?.id ?? "");
+
+  return (
+    <div className="forward-dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onCancel()} role="presentation">
+      <section aria-labelledby="forward-dialog-title" aria-modal="true" className="forward-dialog" role="dialog">
+        <div>
+          <h2 id="forward-dialog-title">Chuyển tiếp tin nhắn</h2>
+          <p>Chọn cuộc trò chuyện hoặc kênh mà bạn đang là thành viên.</p>
+        </div>
+        <label>
+          Nơi nhận
+          <select autoFocus onChange={(event) => setChannelId(event.target.value)} value={channelId}>
+            {channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+          </select>
+        </label>
+        {!channels.length ? <p>Bạn chưa có kênh đích phù hợp.</p> : null}
+        <div className="forward-dialog__actions">
+          <Button disabled={isPending} onClick={onCancel} variant="secondary">Hủy</Button>
+          <Button disabled={isPending || !channelId} onClick={() => onSubmit(channelId)}>
+            {isPending ? "Đang chuyển..." : "Chuyển tiếp"}
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function MessageTimeline({
   editingBody,
   editingMessageId,
@@ -2489,6 +3027,7 @@ function MessageTimeline({
   onChangeEditingBody,
   onDeleteMessage,
   onDownloadAttachment,
+  onForwardMessage,
   onResolveAttachment,
   onLoadOlderMessages,
   onOpenThread,
@@ -2511,6 +3050,7 @@ function MessageTimeline({
   onChangeEditingBody: (value: string) => void;
   onDeleteMessage: (message: ChatMessage) => void;
   onDownloadAttachment: (attachment: MessageAttachmentItem) => void;
+  onForwardMessage: (messageId: string) => void;
   onResolveAttachment: (fileId: string) => Promise<Blob>;
   onLoadOlderMessages: () => void;
   onOpenThread: (messageId: string) => void;
@@ -2592,6 +3132,7 @@ function MessageTimeline({
             <header>
               <strong>{message.author.name}</strong>
               <span>{message.sentAt}</span>
+              {message.isForwarded ? <span>Đã chuyển tiếp</span> : null}
               {message.editedAt ? <span>Đã sửa {message.editedAt}</span> : null}
               {message.isPending ? <Badge tone="blue">Đang gửi</Badge> : null}
               <div className="message-actions">
@@ -2621,6 +3162,13 @@ function MessageTimeline({
                     </button>
                   </Tooltip>
                 ) : null}
+                {!message.isDeleted && !message.isPending ? (
+                  <Tooltip label="Chuyển tiếp tin nhắn">
+                    <button aria-label="Chuyển tiếp tin nhắn" onClick={() => onForwardMessage(message.id)} type="button">
+                      <Share2 size={15} />
+                    </button>
+                  </Tooltip>
+                ) : null}
                 <Tooltip label="Mở luồng trả lời">
                   <button aria-label="Mở luồng trả lời" onClick={() => onOpenThread(message.id)} type="button">
                     <Reply size={15} />
@@ -2644,12 +3192,12 @@ function MessageTimeline({
                 </Button>
               </form>
             ) : shouldRenderMessageBody(message) ? (
-              <p>{message.body}</p>
+              <MessageBody body={message.body} />
             ) : null}
             {message.attachments?.length ? (
               <div className="attachment-list">
                 {message.attachments.map((attachment) =>
-                  attachment.isAudio || attachment.isImage ? (
+                  attachment.isAudio || attachment.isImage || attachment.isVideo ? (
                     <AttachmentMedia
                       attachment={attachment}
                       key={attachment.id}
@@ -2707,6 +3255,57 @@ function MessageTimeline({
   );
 }
 
+function MessageBody({ body }: { body: string }) {
+  const blocks = body.split("```");
+  return (
+    <div className="message-body">
+      {blocks.map((block, index) =>
+        index % 2 === 1 ? (
+          <pre key={`${index}-${block.slice(0, 12)}`}><code>{stripCodeLanguage(block)}</code></pre>
+        ) : (
+          <Fragment key={`${index}-${block.slice(0, 12)}`}>{renderInlineMarkdown(block)}</Fragment>
+        )
+      )}
+    </div>
+  );
+}
+
+function renderInlineMarkdown(value: string): ReactNode[] {
+  const pattern = /(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/gi;
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(value)) !== null) {
+    if (match.index > cursor) {
+      nodes.push(value.slice(cursor, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**")) {
+      nodes.push(<strong key={`${match.index}-${token}`}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("`")) {
+      nodes.push(<code key={`${match.index}-${token}`}>{token.slice(1, -1)}</code>);
+    } else {
+      const link = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/i.exec(token);
+      nodes.push(link ? <a href={link[2]} key={`${match.index}-${token}`} rel="noreferrer noopener" target="_blank">{link[1]}</a> : token);
+    }
+    cursor = match.index + token.length;
+  }
+  if (cursor < value.length) {
+    nodes.push(value.slice(cursor));
+  }
+  return nodes;
+}
+
+function stripCodeLanguage(block: string) {
+  const normalized = block.replace(/^\r?\n/, "");
+  const firstNewline = normalized.indexOf("\n");
+  if (firstNewline > 0 && /^[a-z0-9_+-]{1,20}\r?$/i.test(normalized.slice(0, firstNewline))) {
+    return normalized.slice(firstNewline + 1).replace(/\r?\n$/, "");
+  }
+  return normalized.replace(/\r?\n$/, "");
+}
+
 function AttachmentMedia({
   attachment,
   onDownload,
@@ -2749,6 +3348,19 @@ function AttachmentMedia({
             Trình duyệt của bạn không hỗ trợ phát tin nhắn thoại.
           </audio>
         ) : <span className="attachment-media-loading">Đang tải voice...</span>}
+      </div>
+    );
+  }
+
+  if (attachment.isVideo) {
+    return (
+      <div className="attachment-video">
+        {resolvedSource ? (
+          <video controls playsInline preload="metadata" src={resolvedSource}>
+            Trình duyệt của bạn không hỗ trợ phát video.
+          </video>
+        ) : <span className="attachment-media-loading">Đang tải video...</span>}
+        <button disabled={!resolvedSource} onClick={() => onDownload(attachment)} type="button">{attachment.name}</button>
       </div>
     );
   }
@@ -2891,7 +3503,7 @@ function RightDetailPanel({
                   <div>
                     <strong>{message.author.name}</strong>
                     <small>{message.sentAt}</small>
-                    <p>{message.body}</p>
+                    <MessageBody body={message.body} />
                   </div>
                 </article>
               ))}

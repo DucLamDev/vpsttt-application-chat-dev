@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	messagesdomain "github.com/duclamdev/application-chat/backend/internal/modules/messages/domain"
 	apperrors "github.com/duclamdev/application-chat/backend/internal/shared/errors"
@@ -36,6 +37,10 @@ func (r emptyMessageRepo) ListThread(context.Context, ThreadParams) ([]messagesd
 }
 
 func (r emptyMessageRepo) Search(context.Context, SearchParams) ([]messagesdomain.Message, error) {
+	panic("không được gọi")
+}
+
+func (r emptyMessageRepo) Forward(context.Context, ForwardParams) (messagesdomain.Message, error) {
 	panic("không được gọi")
 }
 
@@ -145,5 +150,29 @@ func TestSendRejectsEmptyTextMessage(t *testing.T) {
 	}
 	if appErr.Code != "VALIDATION_ERROR" {
 		t.Fatalf("mã lỗi = %q", appErr.Code)
+	}
+}
+
+func TestParseSearchDateUsesExclusiveEndDate(t *testing.T) {
+	got, err := parseSearchDate("2026-07-10", true)
+	if err != nil {
+		t.Fatalf("parseSearchDate() trả lỗi: %v", err)
+	}
+	want := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
+	if got == nil || !got.Equal(want) {
+		t.Fatalf("parseSearchDate() = %v, muốn %v", got, want)
+	}
+}
+
+func TestForwardRequiresTargetChannel(t *testing.T) {
+	service := NewService(emptyMessageRepo{}, testPermissionChecker{allowed: true})
+	_, err := service.Forward(context.Background(), ForwardInput{
+		ActorUserID: "user-1",
+		WorkspaceID: "workspace-1",
+		ChannelID:   "channel-1",
+		MessageID:   "message-1",
+	})
+	if err == nil {
+		t.Fatal("Forward() phải yêu cầu target channel")
 	}
 }

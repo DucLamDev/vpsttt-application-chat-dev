@@ -62,5 +62,7 @@ export type AuthSession = {
   ip_address?: string | null;
   user_agent?: string | null;
   last_seen_at?: ISODateTime | null;
+  expires_at?: ISODateTime;
+  revoked_at?: ISODateTime | null;
   created_at?: ISODateTime;
 };

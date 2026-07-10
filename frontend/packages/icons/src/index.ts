@@ -31,6 +31,7 @@ export {
   Reply,
   Search,
   Send,
+  Share2,
   Server,
   Settings,
   ShieldCheck,

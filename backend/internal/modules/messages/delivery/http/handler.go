@@ -32,6 +32,10 @@ type reactionRequest struct {
 	Emoji string `json:"emoji"`
 }
 
+type forwardMessageRequest struct {
+	TargetChannelID string `json:"target_channel_id"`
+}
+
 func NewHandler(service *messagesapp.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -47,11 +51,32 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.GET("/channels/:channel_id/messages/:message_id", h.Get)
 	private.PATCH("/channels/:channel_id/messages/:message_id", h.Update)
 	private.DELETE("/channels/:channel_id/messages/:message_id", h.Delete)
+	private.POST("/channels/:channel_id/messages/:message_id/forward", h.Forward)
 	private.POST("/channels/:channel_id/messages/:message_id/pin", h.Pin)
 	private.DELETE("/channels/:channel_id/messages/:message_id/pin", h.Unpin)
 	private.GET("/channels/:channel_id/messages/:message_id/thread", h.ListThread)
 	private.POST("/channels/:channel_id/messages/:message_id/reactions", h.AddReaction)
 	private.DELETE("/channels/:channel_id/messages/:message_id/reactions/:emoji", h.RemoveReaction)
+}
+
+func (h *Handler) Forward(c *gin.Context) {
+	var req forwardMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON không hợp lệ.", nil)
+		return
+	}
+	message, err := h.service.Forward(c.Request.Context(), messagesapp.ForwardInput{
+		ActorUserID:     middleware.CurrentUserID(c),
+		WorkspaceID:     c.Param("workspace_id"),
+		ChannelID:       c.Param("channel_id"),
+		MessageID:       c.Param("message_id"),
+		TargetChannelID: req.TargetChannelID,
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, message)
 }
 
 func (h *Handler) Send(c *gin.Context) {
@@ -127,6 +152,11 @@ func (h *Handler) Search(c *gin.Context) {
 		ActorUserID: middleware.CurrentUserID(c),
 		WorkspaceID: c.Param("workspace_id"),
 		Query:       c.Query("q"),
+		ChannelID:   c.Query("channel_id"),
+		SenderID:    c.Query("sender_id"),
+		Kind:        c.Query("kind"),
+		DateFrom:    c.Query("date_from"),
+		DateTo:      c.Query("date_to"),
 		Limit:       queryInt(c, "limit"),
 	})
 	if err != nil {

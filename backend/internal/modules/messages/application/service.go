@@ -26,6 +26,7 @@ type Repository interface {
 	List(ctx context.Context, params ListParams) ([]messagesdomain.Message, error)
 	ListThread(ctx context.Context, params ThreadParams) ([]messagesdomain.Message, error)
 	Search(ctx context.Context, params SearchParams) ([]messagesdomain.Message, error)
+	Forward(ctx context.Context, params ForwardParams) (messagesdomain.Message, error)
 	Update(ctx context.Context, params UpdateParams) (messagesdomain.Message, error)
 	Delete(ctx context.Context, params DeleteParams) error
 	ListPins(ctx context.Context, params ListPinsParams) ([]messagesdomain.Message, error)
@@ -106,6 +107,11 @@ type SearchInput struct {
 	ActorUserID string
 	WorkspaceID string
 	Query       string
+	ChannelID   string
+	SenderID    string
+	Kind        string
+	DateFrom    string
+	DateTo      string
 	Limit       int
 }
 
@@ -113,7 +119,28 @@ type SearchParams struct {
 	WorkspaceID string
 	ActorUserID string
 	Query       string
+	ChannelID   string
+	SenderID    string
+	Kind        string
+	DateFrom    *time.Time
+	DateTo      *time.Time
 	Limit       int
+}
+
+type ForwardInput struct {
+	ActorUserID    string
+	WorkspaceID    string
+	ChannelID      string
+	MessageID      string
+	TargetChannelID string
+}
+
+type ForwardParams struct {
+	WorkspaceID     string
+	SourceChannelID string
+	MessageID       string
+	TargetChannelID string
+	ActorUserID     string
 }
 
 type UpdateInput struct {
@@ -343,12 +370,32 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]MessageDTO, 
 	if query == "" {
 		return nil, pagination.Meta{}, apperrors.BadRequest("VALIDATION_ERROR", "Từ khóa tìm kiếm không được để trống.")
 	}
+	kind := strings.ToLower(strings.TrimSpace(input.Kind))
+	if kind != "" && kind != "text" && kind != "file" && kind != "system" && kind != "bot" && kind != "event" {
+		return nil, pagination.Meta{}, apperrors.BadRequest("VALIDATION_ERROR", "Loại nội dung tìm kiếm không hợp lệ.")
+	}
+	dateFrom, err := parseSearchDate(input.DateFrom, false)
+	if err != nil {
+		return nil, pagination.Meta{}, err
+	}
+	dateTo, err := parseSearchDate(input.DateTo, true)
+	if err != nil {
+		return nil, pagination.Meta{}, err
+	}
+	if dateFrom != nil && dateTo != nil && !dateFrom.Before(*dateTo) {
+		return nil, pagination.Meta{}, apperrors.BadRequest("VALIDATION_ERROR", "Khoảng ngày tìm kiếm không hợp lệ.")
+	}
 
 	limit := pagination.NormalizeLimit(input.Limit)
 	messages, err := s.repo.Search(ctx, SearchParams{
 		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
 		ActorUserID: strings.TrimSpace(input.ActorUserID),
 		Query:       query,
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		SenderID:    strings.TrimSpace(input.SenderID),
+		Kind:        kind,
+		DateFrom:    dateFrom,
+		DateTo:      dateTo,
 		Limit:       limit + 1,
 	})
 	if err != nil {
@@ -360,6 +407,45 @@ func (s *Service) Search(ctx context.Context, input SearchInput) ([]MessageDTO, 
 		messages = messages[:limit]
 	}
 	return toMessageDTOs(messages), pagination.Meta{HasMore: hasMore}, nil
+}
+
+func (s *Service) Forward(ctx context.Context, input ForwardInput) (MessageDTO, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return MessageDTO{}, err
+	}
+	params := ForwardParams{
+		WorkspaceID:     strings.TrimSpace(input.WorkspaceID),
+		SourceChannelID: strings.TrimSpace(input.ChannelID),
+		MessageID:       strings.TrimSpace(input.MessageID),
+		TargetChannelID: strings.TrimSpace(input.TargetChannelID),
+		ActorUserID:     strings.TrimSpace(input.ActorUserID),
+	}
+	if params.TargetChannelID == "" {
+		return MessageDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Bạn cần chọn kênh nhận tin nhắn chuyển tiếp.")
+	}
+	message, err := s.repo.Forward(ctx, params)
+	if err != nil {
+		return MessageDTO{}, mapMessageError(err)
+	}
+	dto := toMessageDTO(message)
+	s.publishRealtime(ctx, "MessageCreated", dto)
+	return dto, nil
+}
+
+func parseSearchDate(value string, endExclusive bool) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return nil, apperrors.BadRequest("VALIDATION_ERROR", "Ngày tìm kiếm phải có định dạng YYYY-MM-DD.")
+	}
+	parsed = parsed.UTC()
+	if endExclusive {
+		parsed = parsed.AddDate(0, 0, 1)
+	}
+	return &parsed, nil
 }
 
 func (s *Service) Update(ctx context.Context, input UpdateInput) (MessageDTO, error) {

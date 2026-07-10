@@ -35,7 +35,7 @@ export const queryKeys = {
   messages: {
     channel: (workspaceId: string, channelId: string) => ["messages", workspaceId, channelId] as const,
     pins: (workspaceId: string, channelId: string) => ["messages", workspaceId, channelId, "pins"] as const,
-    search: (workspaceId: string, query: string) => ["messages", workspaceId, "search", query] as const,
+    search: (workspaceId: string, query: string, filters = "") => ["messages", workspaceId, "search", query, filters] as const,
     thread: (workspaceId: string, channelId: string, messageId: string) =>
       ["messages", workspaceId, channelId, messageId, "thread"] as const
   },

@@ -142,6 +142,10 @@ export type AddReactionInput = {
   emoji: string;
 };
 
+export type ForwardMessageInput = {
+  target_channel_id: Id;
+};
+
 export type CreateChannelInput = {
   department_id?: Id;
   slug: string;

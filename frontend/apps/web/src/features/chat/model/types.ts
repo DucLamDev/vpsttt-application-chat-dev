@@ -29,6 +29,7 @@ export type ChatMessage = {
   canEdit?: boolean;
   editedAt?: string;
   isDeleted?: boolean;
+  isForwarded?: boolean;
   isPending?: boolean;
   reactions?: Array<{ emoji: string; count: number; reactedByMe?: boolean }>;
   metrics?: ChatMetric[];
@@ -45,6 +46,7 @@ export type MessageAttachmentItem = {
   id: string;
   isAudio?: boolean;
   isImage?: boolean;
+  isVideo?: boolean;
   mimeType?: string;
   name: string;
   previewUrl?: string;
@@ -56,6 +58,7 @@ export type MessageAttachmentItem = {
 export type ChatChannel = {
   canManage?: boolean;
   createdBy?: string;
+  departmentId?: string;
   id: string;
   name: string;
   description: string;

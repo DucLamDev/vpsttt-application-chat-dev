@@ -21,6 +21,7 @@ export type CreateDepartmentInput = {
 
 export type UpdateDepartmentInput = {
   parent_id?: Id | null;
+  slug?: string;
   name?: string;
   description?: string;
 };

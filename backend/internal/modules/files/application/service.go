@@ -32,6 +32,15 @@ type Repository interface {
 	ListVersions(ctx context.Context, workspaceID string, fileID string) ([]filesdomain.Version, error)
 	AttachFile(ctx context.Context, params AttachFileParams) (filesdomain.Attachment, error)
 	ListAttachments(ctx context.Context, params ListAttachmentsParams) ([]filesdomain.Attachment, error)
+	RecordAudit(ctx context.Context, event AuditEvent) error
+}
+
+type AuditEvent struct {
+	WorkspaceID string
+	ActorUserID string
+	Action      string
+	FileID      string
+	Metadata    map[string]any
 }
 
 type ObjectStore interface {
@@ -248,6 +257,17 @@ func (s *Service) Upload(ctx context.Context, input UploadInput) (FileDTO, error
 		_ = s.store.Delete(ctx, object.Key)
 		return FileDTO{}, err
 	}
+	_ = s.repo.RecordAudit(ctx, AuditEvent{
+		WorkspaceID: fileWorkspaceID(file),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+		Action:      "file.upload",
+		FileID:      file.ID,
+		Metadata: map[string]any{
+			"original_name": file.OriginalName,
+			"mime_type":     file.MimeType,
+			"byte_size":     file.ByteSize,
+		},
+	})
 	return toFileDTO(file), nil
 }
 
@@ -349,7 +369,25 @@ func (s *Service) Download(ctx context.Context, input DownloadInput) (DownloadDT
 	if err != nil {
 		return DownloadDTO{}, err
 	}
+	_ = s.repo.RecordAudit(ctx, AuditEvent{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+		Action:      "file.download",
+		FileID:      file.ID,
+		Metadata: map[string]any{
+			"original_name": file.OriginalName,
+			"mime_type":     file.MimeType,
+			"byte_size":     file.ByteSize,
+		},
+	})
 	return DownloadDTO{File: toFileDTO(file), Body: object.Body}, nil
+}
+
+func fileWorkspaceID(file filesdomain.File) string {
+	if file.WorkspaceID == nil {
+		return ""
+	}
+	return *file.WorkspaceID
 }
 
 func (s *Service) ListVersions(ctx context.Context, actorUserID string, workspaceID string, fileID string) ([]VersionDTO, error) {

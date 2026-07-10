@@ -44,8 +44,17 @@ export type MessageTimelineOptions = {
   currentUser: ChatUser;
   enabled?: boolean;
   searchQuery?: string;
+  searchFilters?: MessageSearchFilters;
   threadMessageId?: string;
   workspaceId: string;
+};
+
+export type MessageSearchFilters = {
+  channelId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  kind?: string;
+  senderId?: string;
 };
 
 export type EditMessagePayload = {
@@ -55,6 +64,11 @@ export type EditMessagePayload = {
 
 export type DeleteMessagePayload = {
   messageId: string;
+};
+
+export type ForwardMessagePayload = {
+  messageId: string;
+  targetChannelId: string;
 };
 
 export type ToggleReactionPayload = {
@@ -69,12 +83,14 @@ export function useMessageTimeline({
   currentUser,
   enabled = true,
   searchQuery = "",
+  searchFilters = {},
   threadMessageId,
   workspaceId
 }: MessageTimelineOptions) {
   const queryClient = useQueryClient();
   const timelineKey = messageTimelineKey(workspaceId, channelId);
   const cleanSearchQuery = searchQuery.trim();
+  const searchFilterKey = JSON.stringify(searchFilters);
 
   const messagesQuery = useInfiniteQuery<
     MessagePage,
@@ -185,8 +201,16 @@ export function useMessageTimeline({
 
   const searchQueryResult = useQuery({
     enabled: Boolean(enabled && workspaceId && cleanSearchQuery.length >= 2),
-    queryFn: () => api.messages.searchPage(workspaceId, { limit: 20, q: cleanSearchQuery }),
-    queryKey: queryKeys.messages.search(workspaceId, cleanSearchQuery)
+    queryFn: () => api.messages.searchPage(workspaceId, {
+      channel_id: searchFilters.channelId || undefined,
+      date_from: searchFilters.dateFrom || undefined,
+      date_to: searchFilters.dateTo || undefined,
+      kind: searchFilters.kind || undefined,
+      limit: 20,
+      q: cleanSearchQuery,
+      sender_id: searchFilters.senderId || undefined
+    }),
+    queryKey: queryKeys.messages.search(workspaceId, cleanSearchQuery, searchFilterKey)
   });
   const searchResults = useMemo(
     () =>
@@ -220,6 +244,15 @@ export function useMessageTimeline({
     },
     onSuccess: (message) => {
       mergeMessageIntoTimeline(queryClient, workspaceId, channelId, message);
+    }
+  });
+
+  const forwardMessageMutation = useMutation({
+    mutationFn: (input: ForwardMessagePayload) =>
+      api.messages.forward(workspaceId, channelId, input.messageId, { target_channel_id: input.targetChannelId }),
+    onSuccess: (message, input) => {
+      mergeMessageIntoTimeline(queryClient, workspaceId, input.targetChannelId, message);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files.messageAttachments(workspaceId, input.targetChannelId) });
     }
   });
 
@@ -272,6 +305,7 @@ export function useMessageTimeline({
   return {
     deleteMessageMutation,
     editMessageMutation,
+    forwardMessageMutation,
     hasOlderMessages: Boolean(messagesQuery.hasNextPage),
     isLoadingOlderMessages: messagesQuery.isFetchingNextPage,
     loadOlderMessages: () => messagesQuery.fetchNextPage(),
@@ -345,6 +379,7 @@ export function mapMessage(
     editedAt: message.edited_at ? formatTime(message.edited_at) : undefined,
     id: message.id,
     isDeleted: Boolean(message.deleted_at),
+    isForwarded: Boolean(message.metadata && typeof message.metadata === "object" && message.metadata.forwarded_from),
     isMine: isOwner,
     isLocal: message.id.startsWith("local-"),
     isPending: message.id.startsWith("local-"),
@@ -383,12 +418,14 @@ function mapMessageAttachments(attachments?: MessageAttachment[]): MessageAttach
       const url = attachment.url ?? attachment.download_url ?? file?.url ?? file?.download_url;
       const isAudio = Boolean(mimeType?.startsWith("audio/"));
       const isImage = Boolean(mimeType?.startsWith("image/"));
+      const isVideo = Boolean(mimeType?.startsWith("video/"));
 
       return {
         fileId,
         id: attachment.id ?? `${fileId}-${index}`,
         isAudio,
         isImage,
+        isVideo,
         mimeType,
         name,
         previewUrl: url,

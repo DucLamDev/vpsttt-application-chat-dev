@@ -95,7 +95,7 @@ ORDER BY type, name
 func (r *Repository) UpdateChannel(ctx context.Context, params channelsapp.UpdateChannelParams) (channelsdomain.Channel, error) {
 	row := r.pool.QueryRow(ctx, `
 UPDATE channels
-SET department_id = COALESCE(NULLIF($3, '')::uuid, department_id),
+SET department_id = CASE WHEN $3::text IS NULL THEN department_id ELSE NULLIF($3::text, '')::uuid END,
     name = COALESCE($4, name),
     description = COALESCE($5, description)
 WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL

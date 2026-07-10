@@ -22,7 +22,8 @@ import {
   createOptimisticMessage,
   mergeMessageIntoTimeline,
   messageTimelineKey,
-  useMessageTimeline
+  useMessageTimeline,
+  type MessageSearchFilters
 } from "./use-message-timeline";
 import { useNotificationPresence } from "./use-notification-presence";
 import type {
@@ -63,6 +64,7 @@ type CreateDirectConversationMutationInput =
 export type ChatWorkspaceDataOptions = {
   friendSearchQuery?: string;
   messageSearchQuery?: string;
+  messageSearchFilters?: MessageSearchFilters;
   threadMessageId?: string;
 };
 
@@ -168,6 +170,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     currentUser,
     enabled: Boolean(workspaceId && selectedChannelId && canAccessSelectedChannel),
     searchQuery: options.messageSearchQuery,
+    searchFilters: options.messageSearchFilters,
     threadMessageId: options.threadMessageId,
     workspaceId
   });
@@ -597,6 +600,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     threadMessages: messageTimeline.threadMessages,
     threadQuery: messageTimeline.threadQuery,
     editMessageMutation: messageTimeline.editMessageMutation,
+    forwardMessageMutation: messageTimeline.forwardMessageMutation,
     deleteMessageMutation: messageTimeline.deleteMessageMutation,
     toggleReactionMutation: messageTimeline.toggleReactionMutation,
     unpinMessageMutation: messageTimeline.unpinMessageMutation,
@@ -647,6 +651,7 @@ function mapChannel(channel: ApiChannel, index: number): ChatChannel {
   return {
     canManage: Boolean(channel.can_manage),
     createdBy: channel.created_by ?? undefined,
+    departmentId: channel.department_id ?? undefined,
     description: channel.description || "Chưa có mô tả",
     id: channel.id,
     isFavorite: Boolean(channel.is_favorite),
@@ -692,6 +697,7 @@ function mapDirectConversation(
 function directConversationToChannel(conversation: DirectConversation): ChatChannel {
   return {
     canManage: false,
+    departmentId: undefined,
     description: "Tin nhắn riêng",
     id: conversation.id,
     isFavorite: false,
@@ -709,6 +715,7 @@ function directConversationToChannel(conversation: DirectConversation): ChatChan
 function placeholderChannel(channelId: string): ChatChannel {
   return {
     canManage: false,
+    departmentId: undefined,
     description: "Tin nhắn riêng",
     id: channelId,
     isFavorite: false,

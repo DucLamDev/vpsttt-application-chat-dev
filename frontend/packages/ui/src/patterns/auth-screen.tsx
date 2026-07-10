@@ -4,7 +4,7 @@ import { type FormEvent, useState } from "react";
 import { Button } from "../components/button";
 import { Input } from "../components/input";
 
-export type LoginFormValues = { identifier: string; password: string };
+export type LoginFormValues = { identifier: string; password: string; remember: boolean };
 export type RegisterFormValues = { displayName: string; email: string; password: string; username: string };
 export type AuthMode = "login" | "register";
 
@@ -31,6 +31,7 @@ export function AuthScreen({
 }: AuthScreenProps) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -41,7 +42,7 @@ export function AuthScreen({
     event.preventDefault();
     setLocalError(null);
     if (mode === "login") {
-      onLogin({ identifier, password });
+      onLogin({ identifier, password, remember });
       return;
     }
     if (password !== confirmPassword) {
@@ -100,7 +101,7 @@ export function AuthScreen({
             <label>Tên đăng nhập<Input autoComplete="username" onChange={(event) => setUsername(event.target.value)} placeholder="Nhập tên đăng nhập" required value={username} /></label>
           </> : <label>Email hoặc tên đăng nhập<Input autoComplete="username" onChange={(event) => setIdentifier(event.target.value)} placeholder="Nhập email hoặc tên đăng nhập" required value={identifier} /></label>}
           <label>Mật khẩu<Input autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={6} onChange={(event) => setPassword(event.target.value)} placeholder={mode === "login" ? "Nhập mật khẩu của bạn" : "Tạo mật khẩu ít nhất 6 ký tự"} required type="password" value={password} /></label>
-          {mode === "register" ? <label>Xác nhận mật khẩu<Input autoComplete="new-password" minLength={6} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Nhập lại mật khẩu" required type="password" value={confirmPassword} /></label> : <div className="auth-helper-row"><label className="auth-check"><input type="checkbox" />Ghi nhớ đăng nhập</label><span>Quên mật khẩu?</span></div>}
+          {mode === "register" ? <label>Xác nhận mật khẩu<Input autoComplete="new-password" minLength={6} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Nhập lại mật khẩu" required type="password" value={confirmPassword} /></label> : <div className="auth-helper-row"><label className="auth-check"><input checked={remember} onChange={(event) => setRemember(event.target.checked)} type="checkbox" />Ghi nhớ đăng nhập</label><span>Quên mật khẩu?</span></div>}
           {localError || error ? <p className="auth-error">{localError || error}</p> : null}
           <Button className="auth-submit" disabled={isPending} type="submit">
             {isPending ? "Đang xử lý..." : mode === "login" ? "Đăng nhập" : "Đăng ký tài khoản"}

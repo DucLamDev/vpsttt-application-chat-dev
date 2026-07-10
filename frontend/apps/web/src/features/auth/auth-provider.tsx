@@ -25,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const user = useAuthStore((state) => state.user);
   const clearSession = useAuthStore((state) => state.clearSession);
   const setSession = useAuthStore((state) => state.setSession);
+  const setRememberLogin = useAuthStore((state) => state.setRememberLogin);
   const setUser = useAuthStore((state) => state.setUser);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [formError, setFormError] = useState<string | null>(null);
@@ -101,16 +102,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isPending={loginMutation.isPending || registerMutation.isPending}
         mode={mode}
         onLogin={(values) =>
-          loginMutation.mutate({
-            device_name: "Web App",
-            identifier: values.identifier,
-            password: values.password
-          })
+          {
+            setRememberLogin(values.remember);
+            loginMutation.mutate({
+              device_name: browserDeviceName(),
+              identifier: values.identifier,
+              password: values.password
+            });
+          }
         }
         onModeChange={setMode}
         onRegister={(values) =>
           registerMutation.mutate({
-            device_name: "Web App",
+            device_name: browserDeviceName(),
             display_name: values.displayName,
             email: values.email,
             password: values.password,
@@ -126,6 +130,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function browserDeviceName() {
+  if (typeof navigator === "undefined") {
+    return "Web App";
+  }
+  const platform = navigator.platform || "Web";
+  return `Web · ${platform}`.slice(0, 120);
 }
 
 export function useAuth() {
