@@ -20,9 +20,9 @@ on:
           - staging
           - production
       image_tag:
-        description: "Tag image can deploy, vi du latest hoac SHA"
-        required: true
-        default: "latest"
+        description: "Tag image can deploy. De trong de dung SHA commit hien tai; dung latest neu muon deploy latest"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -36,7 +36,7 @@ env:
   REGISTRY: ghcr.io
   DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/webtui-chat' }}
   API_HEALTH_URL: ${{ vars.API_HEALTH_URL || 'https://api.vpsttt.com/ready' }}
-  IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || 'latest' }}
+  IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || (inputs.image_tag != '' && inputs.image_tag || github.sha) }}
 
 jobs:
   deploy:
@@ -77,9 +77,19 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
-          docker manifest inspect "$REGISTRY/$IMAGE_NAMESPACE/api:$IMAGE_TAG" >/dev/null
-          docker manifest inspect "$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG" >/dev/null
-          docker manifest inspect "$REGISTRY/$IMAGE_NAMESPACE/web:$IMAGE_TAG" >/dev/null
+          echo "Checking GHCR images for tag: $IMAGE_TAG"
+          missing=0
+          for service in api worker web; do
+            image="$REGISTRY/$IMAGE_NAMESPACE/$service:$IMAGE_TAG"
+            echo "Checking $image"
+            if ! docker manifest inspect "$image" >/dev/null; then
+              echo "::error title=Missing GHCR image::$image is not available. Run the Docker workflow for this commit/tag first, or pass an existing image_tag."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Tao thu muc deploy tren VPS
         uses: appleboy/ssh-action@v1

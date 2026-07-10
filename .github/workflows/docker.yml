@@ -71,6 +71,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.namespace }}/${{ matrix.name }}
           tags: |
+            type=raw,value=${{ github.sha }}
             type=sha,prefix=
             type=ref,event=branch
             type=ref,event=tag

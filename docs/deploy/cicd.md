@@ -298,12 +298,14 @@ ghcr.io/<owner>/<repo>/worker:<tag>
 ghcr.io/<owner>/<repo>/web:<tag>
 ```
 
+Mỗi image luôn được push thêm tag full SHA của commit. Trên nhánh `main` hoặc `master`, workflow cũng push thêm `latest`.
+
 Với repo này, image thường có dạng:
 
 ```text
-ghcr.io/duclamdev/application-chat/api:latest
-ghcr.io/duclamdev/application-chat/worker:latest
-ghcr.io/duclamdev/application-chat/web:latest
+ghcr.io/duclamdev/vpsttt-application-chat-dev/api:<commit_sha>
+ghcr.io/duclamdev/vpsttt-application-chat-dev/worker:<commit_sha>
+ghcr.io/duclamdev/vpsttt-application-chat-dev/web:<commit_sha>
 ```
 
 ## Bước 7: Deploy production
@@ -318,8 +320,10 @@ Chọn:
 
 ```text
 environment=production
-image_tag=latest
+image_tag=
 ```
+
+Để trống `image_tag` thì workflow dùng SHA của commit hiện tại. Chỉ nhập `latest` khi Docker workflow đã chạy trên `main` hoặc `master` và đã push đủ 3 image `api`, `worker`, `web` với tag `latest`.
 
 Workflow sẽ:
 
@@ -334,6 +338,12 @@ Workflow sẽ:
 9. Kiểm tra `https://api.vpsttt.com/ready`.
 
 Nếu deploy báo `WEBTUI_WEB_IMAGE variable is not set` hoặc `service "web" has neither an image nor a build context specified`, hãy chạy lại workflow `Docker` trước để build image `web`, sau đó chạy workflow `Deploy`. Workflow deploy hiện đã export đủ `WEBTUI_API_IMAGE`, `WEBTUI_WORKER_IMAGE` và `WEBTUI_WEB_IMAGE`, đồng thời preflight sẽ kiểm tra đủ 3 image trên GHCR trước khi SSH vào VPS.
+
+Nếu deploy báo `manifest unknown`, tag image đang chọn chưa tồn tại trên GHCR. Cách xử lý:
+
+1. Chạy workflow `Docker` cho đúng commit/branch.
+2. Chạy lại workflow `Deploy` và để trống `image_tag`, hoặc nhập đúng tag full SHA đã được Docker workflow push.
+3. Chỉ dùng `latest` sau khi Docker workflow trên `main` hoặc `master` đã hoàn tất thành công.
 
 ## Bước 8: Test sau deploy
 
@@ -377,11 +387,11 @@ Quy trình hằng ngày:
 2. Chờ CI pass
 3. Chờ Docker build image xong
 4. Mở Deploy workflow
-5. Chọn production + image_tag
+5. Chọn production và để trống image_tag, hoặc nhập tag đã tồn tại
 6. Kiểm tra /ready
 ```
 
-Nếu muốn deploy đúng SHA image, vào workflow `Docker`, xem tag SHA đã push rồi nhập tag đó vào `image_tag`.
+Nếu muốn deploy đúng SHA image, vào workflow `Docker`, xem tag SHA đã push rồi nhập tag đó vào `image_tag`. Với workflow mới, khi deploy tự động sau Docker workflow, tag SHA này được truyền tự động.
 
 ## Bước 10: Rollback
 
@@ -391,9 +401,9 @@ Hoặc trên VPS:
 
 ```bash
 cd /opt/webtui-chat
-WEBTUI_API_IMAGE=ghcr.io/duclamdev/application-chat/api:TAG_CU \
-WEBTUI_WORKER_IMAGE=ghcr.io/duclamdev/application-chat/worker:TAG_CU \
-WEBTUI_WEB_IMAGE=ghcr.io/duclamdev/application-chat/web:TAG_CU \
+WEBTUI_API_IMAGE=ghcr.io/duclamdev/vpsttt-application-chat-dev/api:TAG_CU \
+WEBTUI_WORKER_IMAGE=ghcr.io/duclamdev/vpsttt-application-chat-dev/worker:TAG_CU \
+WEBTUI_WEB_IMAGE=ghcr.io/duclamdev/vpsttt-application-chat-dev/web:TAG_CU \
 sh deploy/scripts/deploy-compose.sh
 ```
 
