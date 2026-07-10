@@ -21,16 +21,16 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "latest",
-    "@eslint/js": "latest",
+    "@eslint/eslintrc": "3.3.5",
+    "@eslint/js": "10.0.1",
     "@playwright/test": "^1.61.1",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
-    "eslint": "latest",
-    "typescript": "latest",
-    "typescript-eslint": "latest",
+    "eslint": "10.6.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.63.0",
     "vitest": "^4.1.10"
   }
 }

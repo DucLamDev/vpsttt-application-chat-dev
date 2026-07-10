@@ -15,6 +15,6 @@
     "@webtui/types": "0.1.0"
   },
   "devDependencies": {
-    "typescript": "latest"
+    "typescript": "6.0.3"
   }
 }

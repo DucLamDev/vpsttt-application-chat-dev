@@ -12,12 +12,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "lucide-react": "latest"
+    "lucide-react": "1.23.0"
   },
   "peerDependencies": {
-    "react": "latest"
+    "react": "19.2.7"
   },
   "devDependencies": {
-    "typescript": "latest"
+    "typescript": "6.0.3"
   }
 }

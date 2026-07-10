@@ -12,11 +12,11 @@
     "./tsconfig/package": "./tsconfig/package.json"
   },
   "dependencies": {
-    "@eslint/eslintrc": "latest",
-    "@eslint/js": "latest",
-    "typescript-eslint": "latest"
+    "@eslint/eslintrc": "3.3.5",
+    "@eslint/js": "10.0.1",
+    "typescript-eslint": "8.63.0"
   },
   "peerDependencies": {
-    "eslint": "latest"
+    "eslint": "10.6.0"
   }
 }

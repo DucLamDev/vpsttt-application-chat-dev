@@ -15,18 +15,18 @@
     "@webtui/icons": "0.1.0",
     "@webtui/types": "0.1.0",
     "@webtui/ui": "0.1.0",
-    "@tanstack/react-query": "latest",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "zustand": "latest"
+    "@tanstack/react-query": "5.101.2",
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zustand": "5.0.14"
   },
   "devDependencies": {
     "@webtui/config": "0.1.0",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "eslint": "latest",
-    "typescript": "latest"
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "eslint": "10.6.0",
+    "typescript": "6.0.3"
   }
 }
