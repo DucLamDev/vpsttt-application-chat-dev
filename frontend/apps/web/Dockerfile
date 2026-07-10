@@ -3,6 +3,7 @@ FROM node:24-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+COPY apps/admin/package.json apps/admin/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/api-client/package.json packages/api-client/package.json
 COPY packages/config/package.json packages/config/package.json
