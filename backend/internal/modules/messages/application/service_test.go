@@ -47,6 +47,18 @@ func (r emptyMessageRepo) Delete(context.Context, DeleteParams) error {
 	panic("không được gọi")
 }
 
+func (r emptyMessageRepo) ListPins(context.Context, ListPinsParams) ([]messagesdomain.Message, error) {
+	panic("không được gọi")
+}
+
+func (r emptyMessageRepo) Pin(context.Context, PinParams) (messagesdomain.Message, error) {
+	panic("không được gọi")
+}
+
+func (r emptyMessageRepo) Unpin(context.Context, PinParams) error {
+	panic("không được gọi")
+}
+
 func (r emptyMessageRepo) AddReaction(context.Context, ReactionParams) (messagesdomain.Message, error) {
 	panic("không được gọi")
 }
