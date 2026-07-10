@@ -26,6 +26,10 @@ import (
 	channelsapp "github.com/duclamdev/application-chat/backend/internal/modules/channels/application"
 	channelshttp "github.com/duclamdev/application-chat/backend/internal/modules/channels/delivery/http"
 	channelspostgres "github.com/duclamdev/application-chat/backend/internal/modules/channels/infrastructure/postgres"
+	contactsapp "github.com/duclamdev/application-chat/backend/internal/modules/contacts/application"
+	contactshttp "github.com/duclamdev/application-chat/backend/internal/modules/contacts/delivery/http"
+	contactspostgres "github.com/duclamdev/application-chat/backend/internal/modules/contacts/infrastructure/postgres"
+	contactsws "github.com/duclamdev/application-chat/backend/internal/modules/contacts/infrastructure/websocket"
 	cronjobsapp "github.com/duclamdev/application-chat/backend/internal/modules/cronjobs/application"
 	cronjobshttp "github.com/duclamdev/application-chat/backend/internal/modules/cronjobs/delivery/http"
 	cronjobspostgres "github.com/duclamdev/application-chat/backend/internal/modules/cronjobs/infrastructure/postgres"
@@ -113,15 +117,24 @@ func (a *API) registerAPIV1() {
 	authHandler := authhttp.NewHandler(authService)
 	authHandler.RegisterRoutes(v1.Group("/auth"), authMiddleware)
 
-	usersRepo := userspostgres.NewRepository(pool)
-	usersService := usersapp.NewService(usersRepo)
-	usersHandler := usershttp.NewHandler(usersService)
-	usersHandler.RegisterRoutes(v1.Group("/users"), authMiddleware)
-
 	rbacRepo := rbacpostgres.NewRepository(pool)
 	rbacService := rbacapp.NewService(rbacRepo)
 	rbacHandler := rbachttp.NewHandler(rbacService)
 	rbacHandler.RegisterRoutes(v1.Group("/rbac"), authMiddleware)
+
+	usersRepo := userspostgres.NewRepository(pool)
+	usersService := usersapp.NewService(usersRepo, rbacService)
+	usersHandler := usershttp.NewHandler(usersService)
+	usersHandler.RegisterRoutes(v1.Group("/users"), authMiddleware)
+
+	contactsRepo := contactspostgres.NewRepository(pool)
+	var contactsRealtime contactsapp.RealtimePublisher
+	if a.resources.WebSocket != nil {
+		contactsRealtime = contactsws.NewPublisher(a.resources.WebSocket)
+	}
+	contactsService := contactsapp.NewService(contactsRepo, contactsRealtime)
+	contactsHandler := contactshttp.NewHandler(contactsService)
+	contactsHandler.RegisterRoutes(v1, authMiddleware)
 
 	adminRepo := adminpostgres.NewRepository(pool)
 	adminService := adminapp.NewService(adminRepo, rbacService)

@@ -19,8 +19,13 @@ type Repository interface {
 	DeleteUser(ctx context.Context, userID string) error
 }
 
+type PermissionChecker interface {
+	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
+}
+
 type Service struct {
-	repo Repository
+	checker PermissionChecker
+	repo    Repository
 }
 
 type ListUsersParams struct {
@@ -58,6 +63,8 @@ type UpdateProfileInput struct {
 }
 
 type UpdateUserInput struct {
+	ActorUserID string
+	WorkspaceID string
 	UserID      string
 	DisplayName *string
 	AvatarURL   *string
@@ -87,8 +94,12 @@ type UserDTO struct {
 	UpdatedAt       string  `json:"updated_at"`
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo Repository, checker ...PermissionChecker) *Service {
+	var resolvedChecker PermissionChecker
+	if len(checker) > 0 {
+		resolvedChecker = checker[0]
+	}
+	return &Service{repo: repo, checker: resolvedChecker}
 }
 
 func (s *Service) Me(ctx context.Context, userID string) (UserDTO, error) {
@@ -146,6 +157,9 @@ func (s *Service) UpdateMe(ctx context.Context, input UpdateProfileInput) (UserD
 }
 
 func (s *Service) Update(ctx context.Context, input UpdateUserInput) (UserDTO, error) {
+	if err := s.ensureUserManagePermission(ctx, input.ActorUserID, input.WorkspaceID); err != nil {
+		return UserDTO{}, err
+	}
 	displayName, avatarURL, phoneNumber, locale, timezone, err := validateProfile(input.DisplayName, input.AvatarURL, input.PhoneNumber, input.Locale, input.Timezone)
 	if err != nil {
 		return UserDTO{}, err
@@ -176,12 +190,34 @@ func (s *Service) Update(ctx context.Context, input UpdateUserInput) (UserDTO, e
 	return toDTO(user), nil
 }
 
-func (s *Service) Delete(ctx context.Context, userID string) error {
+func (s *Service) Delete(ctx context.Context, actorUserID string, workspaceID string, userID string) error {
+	if err := s.ensureUserManagePermission(ctx, actorUserID, workspaceID); err != nil {
+		return err
+	}
 	if err := s.repo.DeleteUser(ctx, strings.TrimSpace(userID)); err != nil {
 		if errors.Is(err, usersdomain.ErrUserNotFound) {
 			return apperrors.NotFound("USER_NOT_FOUND", "Không tìm thấy người dùng.")
 		}
 		return err
+	}
+	return nil
+}
+
+func (s *Service) ensureUserManagePermission(ctx context.Context, actorUserID string, workspaceID string) error {
+	if s.checker == nil {
+		return nil
+	}
+	actorUserID = strings.TrimSpace(actorUserID)
+	workspaceID = strings.TrimSpace(workspaceID)
+	if actorUserID == "" || workspaceID == "" {
+		return apperrors.Forbidden("Bạn cần chọn workspace quản trị để cập nhật người dùng.")
+	}
+	allowed, err := s.checker.HasWorkspacePermission(ctx, actorUserID, workspaceID, "user.manage")
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return apperrors.Forbidden("Bạn không có quyền quản lý người dùng.")
 	}
 	return nil
 }

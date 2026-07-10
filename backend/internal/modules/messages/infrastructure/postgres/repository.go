@@ -336,6 +336,117 @@ WHERE workspace_id = $1::uuid AND source_type = 'message' AND source_id = $2::uu
 	return tx.Commit(ctx)
 }
 
+func (r *Repository) ListPins(ctx context.Context, params messagesapp.ListPinsParams) ([]messagesdomain.Message, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT m.id::text, m.workspace_id::text, m.channel_id::text, m.sender_id::text, m.parent_id::text,
+       m.thread_root_id::text, m.kind, m.body, m.metadata::text, m.edited_at, m.deleted_at, m.created_at, m.updated_at
+FROM message_pins mp
+JOIN messages m
+  ON m.workspace_id = mp.workspace_id
+ AND m.id = mp.message_id
+ AND m.deleted_at IS NULL
+JOIN channel_members cm
+  ON cm.channel_id = mp.channel_id
+ AND cm.user_id = $3::uuid
+ AND cm.status IN ('active', 'muted')
+WHERE mp.workspace_id = $1::uuid
+  AND mp.channel_id = $2::uuid
+ORDER BY mp.created_at DESC
+`, params.WorkspaceID, params.ChannelID, params.ActorUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	messages, err := scanMessages(rows)
+	if err != nil {
+		return nil, err
+	}
+	return r.hydrateMessages(ctx, messages, params.ActorUserID)
+}
+
+func (r *Repository) Pin(ctx context.Context, params messagesapp.PinParams) (messagesdomain.Message, error) {
+	if _, err := r.Get(ctx, messagesapp.MessageRef{
+		WorkspaceID: params.WorkspaceID,
+		ChannelID:   params.ChannelID,
+		MessageID:   params.MessageID,
+		ActorUserID: params.ActorUserID,
+	}); err != nil {
+		return messagesdomain.Message{}, err
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return messagesdomain.Message{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO message_pins (workspace_id, channel_id, message_id, pinned_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid)
+ON CONFLICT (workspace_id, channel_id, message_id)
+DO UPDATE SET pinned_by = EXCLUDED.pinned_by,
+              created_at = message_pins.created_at
+`, params.WorkspaceID, params.ChannelID, params.MessageID, params.ActorUserID); err != nil {
+		return messagesdomain.Message{}, err
+	}
+	if err := insertOutbox(ctx, tx, "message", params.MessageID, "MessagePinned", map[string]any{
+		"workspace_id":  params.WorkspaceID,
+		"channel_id":    params.ChannelID,
+		"message_id":    params.MessageID,
+		"actor_user_id": params.ActorUserID,
+	}); err != nil {
+		return messagesdomain.Message{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return messagesdomain.Message{}, err
+	}
+	return r.Get(ctx, messagesapp.MessageRef{
+		WorkspaceID: params.WorkspaceID,
+		ChannelID:   params.ChannelID,
+		MessageID:   params.MessageID,
+		ActorUserID: params.ActorUserID,
+	})
+}
+
+func (r *Repository) Unpin(ctx context.Context, params messagesapp.PinParams) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	command, err := tx.Exec(ctx, `
+DELETE FROM message_pins mp
+USING channel_members cm
+WHERE mp.workspace_id = $1::uuid
+  AND mp.channel_id = $2::uuid
+  AND mp.message_id = $3::uuid
+  AND cm.channel_id = mp.channel_id
+  AND cm.user_id = $4::uuid
+  AND cm.status IN ('active', 'muted')
+`, params.WorkspaceID, params.ChannelID, params.MessageID, params.ActorUserID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return messagesdomain.ErrPinNotFound
+	}
+	if err := insertOutbox(ctx, tx, "message", params.MessageID, "MessageUnpinned", map[string]any{
+		"workspace_id":  params.WorkspaceID,
+		"channel_id":    params.ChannelID,
+		"message_id":    params.MessageID,
+		"actor_user_id": params.ActorUserID,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (r *Repository) AddReaction(ctx context.Context, params messagesapp.ReactionParams) (messagesdomain.Message, error) {
 	if _, err := r.Get(ctx, messagesapp.MessageRef{
 		WorkspaceID: params.WorkspaceID,

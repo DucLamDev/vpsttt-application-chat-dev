@@ -248,6 +248,26 @@ RETURNING id::text
 
 	for _, userID := range params.ParticipantIDs {
 		if _, err := tx.Exec(ctx, `
+INSERT INTO workspace_members (workspace_id, user_id, status, joined_at)
+SELECT $1::uuid, u.id, 'active', now()
+FROM users u
+WHERE u.id = $2::uuid AND u.deleted_at IS NULL AND u.status = 'active'
+ON CONFLICT (workspace_id, user_id)
+DO UPDATE SET status = 'active', joined_at = COALESCE(workspace_members.joined_at, now())
+`, params.WorkspaceID, userID); err != nil {
+			return channelsdomain.DirectConversation{}, err
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO workspace_member_roles (workspace_id, user_id, role_id, assigned_by)
+SELECT $1::uuid, $2::uuid, r.id, $3::uuid
+FROM roles r
+WHERE r.workspace_id IS NULL AND r.code = 'workspace_member' AND r.deleted_at IS NULL
+ON CONFLICT (workspace_id, user_id, role_id)
+DO UPDATE SET assigned_by = workspace_member_roles.assigned_by
+`, params.WorkspaceID, userID, params.CreatedBy); err != nil {
+			return channelsdomain.DirectConversation{}, err
+		}
+		if _, err := tx.Exec(ctx, `
 INSERT INTO direct_conversation_members (direct_conversation_id, user_id)
 SELECT $1::uuid, wm.user_id
 FROM workspace_members wm
@@ -285,6 +305,21 @@ WHERE direct_conversation_id = $1::uuid
 	return r.directByID(ctx, directID)
 }
 
+func (r *Repository) HasAcceptedContact(ctx context.Context, actorUserID string, participantUserID string) (bool, error) {
+	var accepted bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM contact_requests
+    WHERE deleted_at IS NULL
+      AND status = 'accepted'
+      AND LEAST(requester_id, receiver_id) = LEAST($1::uuid, $2::uuid)
+      AND GREATEST(requester_id, receiver_id) = GREATEST($1::uuid, $2::uuid)
+)
+`, actorUserID, participantUserID).Scan(&accepted)
+	return accepted, err
+}
+
 func (r *Repository) ListDirectConversations(ctx context.Context, workspaceID string, userID string) ([]channelsdomain.DirectConversation, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT dc.id::text, dc.workspace_id::text, dc.channel_id::text, dc.participant_key, dc.conversation_type,
@@ -305,10 +340,11 @@ ORDER BY dc.updated_at DESC
 		if err != nil {
 			return nil, err
 		}
-		conversation.ParticipantIDs, err = r.directParticipantIDs(ctx, conversation.ID)
+		conversation.Participants, err = r.directParticipants(ctx, conversation.ID)
 		if err != nil {
 			return nil, err
 		}
+		conversation.ParticipantIDs = memberIDs(conversation.Participants)
 		conversations = append(conversations, conversation)
 	}
 	return conversations, rows.Err()
@@ -353,7 +389,8 @@ WHERE workspace_id = $1::uuid AND participant_key = $2 AND archived_at IS NULL
 	if err != nil {
 		return channelsdomain.DirectConversation{}, err
 	}
-	conversation.ParticipantIDs, err = r.directParticipantIDs(ctx, conversation.ID)
+	conversation.Participants, err = r.directParticipants(ctx, conversation.ID)
+	conversation.ParticipantIDs = memberIDs(conversation.Participants)
 	return conversation, err
 }
 
@@ -368,31 +405,44 @@ WHERE id = $1::uuid
 	if err != nil {
 		return channelsdomain.DirectConversation{}, err
 	}
-	conversation.ParticipantIDs, err = r.directParticipantIDs(ctx, conversation.ID)
+	conversation.Participants, err = r.directParticipants(ctx, conversation.ID)
+	conversation.ParticipantIDs = memberIDs(conversation.Participants)
 	return conversation, err
 }
 
-func (r *Repository) directParticipantIDs(ctx context.Context, directID string) ([]string, error) {
+func (r *Repository) directParticipants(ctx context.Context, directID string) ([]channelsdomain.Member, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT user_id::text
-FROM direct_conversation_members
-WHERE direct_conversation_id = $1::uuid
-ORDER BY user_id::text
+SELECT dc.channel_id::text, dcm.user_id::text, u.email::text, u.username::text, u.display_name,
+       cm.status, cm.last_read_at, cm.last_read_message_id::text, cm.joined_at, cm.created_at, cm.updated_at
+FROM direct_conversation_members dcm
+JOIN direct_conversations dc ON dc.id = dcm.direct_conversation_id
+JOIN users u ON u.id = dcm.user_id AND u.deleted_at IS NULL
+LEFT JOIN channel_members cm ON cm.channel_id = dc.channel_id AND cm.user_id = dcm.user_id
+WHERE dcm.direct_conversation_id = $1::uuid
+ORDER BY u.display_name
 `, directID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var ids []string
+	var members []channelsdomain.Member
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		member, err := scanMember(rows)
+		if err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		members = append(members, member)
 	}
-	return ids, rows.Err()
+	return members, rows.Err()
+}
+
+func memberIDs(members []channelsdomain.Member) []string {
+	ids := make([]string, 0, len(members))
+	for _, member := range members {
+		ids = append(ids, member.UserID)
+	}
+	return ids
 }
 
 type rowScanner interface {

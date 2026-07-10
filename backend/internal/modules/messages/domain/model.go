@@ -12,6 +12,8 @@ var (
 	ErrReactionNotFound = errors.New("không tìm thấy reaction")
 )
 
+var ErrPinNotFound = errors.New("không tìm thấy tin ghim")
+
 type Message struct {
 	ID           string
 	WorkspaceID  string

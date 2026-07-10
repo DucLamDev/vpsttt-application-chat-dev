@@ -29,6 +29,7 @@ type Repository interface {
 	UpdateMemberStatus(ctx context.Context, params UpdateMemberStatusParams) (channelsdomain.Member, error)
 	UpdateReadState(ctx context.Context, params UpdateReadStateParams) (channelsdomain.Member, error)
 	CreateOrGetDirectConversation(ctx context.Context, params CreateDirectParams) (channelsdomain.DirectConversation, error)
+	HasAcceptedContact(ctx context.Context, actorUserID string, participantUserID string) (bool, error)
 	ListDirectConversations(ctx context.Context, workspaceID string, userID string) ([]channelsdomain.DirectConversation, error)
 	RecordAudit(ctx context.Context, event AuditEvent) error
 }
@@ -170,14 +171,16 @@ type MemberDTO struct {
 }
 
 type DirectConversationDTO struct {
-	ID               string   `json:"id"`
-	WorkspaceID      string   `json:"workspace_id"`
-	ChannelID        string   `json:"channel_id"`
-	ParticipantKey   string   `json:"participant_key"`
-	ConversationType string   `json:"conversation_type"`
-	ParticipantIDs   []string `json:"participant_ids"`
-	CreatedAt        string   `json:"created_at"`
-	UpdatedAt        string   `json:"updated_at"`
+	ID               string      `json:"id"`
+	WorkspaceID      string      `json:"workspace_id"`
+	ChannelID        string      `json:"channel_id"`
+	ParticipantKey   string      `json:"participant_key"`
+	ConversationType string      `json:"conversation_type"`
+	ParticipantIDs   []string    `json:"participant_ids"`
+	Participants     []MemberDTO `json:"participants"`
+	User             *MemberDTO  `json:"user,omitempty"`
+	CreatedAt        string      `json:"created_at"`
+	UpdatedAt        string      `json:"updated_at"`
 }
 
 func NewService(repo Repository, checker PermissionChecker) *Service {
@@ -345,6 +348,9 @@ func (s *Service) CreateDirect(ctx context.Context, input CreateDirectInput) (Di
 	if len(participantIDs) < 2 {
 		return DirectConversationDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Direct message cần ít nhất 2 thành viên.")
 	}
+	if err := s.ensureDirectContacts(ctx, input.ActorUserID, participantIDs); err != nil {
+		return DirectConversationDTO{}, err
+	}
 	conversationType := "group"
 	if len(participantIDs) == 2 {
 		conversationType = "one_to_one"
@@ -362,7 +368,25 @@ func (s *Service) CreateDirect(ctx context.Context, input CreateDirectInput) (Di
 		}
 		return DirectConversationDTO{}, err
 	}
-	return toDirectDTO(conversation), nil
+	return toDirectDTO(conversation, input.ActorUserID), nil
+}
+
+func (s *Service) ensureDirectContacts(ctx context.Context, actorUserID string, participantIDs []string) error {
+	actorUserID = strings.TrimSpace(actorUserID)
+	for _, participantID := range participantIDs {
+		participantID = strings.TrimSpace(participantID)
+		if participantID == "" || participantID == actorUserID {
+			continue
+		}
+		accepted, err := s.repo.HasAcceptedContact(ctx, actorUserID, participantID)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return apperrors.Forbidden("Hai tài khoản cần là bạn bè trước khi mở hội thoại riêng.")
+		}
+	}
+	return nil
 }
 
 func (s *Service) ListDirects(ctx context.Context, actorUserID string, workspaceID string) ([]DirectConversationDTO, error) {
@@ -375,7 +399,7 @@ func (s *Service) ListDirects(ctx context.Context, actorUserID string, workspace
 	}
 	dtos := make([]DirectConversationDTO, 0, len(conversations))
 	for _, conversation := range conversations {
-		dtos = append(dtos, toDirectDTO(conversation))
+		dtos = append(dtos, toDirectDTO(conversation, actorUserID))
 	}
 	return dtos, nil
 }
@@ -480,7 +504,16 @@ func toMemberDTO(member channelsdomain.Member) MemberDTO {
 	}
 }
 
-func toDirectDTO(conversation channelsdomain.DirectConversation) DirectConversationDTO {
+func toDirectDTO(conversation channelsdomain.DirectConversation, actorUserID string) DirectConversationDTO {
+	participants := toMemberDTOs(conversation.Participants)
+	var peer *MemberDTO
+	for index := range participants {
+		if participants[index].UserID != strings.TrimSpace(actorUserID) {
+			current := participants[index]
+			peer = &current
+			break
+		}
+	}
 	return DirectConversationDTO{
 		ID:               conversation.ID,
 		WorkspaceID:      conversation.WorkspaceID,
@@ -488,6 +521,8 @@ func toDirectDTO(conversation channelsdomain.DirectConversation) DirectConversat
 		ParticipantKey:   conversation.ParticipantKey,
 		ConversationType: conversation.ConversationType,
 		ParticipantIDs:   conversation.ParticipantIDs,
+		Participants:     participants,
+		User:             peer,
 		CreatedAt:        formatTime(conversation.CreatedAt),
 		UpdatedAt:        formatTime(conversation.UpdatedAt),
 	}

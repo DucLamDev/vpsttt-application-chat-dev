@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -46,6 +47,13 @@ func (m *Manager) Register(client *Client) error {
 	defer m.mu.Unlock()
 
 	m.clients[client.ID] = client
+	if client.UserID != "" {
+		room := "user:" + client.UserID
+		if _, ok := m.rooms[room]; !ok {
+			m.rooms[room] = make(map[string]struct{})
+		}
+		m.rooms[room][client.ID] = struct{}{}
+	}
 	return nil
 }
 
@@ -69,6 +77,10 @@ func (m *Manager) Unregister(clientID string) {
 func (m *Manager) Join(room string, clientID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if client, ok := m.clients[clientID]; !ok || (strings.HasPrefix(room, "user:") && room != "user:"+client.UserID) {
+		return
+	}
 
 	if _, ok := m.rooms[room]; !ok {
 		m.rooms[room] = make(map[string]struct{})

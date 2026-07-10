@@ -9,6 +9,7 @@ var (
 	ErrChannelNotFound = errors.New("không tìm thấy kênh")
 	ErrChannelConflict = errors.New("kênh đã tồn tại")
 	ErrMemberNotFound  = errors.New("không tìm thấy thành viên kênh")
+	ErrContactRequired = errors.New("cần kết bạn trước khi tạo hội thoại riêng")
 )
 
 type Channel struct {
@@ -48,6 +49,7 @@ type DirectConversation struct {
 	ConversationType string
 	CreatedBy        *string
 	ParticipantIDs   []string
+	Participants     []Member
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }

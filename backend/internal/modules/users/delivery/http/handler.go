@@ -29,6 +29,7 @@ type updateUserRequest struct {
 	Locale      *string `json:"locale"`
 	Timezone    *string `json:"timezone"`
 	Status      *string `json:"status"`
+	WorkspaceID *string `json:"workspace_id"`
 }
 
 func NewHandler(service *usersapp.Service) *Handler {
@@ -107,6 +108,8 @@ func (h *Handler) Update(c *gin.Context) {
 		return
 	}
 	user, err := h.service.Update(c.Request.Context(), usersapp.UpdateUserInput{
+		ActorUserID: middleware.CurrentUserID(c),
+		WorkspaceID: requestWorkspaceID(c, req.WorkspaceID),
 		UserID:      c.Param("user_id"),
 		DisplayName: req.DisplayName,
 		AvatarURL:   req.AvatarURL,
@@ -123,9 +126,16 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 func (h *Handler) Delete(c *gin.Context) {
-	if err := h.service.Delete(c.Request.Context(), c.Param("user_id")); err != nil {
+	if err := h.service.Delete(c.Request.Context(), middleware.CurrentUserID(c), c.Query("workspace_id"), c.Param("user_id")); err != nil {
 		response.Error(c, err)
 		return
 	}
 	response.NoContent(c)
+}
+
+func requestWorkspaceID(c *gin.Context, bodyWorkspaceID *string) string {
+	if bodyWorkspaceID != nil {
+		return *bodyWorkspaceID
+	}
+	return c.Query("workspace_id")
 }

@@ -43,9 +43,12 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.GET("/messages/search", h.Search)
 	private.GET("/channels/:channel_id/messages", h.List)
 	private.POST("/channels/:channel_id/messages", h.Send)
+	private.GET("/channels/:channel_id/pins", h.ListPins)
 	private.GET("/channels/:channel_id/messages/:message_id", h.Get)
 	private.PATCH("/channels/:channel_id/messages/:message_id", h.Update)
 	private.DELETE("/channels/:channel_id/messages/:message_id", h.Delete)
+	private.POST("/channels/:channel_id/messages/:message_id/pin", h.Pin)
+	private.DELETE("/channels/:channel_id/messages/:message_id/pin", h.Unpin)
 	private.GET("/channels/:channel_id/messages/:message_id/thread", h.ListThread)
 	private.POST("/channels/:channel_id/messages/:message_id/reactions", h.AddReaction)
 	private.DELETE("/channels/:channel_id/messages/:message_id/reactions/:emoji", h.RemoveReaction)
@@ -156,6 +159,46 @@ func (h *Handler) Update(c *gin.Context) {
 
 func (h *Handler) Delete(c *gin.Context) {
 	if err := h.service.Delete(c.Request.Context(), messagesapp.DeleteInput{
+		ActorUserID: middleware.CurrentUserID(c),
+		WorkspaceID: c.Param("workspace_id"),
+		ChannelID:   c.Param("channel_id"),
+		MessageID:   c.Param("message_id"),
+	}); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.NoContent(c)
+}
+
+func (h *Handler) ListPins(c *gin.Context) {
+	messages, err := h.service.ListPins(c.Request.Context(), messagesapp.ListPinsInput{
+		ActorUserID: middleware.CurrentUserID(c),
+		WorkspaceID: c.Param("workspace_id"),
+		ChannelID:   c.Param("channel_id"),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, gin.H{"messages": messages})
+}
+
+func (h *Handler) Pin(c *gin.Context) {
+	message, err := h.service.Pin(c.Request.Context(), messagesapp.PinInput{
+		ActorUserID: middleware.CurrentUserID(c),
+		WorkspaceID: c.Param("workspace_id"),
+		ChannelID:   c.Param("channel_id"),
+		MessageID:   c.Param("message_id"),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, message)
+}
+
+func (h *Handler) Unpin(c *gin.Context) {
+	if err := h.service.Unpin(c.Request.Context(), messagesapp.PinInput{
 		ActorUserID: middleware.CurrentUserID(c),
 		WorkspaceID: c.Param("workspace_id"),
 		ChannelID:   c.Param("channel_id"),

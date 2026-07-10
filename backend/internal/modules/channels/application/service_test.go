@@ -73,6 +73,10 @@ func (r *directConversationRepo) CreateOrGetDirectConversation(_ context.Context
 	}, nil
 }
 
+func (r *directConversationRepo) HasAcceptedContact(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
 func (r *directConversationRepo) ListDirectConversations(context.Context, string, string) ([]channelsdomain.DirectConversation, error) {
 	panic("không được gọi")
 }

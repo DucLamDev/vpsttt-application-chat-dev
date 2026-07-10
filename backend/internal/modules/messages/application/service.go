@@ -28,6 +28,9 @@ type Repository interface {
 	Search(ctx context.Context, params SearchParams) ([]messagesdomain.Message, error)
 	Update(ctx context.Context, params UpdateParams) (messagesdomain.Message, error)
 	Delete(ctx context.Context, params DeleteParams) error
+	ListPins(ctx context.Context, params ListPinsParams) ([]messagesdomain.Message, error)
+	Pin(ctx context.Context, params PinParams) (messagesdomain.Message, error)
+	Unpin(ctx context.Context, params PinParams) error
 	AddReaction(ctx context.Context, params ReactionParams) (messagesdomain.Message, error)
 	RemoveReaction(ctx context.Context, params ReactionParams) (messagesdomain.Message, error)
 }
@@ -138,6 +141,32 @@ type DeleteInput struct {
 }
 
 type DeleteParams struct {
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+	ActorUserID string
+}
+
+type ListPinsInput struct {
+	ActorUserID string
+	WorkspaceID string
+	ChannelID   string
+}
+
+type ListPinsParams struct {
+	WorkspaceID string
+	ChannelID   string
+	ActorUserID string
+}
+
+type PinInput struct {
+	ActorUserID string
+	WorkspaceID string
+	ChannelID   string
+	MessageID   string
+}
+
+type PinParams struct {
 	WorkspaceID string
 	ChannelID   string
 	MessageID   string
@@ -404,6 +433,61 @@ func (s *Service) Delete(ctx context.Context, input DeleteInput) error {
 	return nil
 }
 
+func (s *Service) ListPins(ctx context.Context, input ListPinsInput) ([]MessageDTO, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return nil, err
+	}
+	messages, err := s.repo.ListPins(ctx, ListPinsParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+	})
+	if err != nil {
+		return nil, mapMessageError(err)
+	}
+	return toMessageDTOs(messages), nil
+}
+
+func (s *Service) Pin(ctx context.Context, input PinInput) (MessageDTO, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return MessageDTO{}, err
+	}
+	params := PinParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		MessageID:   strings.TrimSpace(input.MessageID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+	}
+	message, err := s.repo.Pin(ctx, params)
+	if err != nil {
+		return MessageDTO{}, mapMessageError(err)
+	}
+	dto := toMessageDTO(message)
+	s.publishRealtime(ctx, "MessagePinned", dto)
+	return dto, nil
+}
+
+func (s *Service) Unpin(ctx context.Context, input PinInput) error {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return err
+	}
+	params := PinParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		MessageID:   strings.TrimSpace(input.MessageID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+	}
+	if err := s.repo.Unpin(ctx, params); err != nil {
+		return mapMessageError(err)
+	}
+	s.publishRealtime(ctx, "MessageUnpinned", MessageDTO{
+		ID:          params.MessageID,
+		WorkspaceID: params.WorkspaceID,
+		ChannelID:   params.ChannelID,
+	})
+	return nil
+}
+
 func (s *Service) AddReaction(ctx context.Context, input ReactionInput) (MessageDTO, error) {
 	params, err := s.validateReaction(ctx, input)
 	if err != nil {
@@ -532,6 +616,9 @@ func mapMessageError(err error) error {
 	}
 	if errors.Is(err, messagesdomain.ErrMentionNotFound) {
 		return apperrors.BadRequest("INVALID_MENTION", "Một hoặc nhiều user được nhắc chưa thuộc kênh.")
+	}
+	if errors.Is(err, messagesdomain.ErrPinNotFound) {
+		return apperrors.NotFound("MESSAGE_PIN_NOT_FOUND", "Không tìm thấy tin ghim.")
 	}
 	if errors.Is(err, messagesdomain.ErrReactionNotFound) {
 		return apperrors.NotFound("REACTION_NOT_FOUND", "Không tìm thấy reaction.")
