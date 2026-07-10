@@ -21,6 +21,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
+    "@emnapi/core": "1.11.2",
+    "@emnapi/runtime": "1.11.2",
     "@eslint/eslintrc": "3.3.5",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.61.1",
