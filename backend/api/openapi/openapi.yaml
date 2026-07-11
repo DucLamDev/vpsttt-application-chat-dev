@@ -108,6 +108,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthResponse"
+  /api/v1/auth/google:
+    post:
+      security: []
+      summary: Đăng nhập hoặc đăng ký bằng Google Identity Services
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleLoginRequest"
+      responses:
+        "200":
+          description: Xác thực Google thành công
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
   /api/v1/auth/refresh:
     post:
       security: []
@@ -1909,6 +1926,16 @@ components:
         password:
           type: string
           format: password
+        device_name:
+          type: string
+          description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.
+    GoogleLoginRequest:
+      type: object
+      required: [credential]
+      properties:
+        credential:
+          type: string
+          description: Google ID token do Google Identity Services trả về.
         device_name:
           type: string
           description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.

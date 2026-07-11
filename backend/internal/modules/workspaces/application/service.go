@@ -19,6 +19,45 @@ import (
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 
+// DefaultChannelDefinition describes a public channel provisioned for every
+// VPSTTT workspace. Keeping the catalogue in application code gives the
+// create-workspace transaction a single, testable source of truth.
+type DefaultChannelDefinition struct {
+	Slug        string
+	Name        string
+	Description string
+	Type        string
+}
+
+type DefaultBotDefinition struct {
+	Slug        string
+	Name        string
+	Description string
+	ChannelSlug string
+}
+
+func DefaultWorkspaceChannels() []DefaultChannelDefinition {
+	return []DefaultChannelDefinition{
+		{Slug: "thong-bao", Name: "Thông báo", Description: "Thông báo chung của workspace", Type: "public"},
+		{Slug: "ban-giam-doc", Name: "Ban giám đốc", Description: "Trao đổi dành cho quản lý cấp cao", Type: "private"},
+		{Slug: "ky-thuat", Name: "Kỹ thuật", Description: "Kỹ thuật và vận hành hệ thống", Type: "public"},
+		{Slug: "sale", Name: "Sale", Description: "Kinh doanh và chăm sóc khách hàng", Type: "public"},
+		{Slug: "ke-toan", Name: "Kế toán", Description: "Hóa đơn và thanh toán", Type: "private"},
+		{Slug: "ticket", Name: "Ticket", Description: "Tiếp nhận ticket khách hàng", Type: "public"},
+		{Slug: "server-alert", Name: "Server Alert", Description: "Cảnh báo server và dịch vụ", Type: "public"},
+		{Slug: "gia-han", Name: "Gia hạn", Description: "Theo dõi gia hạn dịch vụ", Type: "public"},
+		{Slug: "ban-giao-ca", Name: "Bàn giao ca", Description: "Bàn giao ca trực vận hành", Type: "public"},
+	}
+}
+
+func DefaultWorkspaceBots() []DefaultBotDefinition {
+	return []DefaultBotDefinition{
+		{Slug: "ticket-bot", Name: "Ticket Bot", Description: "Báo ticket mới từ web bán hàng/billing", ChannelSlug: "ticket"},
+		{Slug: "server-alert-bot", Name: "Server Alert Bot", Description: "Báo server mất ping, port lỗi, dịch vụ down", ChannelSlug: "server-alert"},
+		{Slug: "gia-han-bot", Name: "Gia Hạn Bot", Description: "Báo khách hoặc dịch vụ sắp hết hạn", ChannelSlug: "gia-han"},
+	}
+}
+
 type PermissionChecker interface {
 	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
 }

@@ -63,6 +63,47 @@ ON CONFLICT DO NOTHING
 		return workspacesdomain.Workspace{}, err
 	}
 
+	defaultChannelIDs := make(map[string]string, len(workspacesapp.DefaultWorkspaceChannels()))
+	for _, definition := range workspacesapp.DefaultWorkspaceChannels() {
+		var channelID string
+		if err := tx.QueryRow(ctx, `
+INSERT INTO channels (workspace_id, slug, name, description, type, created_by, settings)
+VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, '{"system_default": true}'::jsonb)
+RETURNING id::text
+`, workspace.ID, definition.Slug, definition.Name, definition.Description, definition.Type, params.OwnerID).Scan(&channelID); err != nil {
+			return workspacesdomain.Workspace{}, err
+		}
+		defaultChannelIDs[definition.Slug] = channelID
+		if _, err := tx.Exec(ctx, `
+INSERT INTO channel_members (channel_id, user_id, status)
+VALUES ($1::uuid, $2::uuid, 'active')
+ON CONFLICT (channel_id, user_id) DO UPDATE SET status = 'active'
+`, channelID, params.OwnerID); err != nil {
+			return workspacesdomain.Workspace{}, err
+		}
+	}
+
+	for _, definition := range workspacesapp.DefaultWorkspaceBots() {
+		channelID, ok := defaultChannelIDs[definition.ChannelSlug]
+		if !ok {
+			return workspacesdomain.Workspace{}, errors.New("default bot references an unknown channel")
+		}
+		var botID string
+		if err := tx.QueryRow(ctx, `
+INSERT INTO bots (workspace_id, slug, name, description, created_by, settings)
+VALUES ($1::uuid, $2, $3, $4, $5::uuid, '{"system_default": true}'::jsonb)
+RETURNING id::text
+`, workspace.ID, definition.Slug, definition.Name, definition.Description, params.OwnerID).Scan(&botID); err != nil {
+			return workspacesdomain.Workspace{}, err
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO bot_installations (bot_id, workspace_id, channel_id, config)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '{"system_default": true}'::jsonb)
+`, botID, workspace.ID, channelID); err != nil {
+			return workspacesdomain.Workspace{}, err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return workspacesdomain.Workspace{}, err
 	}
@@ -190,6 +231,22 @@ DO UPDATE SET assigned_by = workspace_member_roles.assigned_by
 	}
 	if command.RowsAffected() == 0 {
 		return workspacesdomain.Member{}, workspacesdomain.ErrRoleNotFound
+	}
+
+	// Public channels are visible to workspace members only. Enrol a newly
+	// added member so the channel list remains useful without leaking channels
+	// to users who are not members of them.
+	if _, err := tx.Exec(ctx, `
+INSERT INTO channel_members (channel_id, user_id, status)
+SELECT c.id, $2::uuid, 'active'
+FROM channels c
+WHERE c.workspace_id = $1::uuid
+  AND c.type = 'public'
+  AND c.status = 'active'
+  AND c.deleted_at IS NULL
+ON CONFLICT (channel_id, user_id) DO UPDATE SET status = 'active'
+`, params.WorkspaceID, params.UserID); err != nil {
+		return workspacesdomain.Member{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

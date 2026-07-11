@@ -37,6 +37,7 @@ import type {
   PresenceStatus
 } from "../model/types";
 import { useUploadStore, type UploadQueueItem } from "../stores/upload-store";
+import { buildChatRoute, buildWorkspaceSectionRoute, directIdPrefix, directRouteRef, parseChatRoute } from "@/lib/chat-route";
 
 const channelTones: ChannelTone[] = ["purple", "green", "orange", "red", "violet", "slate"];
 const contactRefetchMs = 5_000;
@@ -77,7 +78,8 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   const searchParams = useSearchParams();
   const workspaceContext = useWorkspaceContext();
   const { workspaceId } = workspaceContext;
-  const requestedChannelId = searchParams.get("channel") ?? "";
+  const parsedRoute = parseChatRoute(pathname);
+  const legacyChannelId = searchParams.get("channel") ?? "";
   const friendSearchQuery = options.friendSearchQuery?.trim() ?? "";
 
   const channelsQuery = useQuery({
@@ -130,6 +132,23 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         .filter(Boolean) as DirectConversation[],
     [currentUser.id, directConversationSummaries, directConversationsQuery.data, notificationPresence.presenceByUserId]
   );
+  const requestedChannelId = useMemo(() => {
+    if (legacyChannelId) {
+      return legacyChannelId;
+    }
+    const reference = parsedRoute?.targetRef;
+    if (!reference) {
+      return "";
+    }
+    if (parsedRoute?.kind === "channel") {
+      return channels.find((channel) => channel.slug === reference || channel.id === reference)?.id ?? "";
+    }
+    if (parsedRoute?.kind === "dm") {
+      const prefix = directIdPrefix(reference);
+      return directConversations.find((conversation) => conversation.id === reference || conversation.id.startsWith(prefix))?.id ?? "";
+    }
+    return "";
+  }, [channels, directConversations, legacyChannelId, parsedRoute?.kind, parsedRoute?.targetRef]);
   const membersWithPresence = useMemo(
     () => mapMembersWithPresence(workspaceContext.members, notificationPresence.presenceByUserId),
     [notificationPresence.presenceByUserId, workspaceContext.members]
@@ -145,24 +164,41 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   );
 
   const setSelectedChannelId = useCallback(
-    (nextChannelId: string, nextWorkspaceId = workspaceId) => {
-      const nextParams = new URLSearchParams(searchParams.toString());
-
-      if (nextWorkspaceId) {
-        nextParams.set("workspace", nextWorkspaceId);
+    (nextChannelId: string, nextWorkspaceId = workspaceId, requestedType?: "channel" | "direct") => {
+      const workspace = workspaceContext.workspaces.find((item) => item.id === nextWorkspaceId);
+      const workspaceRef = workspace?.slug || nextWorkspaceId;
+      if (!workspaceRef) {
+        return;
       }
-
-      if (nextChannelId) {
-        nextParams.set("channel", nextChannelId);
-      } else {
-        nextParams.delete("channel");
+      if (!nextChannelId) {
+        router.replace(buildChatRoute(workspaceRef), { scroll: false });
+        return;
       }
-
-      const query = nextParams.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+      const direct = directConversations.find((item) => item.id === nextChannelId);
+      const channel = channels.find((item) => item.id === nextChannelId);
+      const isDirect = requestedType === "direct" || Boolean(direct);
+      const targetRef = isDirect
+        ? directRouteRef(direct?.user.name ?? "hoi-thoai", nextChannelId)
+        : channel?.slug || nextChannelId;
+      router.replace(buildChatRoute(workspaceRef, isDirect ? "dm" : "channel", targetRef), { scroll: false });
     },
-    [pathname, router, searchParams, workspaceId]
+    [channels, directConversations, router, workspaceContext.workspaces, workspaceId]
   );
+  const setWorkspaceSection = useCallback(
+    (section?: string) => {
+      const workspace = workspaceContext.workspaces.find((item) => item.id === workspaceId);
+      const workspaceRef = workspace?.slug || workspaceId;
+      if (!workspaceRef) return;
+      router.replace(section ? buildWorkspaceSectionRoute(workspaceRef, section) : buildChatRoute(workspaceRef), { scroll: false });
+    },
+    [router, workspaceContext.workspaces, workspaceId]
+  );
+
+  useEffect(() => {
+    if (legacyChannelId && requestedChannelId && workspaceId) {
+      setSelectedChannelId(requestedChannelId, workspaceId);
+    }
+  }, [legacyChannelId, requestedChannelId, setSelectedChannelId, workspaceId]);
 
   const messageTimeline = useMessageTimeline({
     canManageMessages: workspaceContext.can("message.manage"),
@@ -594,6 +630,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     selectedChannelId,
     selectedChannelWithMessages,
     setSelectedChannelId,
+    setWorkspaceSection,
     searchUsers,
     searchUsersQuery,
     sendThreadMessageMutation: messageTimeline.sendThreadMessageMutation,
@@ -665,6 +702,7 @@ function mapChannel(channel: ApiChannel, index: number): ChatChannel {
     messages: [],
     name: channel.name,
     relativeTime: formatConversationTime(channel.updated_at ?? channel.created_at),
+    slug: channel.slug,
     tone: channelTones[index % channelTones.length],
     type: channel.type ?? channel.kind,
     unreadCount: channel.unread_count ?? 0
@@ -712,6 +750,7 @@ function directConversationToChannel(conversation: DirectConversation): ChatChan
     messages: [],
     name: conversation.user.name,
     relativeTime: conversation.relativeTime,
+    slug: undefined,
     tone: "purple",
     type: "direct",
     unreadCount: conversation.unreadCount ?? 0
@@ -731,6 +770,7 @@ function placeholderChannel(channelId: string): ChatChannel {
     messages: [],
     name: "Hội thoại",
     relativeTime: "",
+    slug: undefined,
     tone: "purple",
     type: "direct",
     unreadCount: 0

@@ -20,8 +20,11 @@ func New(root string) (*Store, error) {
 	if root == "" {
 		root = "data/storage"
 	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("tạo thư mục gốc lưu trữ local: %w", err)
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		return nil, fmt.Errorf("không thể bảo vệ quyền đọc thư mục lưu trữ local: %w", err)
 	}
 	return &Store{root: root}, nil
 }
@@ -38,15 +41,21 @@ func (s *Store) Put(ctx context.Context, input storage.PutObjectInput) (storage.
 	if err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return storage.ObjectInfo{}, fmt.Errorf("tạo thư mục đối tượng lưu trữ: %w", err)
 	}
+	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+		return storage.ObjectInfo{}, fmt.Errorf("không thể bảo vệ quyền đọc thư mục đối tượng: %w", err)
+	}
 
-	file, err := os.Create(path)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return storage.ObjectInfo{}, fmt.Errorf("tạo đối tượng lưu trữ: %w", err)
 	}
 	defer file.Close()
+	if err := file.Chmod(0o600); err != nil {
+		return storage.ObjectInfo{}, fmt.Errorf("không thể bảo vệ quyền đọc đối tượng lưu trữ: %w", err)
+	}
 
 	size, err := io.Copy(file, input.Body)
 	if err != nil {
@@ -111,7 +120,7 @@ func (s *Store) Health(ctx context.Context) error {
 	}
 
 	probe := filepath.Join(s.root, ".health")
-	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+	if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
 		return fmt.Errorf("ghi file kiểm tra lưu trữ local: %w", err)
 	}
 	if err := os.Remove(probe); err != nil {

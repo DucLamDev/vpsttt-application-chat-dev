@@ -81,6 +81,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_API_BASE_URL=https://api.vpsttt.com
             NEXT_PUBLIC_WS_BASE_URL=wss://api.vpsttt.com/api/v1/ws
+            NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

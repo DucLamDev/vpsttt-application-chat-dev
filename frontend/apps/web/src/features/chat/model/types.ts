@@ -70,6 +70,7 @@ export type ChatChannel = {
   memberCount: number;
   messages: ChatMessage[];
   relativeTime: string;
+  slug?: string;
   type?: string;
 };
 

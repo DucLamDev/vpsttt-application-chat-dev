@@ -242,7 +242,14 @@ func (s *Service) Get(ctx context.Context, actorUserID string, workspaceID strin
 	if err != nil {
 		return ChannelDTO{}, mapChannelError(err)
 	}
-	return s.decorateChannelDTO(ctx, actorUserID, workspaceID, channel)
+	dto, err := s.decorateChannelDTO(ctx, actorUserID, workspaceID, channel)
+	if err != nil {
+		return ChannelDTO{}, err
+	}
+	if !dto.IsMember {
+		return ChannelDTO{}, apperrors.Forbidden("Bạn chưa phải là thành viên của kênh này.")
+	}
+	return dto, nil
 }
 
 func (s *Service) List(ctx context.Context, actorUserID string, workspaceID string) ([]ChannelDTO, error) {
@@ -259,7 +266,9 @@ func (s *Service) List(ctx context.Context, actorUserID string, workspaceID stri
 		if err != nil {
 			return nil, err
 		}
-		dtos = append(dtos, dto)
+		if dto.IsMember {
+			dtos = append(dtos, dto)
+		}
 	}
 	return dtos, nil
 }
@@ -294,6 +303,13 @@ func (s *Service) Archive(ctx context.Context, actorUserID string, workspaceID s
 func (s *Service) ListMembers(ctx context.Context, actorUserID string, workspaceID string, channelID string) ([]MemberDTO, error) {
 	if err := s.ensureWorkspaceAccess(ctx, actorUserID, workspaceID); err != nil {
 		return nil, err
+	}
+	member, err := s.repo.FindMember(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(channelID), strings.TrimSpace(actorUserID))
+	if err != nil || (member.Status != "active" && member.Status != "muted") {
+		if err != nil && !errors.Is(err, channelsdomain.ErrMemberNotFound) {
+			return nil, err
+		}
+		return nil, apperrors.Forbidden("Bạn chưa phải là thành viên của kênh này.")
 	}
 	members, err := s.repo.ListMembers(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(channelID))
 	if err != nil {

@@ -40,6 +40,11 @@ export type LoginInput = {
   device_name?: string;
 };
 
+export type GoogleLoginInput = {
+  credential: string;
+  device_name?: string;
+};
+
 export type RegisterInput = {
   email: string;
   username: string;

@@ -105,6 +105,7 @@ type SecurityConfig struct {
 	JWTAccessSecret      string
 	JWTRefreshSecret     string
 	WebhookSigningSecret string
+	GoogleClientID       string
 }
 
 func Load() (*Config, error) {
@@ -173,6 +174,7 @@ func Load() (*Config, error) {
 			JWTAccessSecret:      getEnv("JWT_ACCESS_SECRET", "dev_access_secret_local_only_do_not_use_in_production"),
 			JWTRefreshSecret:     getEnv("JWT_REFRESH_SECRET", "dev_refresh_secret_local_only_do_not_use_in_production"),
 			WebhookSigningSecret: getEnv("WEBHOOK_SIGNING_SECRET", ""),
+			GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
 		},
 	}
 

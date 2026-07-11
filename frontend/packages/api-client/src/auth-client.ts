@@ -2,6 +2,7 @@ import type {
   AuthResult,
   AuthSession,
   AuthUser,
+  GoogleLoginInput,
   LoginInput,
   LogoutInput,
   RefreshInput,
@@ -14,6 +15,9 @@ export function createAuthClient(http: HttpClient) {
   return {
     login(input: LoginInput) {
       return http.post<AuthResult>("/api/v1/auth/login", input, { auth: false });
+    },
+    google(input: GoogleLoginInput) {
+      return http.post<AuthResult>("/api/v1/auth/google", input, { auth: false });
     },
     register(input: RegisterInput) {
       return http.post<AuthResult>("/api/v1/auth/register", input, { auth: false });

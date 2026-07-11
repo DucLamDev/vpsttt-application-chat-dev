@@ -36,7 +36,9 @@ INSERT INTO users (
     last_ip_address,
     device_name,
     last_user_agent,
-    last_seen_at
+    last_seen_at,
+    avatar_url,
+    email_verified_at
 )
 VALUES (
     $1,
@@ -50,14 +52,16 @@ VALUES (
     NULLIF($5, '')::inet,
     NULLIF($6, ''),
     NULLIF($7, ''),
-    now()
+    now(),
+    NULLIF($8, ''),
+    CASE WHEN $9 THEN now() ELSE NULL END
 )
 RETURNING id::text, email::text, username::text, display_name, password_hash, avatar_url, status,
           locale, timezone, email_verified_at, last_seen_at,
           host(registration_ip_address), registration_device_name,
           host(last_ip_address), device_name,
           created_at, updated_at
-`, params.Email, params.Username, params.DisplayName, params.PasswordHash, params.IPAddress, params.DeviceName, params.UserAgent)
+`, params.Email, params.Username, params.DisplayName, params.PasswordHash, params.IPAddress, params.DeviceName, params.UserAgent, params.AvatarURL, params.EmailVerified)
 
 	user, err := scanUser(row)
 	if err != nil {

@@ -2,6 +2,7 @@
 
 import { Fragment, type ChangeEvent, type ClipboardEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePathname } from "next/navigation";
 import { queryKeys } from "@webtui/api-client";
 import {
   Avatar,
@@ -85,6 +86,8 @@ import { getCachedMediaUrl, resolveCachedMediaUrl } from "../model/media-cache";
 import { buildChatTargets } from "../model/chat-targets";
 import { buildDepartmentRows, departmentDescendantIds } from "../model/department-tree";
 import type { AuthSession, AuthUser, Bot as BotRecord, ChannelMember, ContactRequest, Department, DepartmentMember, WorkspaceMember } from "@webtui/types";
+import { AutomationPage } from "./automation-page";
+import { parseChatRoute } from "@/lib/chat-route";
 
 const railItems = [
   { id: "messages", label: "Tin nhắn", icon: MessageCircle },
@@ -132,7 +135,9 @@ const quickReactions = ["👍", "❤️", "😂", "😮", "😢", "😡"] as con
 export function ChatWorkspace() {
   const { logout, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const [activeRailItem, setActiveRailItem] = useState<RailItemId>("messages");
+  const pathname = usePathname();
+  const routedRailItem = railItemFromRoute(pathname);
+  const [activeRailItem, setActiveRailItem] = useState<RailItemId>(routedRailItem);
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [detailTab, setDetailTab] = useState<DetailTab>("pinned");
   const [searchQuery, setSearchQuery] = useState("");
@@ -183,6 +188,8 @@ export function ChatWorkspace() {
     messageSearchQuery: activeMessageSearchQuery,
     threadMessageId: threadMessageId ?? undefined
   });
+
+  useEffect(() => setActiveRailItem(routedRailItem), [routedRailItem]);
   const selectedChannelMembersQuery = useQuery({
     enabled: Boolean(data.workspaceId && data.selectedChannelId && data.canAccessSelectedChannel),
     queryFn: () => api.channels.members(data.workspaceId, data.selectedChannelId),
@@ -443,6 +450,11 @@ export function ChatWorkspace() {
     setMessageSearchDateFrom("");
     setMessageSearchDateTo("");
     setActiveRailItem("messages");
+  }
+
+  function handleRailSelect(itemId: RailItemId) {
+    setActiveRailItem(itemId);
+    data.setWorkspaceSection(itemId === "messages" ? undefined : itemId);
   }
 
   function handleToggleMessageSearch() {
@@ -882,7 +894,7 @@ export function ChatWorkspace() {
       onSuccess: (conversation) => {
         const channelId = conversation.channel_id ?? conversation.id;
         if (channelId) {
-          data.setSelectedChannelId(channelId, workspaceId);
+          data.setSelectedChannelId(channelId, workspaceId, "direct");
         }
         setThreadMessageId(null);
         setActiveRailItem("messages");
@@ -988,7 +1000,7 @@ export function ChatWorkspace() {
         activeId={activeRailItem}
         ariaLabel="Điều hướng chính"
         items={[...railItems]}
-        onSelect={(itemId) => setActiveRailItem(itemId as RailItemId)}
+        onSelect={(itemId) => handleRailSelect(itemId as RailItemId)}
         profile={currentUser}
       />
 
@@ -1051,7 +1063,7 @@ export function ChatWorkspace() {
             onMarkAllRead={handleMarkAllNotificationsRead}
             onOpenNotification={handleOpenNotification}
             onOpenContacts={() => {
-              setActiveRailItem("contacts");
+              handleRailSelect("contacts");
               setIsNotificationsOpen(false);
             }}
             onRejectContactRequest={handleRejectIncomingRequest}
@@ -1140,7 +1152,7 @@ export function ChatWorkspace() {
                     title={channelFilter === "unread" ? "Không có tin chưa đọc" : channelFilter === "favorite" ? "Chưa có hội thoại yêu thích" : "Chưa có hội thoại"}
                   />
                   {channelFilter === "all" ? (
-                    <Button onClick={() => setActiveRailItem("contacts")} size="sm" variant="secondary">
+                    <Button onClick={() => handleRailSelect("contacts")} size="sm" variant="secondary">
                       <Users size={15} />
                       Tìm bạn bè
                     </Button>
@@ -1207,7 +1219,7 @@ export function ChatWorkspace() {
         ) : (
           <SidebarContextPanel
             activeRailItem={activeRailItem}
-            onOpenMessages={() => setActiveRailItem("messages")}
+            onOpenMessages={() => handleRailSelect("messages")}
           />
         )}
       </section>
@@ -1226,7 +1238,9 @@ export function ChatWorkspace() {
           <WorkspaceSectionPage
             activeRailItem={activeRailItem}
             canManageBots={data.can("bot.manage")}
+            canManageCronjobs={data.can("cronjob.manage")}
             canCreateChannel={canCreateChannel}
+            canManageWebhooks={data.can("webhook.manage")}
             channels={data.channels.filter((channel) => channel.type !== "direct")}
             contacts={contactResults}
             currentUser={currentUser}
@@ -1664,7 +1678,9 @@ function SidebarContextPanel({
 function WorkspaceSectionPage({
   activeRailItem,
   canManageBots,
+  canManageCronjobs,
   canManageDepartments,
+  canManageWebhooks,
   canCreateChannel,
   channels,
   contacts,
@@ -1699,7 +1715,9 @@ function WorkspaceSectionPage({
 }: {
   activeRailItem: RailItemId;
   canManageBots: boolean;
+  canManageCronjobs: boolean;
   canManageDepartments: boolean;
+  canManageWebhooks: boolean;
   canCreateChannel: boolean;
   channels: ChatChannel[];
   contacts: ContactResult[];
@@ -1804,6 +1822,17 @@ function WorkspaceSectionPage({
     return (
       <BotsPage
         canManage={canManageBots}
+        channels={channels}
+        workspaceId={workspaceId}
+      />
+    );
+  }
+
+  if (activeRailItem === "automation") {
+    return (
+      <AutomationPage
+        canManageCronjobs={canManageCronjobs}
+        canManageWebhooks={canManageWebhooks}
         channels={channels}
         workspaceId={workspaceId}
       />
@@ -4418,4 +4447,9 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
+}
+
+function railItemFromRoute(pathname: string): RailItemId {
+  const section = parseChatRoute(pathname)?.sectionRef;
+  return railItems.some((item) => item.id === section) ? section as RailItemId : "messages";
 }

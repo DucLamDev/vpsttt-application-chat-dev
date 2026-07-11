@@ -2,6 +2,10 @@ package application
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"net/mail"
 	"regexp"
@@ -54,6 +58,17 @@ type LoginInput struct {
 	UserAgent  string
 }
 
+type GoogleLoginInput struct {
+	Subject       string
+	Email         string
+	EmailVerified bool
+	DisplayName   string
+	AvatarURL     string
+	DeviceName    string
+	IPAddress     string
+	UserAgent     string
+}
+
 type RefreshInput struct {
 	RefreshToken string
 }
@@ -63,13 +78,15 @@ type LogoutInput struct {
 }
 
 type CreateUserParams struct {
-	Email        string
-	Username     string
-	DisplayName  string
-	PasswordHash string
-	DeviceName   string
-	IPAddress    string
-	UserAgent    string
+	Email         string
+	Username      string
+	DisplayName   string
+	PasswordHash  string
+	DeviceName    string
+	IPAddress     string
+	UserAgent     string
+	AvatarURL     string
+	EmailVerified bool
 }
 
 type UpdateLastLoginInfoParams struct {
@@ -216,14 +233,17 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (AuthResult, erro
 	user, err := s.repo.FindUserByIdentifier(ctx, identifier)
 	if err != nil {
 		if errors.Is(err, authdomain.ErrUserNotFound) {
+			s.recordFailedLogin(ctx, "", input, "invalid_credentials")
 			return AuthResult{}, apperrors.Unauthorized("Email, username hoặc mật khẩu không đúng.")
 		}
 		return AuthResult{}, err
 	}
 	if user.Status != "active" {
+		s.recordFailedLogin(ctx, user.ID, input, "account_"+user.Status)
 		return AuthResult{}, apperrors.Forbidden("Tài khoản chưa sẵn sàng hoặc đã bị khóa.")
 	}
 	if !sharedauth.VerifyPassword(user.PasswordHash, input.Password) {
+		s.recordFailedLogin(ctx, user.ID, input, "invalid_credentials")
 		return AuthResult{}, apperrors.Unauthorized("Email, username hoặc mật khẩu không đúng.")
 	}
 
@@ -245,6 +265,96 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (AuthResult, erro
 		EntityID:    user.ID,
 		IPAddress:   input.IPAddress,
 		UserAgent:   input.UserAgent,
+	})
+	return result, nil
+}
+
+func (s *Service) recordFailedLogin(ctx context.Context, userID string, input LoginInput, reason string) {
+	// Chỉ lưu dấu vân tay một chiều của định danh; tuyệt đối không ghi password,
+	// token hoặc email/username dạng rõ vào audit log.
+	fingerprint := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(input.Identifier))))
+	_ = s.repo.RecordAudit(ctx, AuditEvent{
+		ActorUserID: userID,
+		Action:      "auth.login_failed",
+		EntityType:  "user",
+		EntityID:    userID,
+		IPAddress:   input.IPAddress,
+		UserAgent:   input.UserAgent,
+		Metadata: map[string]any{
+			"reason":             reason,
+			"identifier_sha256": hex.EncodeToString(fingerprint[:]),
+		},
+	})
+}
+
+func (s *Service) LoginWithGoogle(ctx context.Context, input GoogleLoginInput) (AuthResult, error) {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Subject = strings.TrimSpace(input.Subject)
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.AvatarURL = strings.TrimSpace(input.AvatarURL)
+	input.DeviceName, input.IPAddress, input.UserAgent = normalizeClientInfo(input.DeviceName, input.IPAddress, input.UserAgent)
+	if input.Subject == "" || !input.EmailVerified {
+		return AuthResult{}, apperrors.Unauthorized("Tài khoản Google chưa xác minh email.")
+	}
+	if _, err := mail.ParseAddress(input.Email); err != nil {
+		return AuthResult{}, apperrors.Unauthorized("Google không trả về email hợp lệ.")
+	}
+
+	user, err := s.repo.FindUserByIdentifier(ctx, input.Email)
+	if errors.Is(err, authdomain.ErrUserNotFound) {
+		passwordBytes := make([]byte, 32)
+		if _, randomErr := rand.Read(passwordBytes); randomErr != nil {
+			return AuthResult{}, apperrors.Internal("Không tạo được thông tin tài khoản Google.")
+		}
+		passwordHash, hashErr := sharedauth.HashPassword(base64.RawURLEncoding.EncodeToString(passwordBytes))
+		if hashErr != nil {
+			return AuthResult{}, apperrors.Internal("Không tạo được thông tin tài khoản Google.")
+		}
+		displayName := input.DisplayName
+		if displayName == "" {
+			displayName = strings.Split(input.Email, "@")[0]
+		}
+		user, err = s.repo.CreateUser(ctx, CreateUserParams{
+			Email:         input.Email,
+			Username:      googleUsername(input.Email, input.Subject),
+			DisplayName:   displayName,
+			PasswordHash:  passwordHash,
+			DeviceName:    input.DeviceName,
+			IPAddress:     input.IPAddress,
+			UserAgent:     input.UserAgent,
+			AvatarURL:     input.AvatarURL,
+			EmailVerified: true,
+		})
+		if errors.Is(err, authdomain.ErrUserAlreadyExists) {
+			user, err = s.repo.FindUserByIdentifier(ctx, input.Email)
+		}
+	}
+	if err != nil {
+		return AuthResult{}, err
+	}
+	if user.Status != "active" {
+		return AuthResult{}, apperrors.Forbidden("Tài khoản chưa sẵn sàng hoặc đã bị khóa.")
+	}
+
+	result, err := s.issueTokens(ctx, user, input.DeviceName, input.IPAddress, input.UserAgent)
+	if err != nil {
+		return AuthResult{}, err
+	}
+	_ = s.repo.UpdateLastLoginInfo(ctx, UpdateLastLoginInfoParams{
+		UserID:     user.ID,
+		SeenAt:     s.now().UTC(),
+		DeviceName: input.DeviceName,
+		IPAddress:  input.IPAddress,
+		UserAgent:  input.UserAgent,
+	})
+	_ = s.repo.RecordAudit(ctx, AuditEvent{
+		ActorUserID: user.ID,
+		Action:      "auth.google_login",
+		EntityType:  "user",
+		EntityID:    user.ID,
+		IPAddress:   input.IPAddress,
+		UserAgent:   input.UserAgent,
+		Metadata:    map[string]any{"provider": "google"},
 	})
 	return result, nil
 }
@@ -454,6 +564,20 @@ func normalizeLogin(input LoginInput) LoginInput {
 	input.Password = strings.TrimSpace(input.Password)
 	input.DeviceName, input.IPAddress, input.UserAgent = normalizeClientInfo(input.DeviceName, input.IPAddress, input.UserAgent)
 	return input
+}
+
+func googleUsername(email string, subject string) string {
+	local := strings.ToLower(strings.Split(email, "@")[0])
+	local = regexp.MustCompile(`[^a-z0-9_.-]+`).ReplaceAllString(local, "-")
+	local = strings.Trim(local, "-._")
+	if local == "" {
+		local = "google-user"
+	}
+	if len(local) > 27 {
+		local = local[:27]
+	}
+	digest := sha256.Sum256([]byte(subject))
+	return local + "-" + hex.EncodeToString(digest[:4])
 }
 
 func normalizeClientInfo(deviceName string, ipAddress string, userAgent string) (string, string, string) {

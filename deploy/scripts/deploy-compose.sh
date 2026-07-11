@@ -29,6 +29,7 @@ export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-$(read_env_value NE
 export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-https://api.vpsttt.com}"
 export NEXT_PUBLIC_WS_BASE_URL="${NEXT_PUBLIC_WS_BASE_URL:-$(read_env_value NEXT_PUBLIC_WS_BASE_URL)}"
 export NEXT_PUBLIC_WS_BASE_URL="${NEXT_PUBLIC_WS_BASE_URL:-wss://api.vpsttt.com/api/v1/ws}"
+export NEXT_PUBLIC_GOOGLE_CLIENT_ID="${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-$(read_env_value NEXT_PUBLIC_GOOGLE_CLIENT_ID)}"
 
 require_value() {
   name="$1"
@@ -52,6 +53,7 @@ write_compose_env_file() {
     printf 'WEBTUI_WEB_IMAGE=%s\n' "$WEBTUI_WEB_IMAGE"
     printf 'NEXT_PUBLIC_API_BASE_URL=%s\n' "$NEXT_PUBLIC_API_BASE_URL"
     printf 'NEXT_PUBLIC_WS_BASE_URL=%s\n' "$NEXT_PUBLIC_WS_BASE_URL"
+    printf 'NEXT_PUBLIC_GOOGLE_CLIENT_ID=%s\n' "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"
   } > "$COMPOSE_ENV_FILE"
 }
 

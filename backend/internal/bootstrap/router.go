@@ -114,7 +114,7 @@ func (a *API) registerAPIV1() {
 
 	authRepo := authpostgres.NewRepository(pool)
 	authService := authapp.NewService(authRepo, tokenManager)
-	authHandler := authhttp.NewHandler(authService)
+	authHandler := authhttp.NewHandler(authService, a.cfg.Security.GoogleClientID)
 	authHandler.RegisterRoutes(v1.Group("/auth"), authMiddleware)
 
 	rbacRepo := rbacpostgres.NewRepository(pool)

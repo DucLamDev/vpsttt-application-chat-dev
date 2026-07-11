@@ -1,7 +1,14 @@
 package http
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	nethttp "net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
 
 	authapp "github.com/duclamdev/application-chat/backend/internal/modules/auth/application"
 	"github.com/duclamdev/application-chat/backend/internal/shared/middleware"
@@ -10,7 +17,9 @@ import (
 )
 
 type Handler struct {
-	service *authapp.Service
+	service        *authapp.Service
+	googleClientID string
+	httpClient     *nethttp.Client
 }
 
 type registerRequest struct {
@@ -35,13 +44,38 @@ type logoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func NewHandler(service *authapp.Service) *Handler {
-	return &Handler{service: service}
+type googleLoginRequest struct {
+	Credential string `json:"credential"`
+	DeviceName string `json:"device_name"`
+}
+
+type googleTokenInfo struct {
+	Audience      string `json:"aud"`
+	Email         string `json:"email"`
+	EmailVerified string `json:"email_verified"`
+	ExpiresAt     string `json:"exp"`
+	Issuer        string `json:"iss"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
+	Subject       string `json:"sub"`
+}
+
+func NewHandler(service *authapp.Service, googleClientIDs ...string) *Handler {
+	clientID := ""
+	if len(googleClientIDs) > 0 {
+		clientID = strings.TrimSpace(googleClientIDs[0])
+	}
+	return &Handler{
+		service:        service,
+		googleClientID: clientID,
+		httpClient:     &nethttp.Client{Timeout: 10 * time.Second},
+	}
 }
 
 func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerFunc) {
 	router.POST("/register", h.Register)
 	router.POST("/login", h.Login)
+	router.POST("/google", h.GoogleLogin)
 	router.POST("/refresh", h.Refresh)
 	router.POST("/logout", h.Logout)
 
@@ -51,6 +85,66 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.GET("/sessions", h.ListSessions)
 	private.DELETE("/sessions/:session_id", h.RevokeSession)
 	private.DELETE("/sessions", h.RevokeAllSessions)
+}
+
+func (h *Handler) GoogleLogin(c *gin.Context) {
+	if h.googleClientID == "" {
+		response.Fail(c, nethttp.StatusServiceUnavailable, "GOOGLE_AUTH_NOT_CONFIGURED", "Đăng nhập Google chưa được cấu hình.", nil)
+		return
+	}
+	var req googleLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Credential) == "" {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_GOOGLE_CREDENTIAL", "Thiếu thông tin xác thực Google.", nil)
+		return
+	}
+	profile, err := h.verifyGoogleCredential(c.Request.Context(), req.Credential)
+	if err != nil {
+		response.Fail(c, nethttp.StatusUnauthorized, "INVALID_GOOGLE_CREDENTIAL", "Phiên xác thực Google không hợp lệ hoặc đã hết hạn.", nil)
+		return
+	}
+	result, err := h.service.LoginWithGoogle(c.Request.Context(), authapp.GoogleLoginInput{
+		Subject:       profile.Subject,
+		Email:         profile.Email,
+		EmailVerified: profile.EmailVerified == "true",
+		DisplayName:   profile.Name,
+		AvatarURL:     profile.Picture,
+		DeviceName:    req.DeviceName,
+		IPAddress:     clientIP(c),
+		UserAgent:     c.Request.UserAgent(),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, result)
+}
+
+func (h *Handler) verifyGoogleCredential(ctx context.Context, credential string) (googleTokenInfo, error) {
+	var profile googleTokenInfo
+	endpoint := "https://oauth2.googleapis.com/tokeninfo?id_token=" + url.QueryEscape(strings.TrimSpace(credential))
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, endpoint, nil)
+	if err != nil {
+		return profile, err
+	}
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return profile, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != nethttp.StatusOK {
+		return profile, errors.New("google tokeninfo rejected credential")
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+		return profile, err
+	}
+	expiresAt, err := strconv.ParseInt(profile.ExpiresAt, 10, 64)
+	if err != nil || expiresAt <= time.Now().Unix() {
+		return profile, errors.New("google credential expired")
+	}
+	if profile.Audience != h.googleClientID || (profile.Issuer != "accounts.google.com" && profile.Issuer != "https://accounts.google.com") || profile.Subject == "" || profile.Email == "" || profile.EmailVerified != "true" {
+		return profile, errors.New("google credential claims are invalid")
+	}
+	return profile, nil
 }
 
 func (h *Handler) Register(c *gin.Context) {

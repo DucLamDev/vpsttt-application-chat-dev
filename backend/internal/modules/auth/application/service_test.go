@@ -47,3 +47,13 @@ func TestNormalizeClientInfoKeepsExplicitDeviceName(t *testing.T) {
 		t.Fatalf("userAgent = %q", userAgent)
 	}
 }
+
+func TestGoogleUsernameIsStableAndValid(t *testing.T) {
+	username := googleUsername("Ho.Duc.Lam@example.com", "google-subject-123")
+	if !usernamePattern.MatchString(username) {
+		t.Fatalf("googleUsername() = %q không hợp lệ", username)
+	}
+	if username != googleUsername("Ho.Duc.Lam@example.com", "google-subject-123") {
+		t.Fatal("googleUsername() phải ổn định với cùng Google subject")
+	}
+}

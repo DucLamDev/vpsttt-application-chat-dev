@@ -72,6 +72,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   });
 
+  const googleMutation = useMutation({
+    mutationFn: (credential: string) => api.auth.google({ credential, device_name: browserDeviceName() }),
+    onError: (error) => setFormError(error instanceof Error ? error.message : "Đăng nhập Google không thành công."),
+    onMutate: () => {
+      setFormError(null);
+      setRememberLogin(true);
+    },
+    onSuccess: (result) => {
+      setSession(result);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
+    }
+  });
+
   const logoutMutation = useMutation({
     mutationFn: () =>
       refreshToken ? api.auth.logout({ refresh_token: refreshToken }) : Promise.resolve({ status: "ok" }),
@@ -99,8 +112,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (
       <AuthScreen
         error={formError}
-        isPending={loginMutation.isPending || registerMutation.isPending}
+        googleClientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}
+        isPending={loginMutation.isPending || registerMutation.isPending || googleMutation.isPending}
         mode={mode}
+        onGoogleCredential={(credential) => googleMutation.mutate(credential)}
         onLogin={(values) =>
           {
             setRememberLogin(values.remember);

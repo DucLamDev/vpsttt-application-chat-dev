@@ -26,3 +26,14 @@
 ## Quy ước tài liệu
 
 Mọi tài liệu trong repository cần viết bằng tiếng Việt có dấu, ưu tiên diễn đạt rõ trách nhiệm, luồng dữ liệu và quy tắc phụ thuộc thay vì mô tả chung chung.
+
+## Cấu hình đăng nhập Google
+
+Tạo OAuth 2.0 Client ID loại **Web application** trong Google Cloud Console và thêm các JavaScript origin được phép, ví dụ `http://localhost:3000` và `https://chat.vpsttt.com`. Sau đó đặt cùng Client ID vào:
+
+```env
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+```
+
+Backend xác minh Google ID token trước khi tạo hoặc liên kết tài khoản. Khi build image web bằng GitHub Actions, khai báo repository variable `GOOGLE_CLIENT_ID` để giá trị public này được nhúng vào frontend.

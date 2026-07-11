@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@webtui/api-client";
 import { createPermissionSet, hasPermission, type PermissionCode } from "@webtui/types";
 import { api } from "@/lib/api";
+import { buildChatRoute, parseChatRoute } from "@/lib/chat-route";
 
 export type PermissionValue = PermissionCode | string;
 
@@ -13,7 +14,9 @@ export function useWorkspaceContext() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const requestedWorkspaceId = searchParams.get("workspace") ?? "";
+  const parsedRoute = parseChatRoute(pathname);
+  const legacyWorkspaceId = searchParams.get("workspace") ?? "";
+  const requestedWorkspaceRef = parsedRoute?.workspaceRef || legacyWorkspaceId;
 
   const workspacesQuery = useQuery({
     queryFn: () => api.workspaces.listMine(),
@@ -21,7 +24,10 @@ export function useWorkspaceContext() {
   });
 
   const workspaces = workspacesQuery.data ?? [];
-  const resolvedWorkspaceId = requestedWorkspaceId || workspaces[0]?.id || "";
+  const requestedWorkspace = workspaces.find(
+    (workspace) => workspace.id === requestedWorkspaceRef || workspace.slug.toLowerCase() === requestedWorkspaceRef.toLowerCase()
+  );
+  const resolvedWorkspaceId = requestedWorkspace?.id || (!parsedRoute ? legacyWorkspaceId : "") || workspaces[0]?.id || "";
 
   const workspaceQuery = useQuery({
     enabled: Boolean(resolvedWorkspaceId),
@@ -65,27 +71,17 @@ export function useWorkspaceContext() {
 
   const setWorkspaceId = useCallback(
     (nextWorkspaceId: string) => {
-      const nextParams = new URLSearchParams(searchParams.toString());
-
-      if (nextWorkspaceId) {
-        nextParams.set("workspace", nextWorkspaceId);
-        nextParams.delete("channel");
-      } else {
-        nextParams.delete("workspace");
-        nextParams.delete("channel");
-      }
-
-      const query = nextParams.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+      const workspace = workspaces.find((item) => item.id === nextWorkspaceId);
+      router.replace(nextWorkspaceId ? buildChatRoute(workspace?.slug || nextWorkspaceId) : "/", { scroll: false });
     },
-    [pathname, router, searchParams]
+    [router, workspaces]
   );
 
   useEffect(() => {
-    if (!requestedWorkspaceId && workspaceId) {
+    if (!parsedRoute && !searchParams.get("channel") && workspaceId) {
       setWorkspaceId(workspaceId);
     }
-  }, [requestedWorkspaceId, setWorkspaceId, workspaceId]);
+  }, [parsedRoute, searchParams, setWorkspaceId, workspaceId]);
 
   return {
     can,
