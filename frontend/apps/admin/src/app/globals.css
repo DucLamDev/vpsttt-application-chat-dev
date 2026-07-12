@@ -103,6 +103,10 @@
   padding: 14px;
 }
 
+.admin-shell--wide {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
 .admin-main,
 .settings-panel,
 .admin-panel {
@@ -112,6 +116,7 @@
 }
 
 .admin-main {
+  align-content: start;
   display: grid;
   gap: 14px;
   min-width: 0;
@@ -226,6 +231,7 @@
 }
 
 .admin-panel {
+  align-content: start;
   box-shadow: 0 10px 28px rgb(16 24 40 / 6%);
   display: grid;
   gap: 18px;
@@ -676,9 +682,74 @@
 .settings-panel {
   align-content: start;
   display: grid;
-  gap: 18px;
+  gap: 12px;
   overflow: auto;
-  padding: 20px;
+  padding: 16px;
+}
+
+.settings-panel > header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.system-summary-card {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 13px;
+}
+
+.system-summary-card > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.system-summary-card > div:last-child {
+  align-content: start;
+  justify-items: end;
+}
+
+.system-summary-card span,
+.system-summary-card small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.system-summary-card strong,
+.system-summary-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-status {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  min-height: 24px;
+  padding: 0 9px;
+}
+
+.system-status--ready { background: #dcfce7; color: #15803d; }
+.system-status--error { background: #fee2e2; color: #b91c1c; }
+
+.settings-panel .config-grid {
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-panel .config-grid div {
+  gap: 5px;
+  padding: 10px;
+}
+
+.settings-panel > .ui-button {
+  justify-self: stretch;
 }
 
 .config-block {

@@ -1068,7 +1068,7 @@ func formatTicketTriageMessage(body string, command autoBotCommand) string {
 		priority = "P2 - Ưu tiên cao"
 	}
 	customer := firstNonEmpty(command.Email, "chưa rõ")
-	return strings.TrimSpace(fmt.Sprintf(`TICKET · ĐÃ TIẾP NHẬN
+	return strings.TrimSpace(fmt.Sprintf(`TICKET · Đã tiếp nhận
 Khách hàng: %s
 Mức ưu tiên: %s
 Tóm tắt: %s

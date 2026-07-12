@@ -141,6 +141,7 @@ export function AdminDashboard() {
   const channelRanks = useMemo(() => mapChannelRanks(data.statsQuery.data), [data.statsQuery.data]);
   const healthChecks = useMemo(() => mapHealthChecks(data.healthQuery.data), [data.healthQuery.data]);
   const activeTitle = navItems.find((item) => item.id === activeNavItem)?.label ?? "Tổng quan";
+  const showSystemPanel = activeNavItem === "overview";
 
   const filteredUsers = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -183,7 +184,7 @@ export function AdminDashboard() {
   const showToast = (message: string, tone: ToastTone = "success") => setToastState({ message, tone });
 
   return (
-    <main className="admin-shell" aria-label="Bảng quản trị WebTui">
+    <main className={`admin-shell${showSystemPanel ? "" : " admin-shell--wide"}`} aria-label="Bảng quản trị WebTui">
       <NavigationRail
         activeId={activeNavItem}
         ariaLabel="Điều hướng quản trị"
@@ -279,7 +280,13 @@ export function AdminDashboard() {
         )}
       </section>
 
-      <SettingsPanel data={data} healthChecks={healthChecks} />
+      {showSystemPanel ? (
+        <SettingsPanel
+          data={data}
+          healthChecks={healthChecks}
+          onOpenSettings={() => setActiveNavItem("settings")}
+        />
+      ) : null}
 
       {toast ? (
         <div className="toast-stack">
@@ -454,7 +461,11 @@ function AdminMessagesSection({ data, searchQuery }: { data: DashboardData; sear
     <section className="admin-panel">
       <header><div><h2>Tin nhắn gần đây</h2><p>Dữ liệu trực tiếp từ API admin, tối đa 100 bản ghi mới nhất.</p></div><Badge tone="blue">{messages.length}</Badge></header>
       {data.adminMessagesQuery.isLoading ? <TableSkeleton /> : data.adminMessagesQuery.isError ? (
-        <ErrorState description="API admin/messages không trả được dữ liệu." title="Không tải được tin nhắn" />
+        <ErrorState
+          action={<Button onClick={() => void data.adminMessagesQuery.refetch()} size="sm" variant="secondary">Tải lại</Button>}
+          description={errorMessage(data.adminMessagesQuery.error)}
+          title="Không tải được tin nhắn"
+        />
       ) : messages.length ? (
         <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Thời gian</th><th>Kênh</th><th>Người gửi</th><th>Loại</th><th>Nội dung</th></tr></thead><tbody>
           {messages.map((message) => <tr key={message.id}><td>{formatDateTime(message.created_at)}</td><td>{message.channel_name}</td><td>{message.sender_name}</td><td><Badge tone={statusTone(message.kind)}>{message.kind}</Badge></td><td>{message.body}</td></tr>)}
@@ -474,7 +485,11 @@ function AdminChannelsSection({ data, searchQuery }: { data: DashboardData; sear
     <section className="admin-panel">
       <header><div><h2>Toàn bộ kênh</h2><p>Bao gồm kênh nhóm, kênh riêng và các phiên bot riêng tư.</p></div><Badge tone="blue">{channels.length}</Badge></header>
       {data.adminChannelsQuery.isLoading ? <TableSkeleton /> : data.adminChannelsQuery.isError ? (
-        <ErrorState description="API admin/channels không trả được dữ liệu." title="Không tải được kênh" />
+        <ErrorState
+          action={<Button onClick={() => void data.adminChannelsQuery.refetch()} size="sm" variant="secondary">Tải lại</Button>}
+          description={errorMessage(data.adminChannelsQuery.error)}
+          title="Không tải được kênh"
+        />
       ) : channels.length ? (
         <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Kênh</th><th>Loại</th><th>Trạng thái</th><th>Thành viên</th><th>Tin nhắn</th><th>Cập nhật</th></tr></thead><tbody>
           {channels.map((channel) => <tr key={channel.id}><td><strong>{channel.name}</strong><small>{channel.slug ? `#${channel.slug}` : shortId(channel.id)}</small></td><td>{channel.private_session_mode ? "Cổng phiên riêng" : channel.type}</td><td><Badge tone={statusTone(channel.status)}>{channel.status}</Badge></td><td>{formatNumber(channel.member_count)}</td><td>{formatNumber(channel.message_count)}</td><td>{formatDateTime(channel.updated_at)}</td></tr>)}
@@ -2061,43 +2076,45 @@ function AuditPanel({ compact = false, data }: { compact?: boolean; data: Dashbo
 
 function SettingsPanel({
   data,
-  healthChecks
+  healthChecks,
+  onOpenSettings
 }: {
   data: DashboardData;
   healthChecks: Array<{ name: string; value: string }>;
+  onOpenSettings: () => void;
 }) {
   return (
     <aside className="settings-panel" aria-label="Cấu hình nhanh">
       <header>
         <div>
-          <h2>Cấu hình hệ thống</h2>
-          <p>Health check và thiết lập workspace từ API.</p>
+          <h2>Trạng thái hệ thống</h2>
+          <p>Tóm tắt workspace và dịch vụ.</p>
         </div>
         <Settings size={20} />
       </header>
 
-      <section className="config-block">
-        <span>Workspace</span>
-        <strong>{data.selectedWorkspace?.name ?? "Chưa có workspace"}</strong>
-        <small>{data.selectedWorkspace?.slug ?? "Không có slug"}</small>
-      </section>
-
-      <section className="config-block">
-        <span>Trạng thái backend</span>
-        {data.healthQuery.isLoading ? (
-          <Skeleton />
-        ) : data.healthQuery.isError ? (
-          <small>Không tải được health admin. Kiểm tra quyền `admin.view`.</small>
-        ) : (
-          <>
-            <strong>{data.healthQuery.data?.status ?? "Không rõ"}</strong>
-            <small>Cập nhật theo endpoint `/admin/health`.</small>
-          </>
-        )}
+      <section className="system-summary-card">
+        <div>
+          <span>Workspace</span>
+          <strong>{data.selectedWorkspace?.name ?? "Chưa có workspace"}</strong>
+          <small>{data.selectedWorkspace?.slug ?? "Không có slug"}</small>
+        </div>
+        <div>
+          <span>Backend</span>
+          {data.healthQuery.isLoading ? (
+            <Skeleton />
+          ) : data.healthQuery.isError ? (
+            <strong className="system-status system-status--error">Lỗi</strong>
+          ) : (
+            <strong className="system-status system-status--ready">
+              {data.healthQuery.data?.status ?? "Không rõ"}
+            </strong>
+          )}
+        </div>
       </section>
 
       <HealthGrid healthChecks={healthChecks} />
-      <WorkspaceSettingsList settings={data.settings} isLoading={data.settingsQuery.isLoading} />
+      <Button onClick={onOpenSettings} size="sm" variant="secondary">Mở cấu hình đầy đủ</Button>
     </aside>
   );
 }

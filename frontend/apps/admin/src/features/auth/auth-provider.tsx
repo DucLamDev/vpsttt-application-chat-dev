@@ -165,7 +165,6 @@ function AdminLoginScreen({
           <div>
             <span className="admin-login-card__eyebrow">XÁC THỰC QUẢN TRỊ</span>
             <h2>Đăng nhập Admin Panel</h2>
-            <p>Chỉ tài khoản đã được cấp quyền <code>admin.view</code> mới có thể tiếp tục.</p>
           </div>
           {error ? <div className="admin-login-error" role="alert">{error}</div> : null}
           <label>

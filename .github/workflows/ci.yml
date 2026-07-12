@@ -28,7 +28,10 @@ jobs:
 
       - name: Kiểm tra lỗi encoding phổ biến trong mã nguồn và tài liệu
         run: |
-          pattern="$(printf '\303\203|\303\202|\303\204|\303\206|\303\241\302\272|\303\241\302\273|\303\242\342\202\254|\303\242\342\202\254\342\204\242|\303\242\342\202\254\305\223|\303\242\342\202\254\357\277\275|\303\242\342\202\254\342\200\234|\303\242\342\202\254\342\200\235')"
+          # Không bắt riêng ký tự Ã/Â vì đây cũng là chữ tiếng Việt hợp lệ
+          # khi viết hoa (ví dụ: "ĐÃ", "ÂM"). Chỉ bắt các cụm mojibake đặc
+          # trưng để tránh false positive nhưng vẫn phát hiện file bị decode sai.
+          pattern="$(printf '\303\204|\303\206|\303\241\302\272|\303\241\302\273|\303\242\342\202\254|\303\242\342\202\254\342\204\242|\303\242\342\202\254\305\223|\303\242\342\202\254\357\277\275|\303\242\342\202\254\342\200\234|\303\242\342\202\254\342\200\235')"
           if grep -RInE "$pattern" --include='*.go' --include='*.md' --include='*.yaml' --include='*.yml' .; then
             echo "Phát hiện chuỗi có dấu hiệu lỗi encoding."
             exit 1

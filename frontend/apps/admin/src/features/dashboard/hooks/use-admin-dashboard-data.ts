@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "@webtui/api-client";
+import { ApiClientError, queryKeys } from "@webtui/api-client";
 import { createPermissionSet, hasPermission } from "@webtui/types";
 import type {
   AddWorkspaceMemberInput,
+  AdminChannelOverview,
+  AdminMessageOverview,
   AuthUser,
   CreateBackupJobInput,
   CreateApiTokenInput,
@@ -108,14 +110,14 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
 
   const adminChannelsQuery = useQuery({
     enabled: adminQueryEnabled,
-    queryFn: () => api.admin.channels(workspaceId),
+    queryFn: () => loadAdminChannels(workspaceId),
     queryKey: ["admin", workspaceId, "channels"],
     retry: false
   });
 
   const adminMessagesQuery = useQuery({
     enabled: adminQueryEnabled,
-    queryFn: () => api.admin.messages(workspaceId, { limit: 100 }),
+    queryFn: () => loadAdminMessages(workspaceId),
     queryKey: ["admin", workspaceId, "messages"],
     retry: false
   });
@@ -173,6 +175,67 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     queryKey: queryKeys.channels.all(workspaceId),
     retry: false
   });
+
+  async function loadAdminChannels(currentWorkspaceId: string): Promise<AdminChannelOverview[]> {
+    try {
+      return await api.admin.channels(currentWorkspaceId);
+    } catch (error) {
+      if (!isMissingAdminOverviewEndpoint(error)) {
+        throw error;
+      }
+      const channels = await api.channels.list(currentWorkspaceId);
+      return channels.map((channel) => ({
+        id: channel.id,
+        member_count: channel.member_count ?? 0,
+        message_count: 0,
+        name: channel.name,
+        private_session_mode: channel.private_session_mode ?? false,
+        slug: channel.slug,
+        status: "active",
+        type: channel.type ?? channel.kind ?? "public",
+        updated_at: channel.updated_at ?? channel.created_at ?? ""
+      }));
+    }
+  }
+
+  async function loadAdminMessages(currentWorkspaceId: string): Promise<AdminMessageOverview[]> {
+    try {
+      return await api.admin.messages(currentWorkspaceId, { limit: 100 });
+    } catch (error) {
+      if (!isMissingAdminOverviewEndpoint(error)) {
+        throw error;
+      }
+
+      const channels = await api.channels.list(currentWorkspaceId);
+      const results = await Promise.allSettled(
+        channels.map(async (channel) => ({
+          channel,
+          messages: await api.messages.list(currentWorkspaceId, channel.id, { limit: 25 })
+        }))
+      );
+
+      return results
+        .flatMap((result) => result.status === "fulfilled"
+          ? result.value.messages.map<AdminMessageOverview>((message) => ({
+              body: message.body,
+              channel_id: result.value.channel.id,
+              channel_name: result.value.channel.name,
+              created_at: message.created_at ?? message.sent_at ?? message.updated_at ?? "",
+              id: message.id,
+              kind: message.kind ?? "text",
+              sender_name: message.author?.display_name
+                || message.author?.username
+                || message.author?.email
+                || message.user?.display_name
+                || message.user?.username
+                || message.user?.email
+                || "Hệ thống"
+            }))
+          : [])
+        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+        .slice(0, 100);
+    }
+  }
 
   const apiScopesQuery = useQuery({
     enabled: canManageApiTokens,
@@ -592,4 +655,8 @@ function requireWorkspaceId(workspaceId: string): string {
   }
 
   return workspaceId;
+}
+
+function isMissingAdminOverviewEndpoint(error: unknown) {
+  return error instanceof ApiClientError && error.status === 404;
 }
