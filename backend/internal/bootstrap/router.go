@@ -209,6 +209,7 @@ func (a *API) registerAPIV1() {
 	orderAPIClient := orderclient.New(orderclient.Config{
 		BaseURL:        a.cfg.Order.BaseURL,
 		InternalAPIKey: a.cfg.Order.InternalAPIKey,
+		QuickOrderKey:  a.cfg.Order.QuickOrderKey,
 		Timeout:        a.cfg.Order.Timeout,
 	})
 	orderService := orderapp.NewService(orderAPIClient, orderRepo, rbacService)

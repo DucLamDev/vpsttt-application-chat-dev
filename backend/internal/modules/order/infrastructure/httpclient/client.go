@@ -19,12 +19,14 @@ const maxErrorBodyBytes = 4096
 type Config struct {
 	BaseURL        string
 	InternalAPIKey string
+	QuickOrderKey  string
 	Timeout        time.Duration
 }
 
 type Client struct {
 	baseURL        *url.URL
 	internalAPIKey string
+	quickOrderKey  string
 	httpClient     *http.Client
 }
 
@@ -37,8 +39,13 @@ func New(config Config) *Client {
 	return &Client{
 		baseURL:        parsed,
 		internalAPIKey: strings.TrimSpace(config.InternalAPIKey),
+		quickOrderKey:  strings.TrimSpace(config.QuickOrderKey),
 		httpClient:     &http.Client{Timeout: timeout},
 	}
+}
+
+func (c *Client) QuickOrderConfigured() bool {
+	return c != nil && c.baseURL != nil && c.baseURL.Scheme != "" && c.baseURL.Host != "" && c.quickOrderKey != ""
 }
 
 func (c *Client) Configured() bool {
@@ -63,8 +70,21 @@ func (c *Client) ServicesExpiring(ctx context.Context, input orderapp.ServicesEx
 	return output, err
 }
 
+func (c *Client) CreateOrderPaymentQR(ctx context.Context, input orderapp.OrderPaymentQRRequest) (orderapp.OrderPaymentQREnvelope, error) {
+	var output orderapp.OrderPaymentQREnvelope
+	err := c.postWithKey(ctx, "/quick-order/payment/qr", "X-Quick-Order-Key", c.quickOrderKey, input, &output)
+	return output, err
+}
+
 func (c *Client) post(ctx context.Context, path string, input any, output any) error {
 	if !c.Configured() {
+		return fmt.Errorf("order API client is not configured")
+	}
+	return c.postWithKey(ctx, path, "X-API-Key", c.internalAPIKey, input, output)
+}
+
+func (c *Client) postWithKey(ctx context.Context, path string, header string, key string, input any, output any) error {
+	if c == nil || c.baseURL == nil || c.baseURL.Scheme == "" || c.baseURL.Host == "" || strings.TrimSpace(key) == "" {
 		return fmt.Errorf("order API client is not configured")
 	}
 	body, err := json.Marshal(input)
@@ -78,7 +98,7 @@ func (c *Client) post(ctx context.Context, path string, input any, output any) e
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", c.internalAPIKey)
+	req.Header.Set(header, key)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

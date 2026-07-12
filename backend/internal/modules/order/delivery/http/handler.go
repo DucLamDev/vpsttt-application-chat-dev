@@ -28,6 +28,14 @@ type walletDepositQRRequest struct {
 	PostToChannel  *bool  `json:"post_to_channel"`
 }
 
+type orderPaymentQRRequest struct {
+	IntentID      int    `json:"intent_id"`
+	IntentCode    string `json:"intent_code"`
+	Reference     string `json:"reference"`
+	ChannelID     string `json:"channel_id"`
+	PostToChannel *bool  `json:"post_to_channel"`
+}
+
 type servicesExpiringRequest struct {
 	Email          string `json:"email"`
 	UserID         int    `json:"user_id"`
@@ -48,7 +56,30 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.GET("/status", h.Status)
 	private.POST("/wallet/balance", h.WalletBalance)
 	private.POST("/wallet/deposit-qr", h.CreateDepositQR)
+	private.POST("/payment/order-qr", h.CreateOrderPaymentQR)
 	private.POST("/services/expiring", h.ServicesExpiring)
+}
+
+func (h *Handler) CreateOrderPaymentQR(c *gin.Context) {
+	var req orderPaymentQRRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON không hợp lệ.", nil)
+		return
+	}
+	result, err := h.service.CreateOrderPaymentQR(c.Request.Context(), orderapp.OrderPaymentQRInput{
+		ActorUserID:   middleware.CurrentUserID(c),
+		WorkspaceID:   c.Param("workspace_id"),
+		IntentID:      req.IntentID,
+		IntentCode:    req.IntentCode,
+		Reference:     req.Reference,
+		ChannelID:     req.ChannelID,
+		PostToChannel: req.PostToChannel,
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, result)
 }
 
 func (h *Handler) Status(c *gin.Context) {

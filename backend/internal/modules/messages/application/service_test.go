@@ -10,6 +10,14 @@ import (
 	apperrors "github.com/duclamdev/application-chat/backend/internal/shared/errors"
 )
 
+func TestFormatTimePreservesSubsecondPrecision(t *testing.T) {
+	value := time.Date(2026, time.July, 12, 12, 9, 52, 493177000, time.UTC)
+
+	if got, want := formatTime(value), "2026-07-12T12:09:52.493177Z"; got != want {
+		t.Fatalf("formatTime() = %q, want %q", got, want)
+	}
+}
+
 type testPermissionChecker struct {
 	allowed bool
 }

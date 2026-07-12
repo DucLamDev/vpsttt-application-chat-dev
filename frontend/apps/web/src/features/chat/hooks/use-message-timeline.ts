@@ -370,6 +370,7 @@ export function mapMessage(
   const senderId = botAuthor?.id ?? message.sender_id ?? message.author_id ?? author.id;
   const isOwner = !botAuthor && (senderId === fallbackAuthor.id || author.id === fallbackAuthor.id);
   const attachments = mapMessageAttachments(message.attachments);
+  const qrImageUrl = botAuthor ? messageQRImageURL(message) : undefined;
 
   return {
     attachmentName: attachments[0]?.name,
@@ -389,6 +390,8 @@ export function mapMessage(
     rawChannelId: message.channel_id,
     rawCreatedAt: message.created_at ?? message.sent_at,
     rawSenderId: senderId,
+    qrImageUrl,
+    qrReference: botAuthor && typeof message.metadata?.reference === "string" ? message.metadata.reference.trim() : undefined,
     reactions: message.reactions?.map((reaction) => ({
       count: reaction.count ?? reaction.user_ids?.length ?? 0,
       emoji: reaction.emoji,
@@ -396,6 +399,22 @@ export function mapMessage(
     })),
     sentAt: formatTime(message.created_at ?? message.sent_at)
   };
+}
+
+function messageQRImageURL(message: ApiMessage): string | undefined {
+  const metadataURL = typeof message.metadata?.qr_url === "string" ? message.metadata.qr_url.trim() : "";
+  const bodyURL = message.body.match(/(?:QR|Mã QR|Ma QR)\s*:\s*(https?:\/\/[^\s]+)/i)?.[1] ?? "";
+  const candidate = metadataURL || bodyURL;
+  if (!candidate) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function mapBotMessageAuthor(message: ApiMessage): ChatUser | null {

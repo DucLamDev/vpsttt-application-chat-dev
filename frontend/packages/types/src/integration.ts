@@ -90,6 +90,7 @@ export type SendBotMessageInput = {
 
 export type OrderBotStatus = {
   configured: boolean;
+  quick_order_configured?: boolean;
   base_url?: string;
 };
 
@@ -150,6 +151,33 @@ export type OrderWalletDepositQRInput = {
 
 export type OrderWalletDepositQRResult = {
   data: OrderWalletDepositQRData;
+  bot_message?: BotMessage;
+};
+
+export type OrderPaymentQRData = {
+  payment_id?: number;
+  intent_id?: number;
+  external_order_id?: string;
+  reference?: string;
+  customer_email?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  qr_url?: string;
+  bank?: Record<string, unknown>;
+  expires_at?: string;
+};
+
+export type OrderPaymentQRInput = {
+  intent_id?: number;
+  intent_code?: string;
+  reference?: string;
+  channel_id?: Id;
+  post_to_channel?: boolean;
+};
+
+export type OrderPaymentQRResult = {
+  data: OrderPaymentQRData;
   bot_message?: BotMessage;
 };
 

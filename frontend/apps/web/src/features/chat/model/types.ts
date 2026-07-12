@@ -40,6 +40,8 @@ export type ChatMessage = {
   rawChannelId?: string;
   rawCreatedAt?: string;
   rawSenderId?: string | null;
+  qrImageUrl?: string;
+  qrReference?: string;
 };
 
 export type MessageAttachmentItem = {

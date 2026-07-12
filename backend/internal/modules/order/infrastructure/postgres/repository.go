@@ -171,6 +171,6 @@ func scanBotMessage(row rowScanner) (orderapp.BotMessageDTO, error) {
 		return orderapp.BotMessageDTO{}, err
 	}
 	message.Metadata = json.RawMessage(metadata)
-	message.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+	message.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
 	return message, nil
 }

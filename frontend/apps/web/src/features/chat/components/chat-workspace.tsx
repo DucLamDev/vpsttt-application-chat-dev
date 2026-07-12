@@ -96,6 +96,7 @@ import type {
   DepartmentMember,
   OrderServicesExpiringData,
   OrderServicesExpiringInput,
+  OrderPaymentQRData,
   OrderWalletBalanceData,
   OrderWalletDepositQRData,
   WorkspaceMember
@@ -3095,6 +3096,7 @@ function sessionDeviceLabel(session: AuthSession) {
 type OrderBotResult =
   | { data: OrderWalletBalanceData; kind: "wallet" }
   | { data: OrderWalletDepositQRData; kind: "deposit" }
+  | { data: OrderPaymentQRData; kind: "order-payment" }
   | { data: OrderServicesExpiringData; kind: "expiring" };
 
 const orderServiceTypeOptions: Array<{ label: string; value: NonNullable<OrderServicesExpiringInput["service_type"]> }> = [
@@ -3130,6 +3132,7 @@ function BotsPage({
   const [orderEmail, setOrderEmail] = useState("");
   const [orderUserId, setOrderUserId] = useState("");
   const [orderDepositAmount, setOrderDepositAmount] = useState("200000");
+  const [orderIntentCode, setOrderIntentCode] = useState("");
   const [orderExpiringDays, setOrderExpiringDays] = useState("7");
   const [orderServiceType, setOrderServiceType] = useState<OrderServicesExpiringInput["service_type"]>("all");
   const [orderResult, setOrderResult] = useState<OrderBotResult | null>(null);
@@ -3234,6 +3237,20 @@ function BotsPage({
       setFeedback({ message: "Thanh Toán Bot đã tạo QR và gửi vào kênh kế toán.", tone: "success" });
     }
   });
+  const orderPaymentMutation = useMutation({
+    mutationFn: () => api.orderBot.orderPaymentQr(workspaceId as string, {
+      intent_code: orderIntentCode.trim()
+    }),
+    onMutate: () => setFeedback(null),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không tạo được QR thanh toán đơn hàng."), tone: "error" }),
+    onSuccess: async (result) => {
+      setOrderResult({ data: result.data, kind: "order-payment" });
+      if (result.bot_message?.channel_id) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.messages.channel(workspaceId ?? "", result.bot_message.channel_id) });
+      }
+      setFeedback({ message: "Thanh Toán Bot đã tạo QR cho đơn hàng.", tone: "success" });
+    }
+  });
   const orderExpiringMutation = useMutation({
     mutationFn: () => api.orderBot.expiringServices(workspaceId as string, {
       ...buildOrderLookup(orderEmail, orderUserId),
@@ -3266,7 +3283,7 @@ function BotsPage({
   const activeBots = bots.filter((bot) => bot.status === "active").length;
   const installations = installationsQuery.data ?? [];
   const orderConfigured = orderStatusQuery.data?.configured ?? false;
-  const orderBusy = orderWalletMutation.isPending || orderDepositMutation.isPending || orderExpiringMutation.isPending;
+  const orderBusy = orderWalletMutation.isPending || orderDepositMutation.isPending || orderPaymentMutation.isPending || orderExpiringMutation.isPending;
 
   return (
     <div className="workspace-page bot-page">
@@ -3384,6 +3401,16 @@ function BotsPage({
               </Button>
               {!canBillOrder ? <small>Bạn cần quyền order.billing để tạo QR.</small> : null}
             </div>
+
+            <div className="order-bot-card">
+              <strong>QR đơn hàng</strong>
+              <label>Intent code<input onChange={(event) => setOrderIntentCode(event.target.value)} placeholder="QOIABCD1234EFGH5678" value={orderIntentCode} /></label>
+              <small>Tạo lại QR theo đúng số tiền của Quick Order; không nhận số tiền nhập tay.</small>
+              <Button disabled={!canBillOrder || !orderStatusQuery.data?.quick_order_configured || orderBusy || orderIntentCode.trim().length < 6} onClick={() => orderPaymentMutation.mutate()} size="sm" type="button" variant="secondary">
+                <FileText size={15} /> Tạo QR đơn hàng
+              </Button>
+              {!orderStatusQuery.data?.quick_order_configured ? <small>Cần cấu hình ORDER_QUICK_ORDER_KEY.</small> : null}
+            </div>
           </div>
           {orderResult ? <OrderBotResultView result={orderResult} /> : null}
         </section>
@@ -3480,7 +3507,20 @@ function OrderBotResultView({ result }: { result: OrderBotResult }) {
         <b>{formatOrderMoney(result.data.amount ?? 0)}</b>
         <small>{result.data.reference ? `Mã: ${result.data.reference}` : "Đã tạo yêu cầu nạp ví."}</small>
         <small>{bank.transfer_content || result.data.transfer_content ? `Nội dung CK: ${bank.transfer_content || result.data.transfer_content}` : null}</small>
-        {result.data.qr_url ? <a href={result.data.qr_url} rel="noreferrer" target="_blank">Mở QR thanh toán</a> : null}
+        {result.data.qr_url ? <img alt="Mã QR nạp ví" className="order-bot-result__qr" src={result.data.qr_url} /> : null}
+        {result.data.qr_url ? <a href={result.data.qr_url} rel="noreferrer" target="_blank">Mở QR kích thước đầy đủ</a> : null}
+      </div>
+    );
+  }
+  if (result.kind === "order-payment") {
+    return (
+      <div className="order-bot-result">
+        <strong>QR thanh toán đơn hàng</strong>
+        <span>{result.data.external_order_id || `Intent #${result.data.intent_id ?? "—"}`}</span>
+        <b>{formatOrderMoney(result.data.amount ?? 0)}</b>
+        <small>{result.data.reference ? `Mã: ${result.data.reference}` : "QR theo số tiền được chốt từ Order."}</small>
+        {result.data.qr_url ? <img alt="Mã QR thanh toán đơn hàng" className="order-bot-result__qr" src={result.data.qr_url} /> : null}
+        {result.data.qr_url ? <a href={result.data.qr_url} rel="noreferrer" target="_blank">Mở QR kích thước đầy đủ</a> : null}
       </div>
     );
   }
@@ -4262,6 +4302,21 @@ function MessageTimeline({
               </form>
             ) : shouldRenderMessageBody(message) ? (
               <MessageBody body={message.body} />
+            ) : null}
+            {message.qrImageUrl ? (
+              <a
+                aria-label="Mở mã QR thanh toán"
+                className="message-payment-qr"
+                href={message.qrImageUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <img alt={`Mã QR thanh toán${message.qrReference ? ` ${message.qrReference}` : ""}`} src={message.qrImageUrl} />
+                <span>
+                  <strong>Quét mã QR để thanh toán</strong>
+                  <small>{message.qrReference ? `Mã tham chiếu: ${message.qrReference}` : "Nhấn để mở ảnh QR kích thước đầy đủ"}</small>
+                </span>
+              </a>
             ) : null}
             {message.attachments?.length ? (
               <div className="attachment-list">

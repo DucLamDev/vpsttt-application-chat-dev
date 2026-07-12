@@ -131,10 +131,10 @@ type SearchParams struct {
 }
 
 type ForwardInput struct {
-	ActorUserID    string
-	WorkspaceID    string
-	ChannelID      string
-	MessageID      string
+	ActorUserID     string
+	WorkspaceID     string
+	ChannelID       string
+	MessageID       string
 	TargetChannelID string
 }
 
@@ -872,5 +872,5 @@ func formatOptionalTime(value *time.Time) *string {
 }
 
 func formatTime(value time.Time) string {
-	return value.UTC().Format(time.RFC3339)
+	return value.UTC().Format(time.RFC3339Nano)
 }

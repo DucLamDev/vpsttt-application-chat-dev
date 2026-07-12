@@ -126,8 +126,29 @@ export function uniqueMessages(messages: ApiMessage[]): ApiMessage[] {
 
 export function sortMessagesAscending(messages: ApiMessage[]): ApiMessage[] {
   return [...messages].sort((left, right) => {
+    if (triggerMessageId(left) === right.id) {
+      return 1;
+    }
+    if (triggerMessageId(right) === left.id) {
+      return -1;
+    }
+
     const leftTime = Date.parse(left.created_at || left.sent_at || "");
     const rightTime = Date.parse(right.created_at || right.sent_at || "");
-    return leftTime - rightTime;
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) {
+      return leftTime - rightTime;
+    }
+    if (Number.isFinite(leftTime)) {
+      return -1;
+    }
+    if (Number.isFinite(rightTime)) {
+      return 1;
+    }
+    return 0;
   });
+}
+
+function triggerMessageId(message: ApiMessage): string {
+  const value = message.metadata?.trigger_message_id;
+  return typeof value === "string" ? value.trim() : "";
 }

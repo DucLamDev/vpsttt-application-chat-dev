@@ -61,6 +61,28 @@ describe("message cache helpers", () => {
     expect(result.map((item) => item.id)).toEqual(["msg-1", "msg-2", "msg-3"]);
   });
 
+  it("keeps a bot response after its trigger when timestamps are equal", () => {
+    const trigger = message("msg-user", "2026-07-12T12:09:52Z");
+    const botResponse = {
+      ...message("msg-bot", "2026-07-12T12:09:52Z"),
+      kind: "bot",
+      metadata: { trigger_message_id: trigger.id }
+    };
+
+    const result = sortMessagesAscending([botResponse, trigger]);
+
+    expect(result.map((item) => item.id)).toEqual(["msg-user", "msg-bot"]);
+  });
+
+  it("puts messages with valid timestamps before malformed timestamps", () => {
+    const result = sortMessagesAscending([
+      message("msg-invalid", "not-a-date"),
+      message("msg-valid", "2026-07-12T12:09:52.493177Z")
+    ]);
+
+    expect(result.map((item) => item.id)).toEqual(["msg-valid", "msg-invalid"]);
+  });
+
   it("inserts new messages into the first page", () => {
     const current = timeline([message("msg-1", "2026-07-09T01:00:00Z")]);
     const next = upsertMessageInPages(current, message("msg-2", "2026-07-09T02:00:00Z"));

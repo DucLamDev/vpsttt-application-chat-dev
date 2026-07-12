@@ -20,6 +20,8 @@ import type {
   InstallBotInput,
   Notification,
   OrderBotStatus,
+  OrderPaymentQRInput,
+  OrderPaymentQRResult,
   OrderServicesExpiringInput,
   OrderServicesExpiringResult,
   OrderWalletBalanceInput,
@@ -197,6 +199,12 @@ export function createOrderBotClient(http: HttpClient) {
     depositQr(workspaceId: string, input: OrderWalletDepositQRInput) {
       return http.post<OrderWalletDepositQRResult>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/order-bot/wallet/deposit-qr`,
+        input
+      );
+    },
+    orderPaymentQr(workspaceId: string, input: OrderPaymentQRInput) {
+      return http.post<OrderPaymentQRResult>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/order-bot/payment/order-qr`,
         input
       );
     },

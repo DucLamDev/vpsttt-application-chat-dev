@@ -1974,6 +1974,54 @@
   white-space: nowrap;
 }
 
+.message-payment-qr {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d7e4f8;
+  border-radius: 14px;
+  color: var(--text);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 176px minmax(0, 1fr);
+  margin-top: 10px;
+  max-width: 430px;
+  padding: 12px;
+  text-decoration: none;
+}
+
+.message-payment-qr:hover {
+  border-color: #86b7ff;
+  box-shadow: 0 10px 28px rgb(15 98 254 / 12%);
+}
+
+.message-payment-qr img {
+  aspect-ratio: 1;
+  background: #fff;
+  border-radius: 10px;
+  display: block;
+  object-fit: contain;
+  width: 176px;
+}
+
+.message-payment-qr span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.message-payment-qr small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .message-payment-qr {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+}
+
 .notification-dropdown {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -5440,7 +5488,7 @@
 .order-bot-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
 }
 
 .order-bot-card {
@@ -5507,6 +5555,17 @@
 .order-bot-result a {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.order-bot-result__qr {
+  aspect-ratio: 1;
+  background: #fff;
+  border: 1px solid #dbe8fb;
+  border-radius: 10px;
+  margin-top: 8px;
+  object-fit: contain;
+  padding: 8px;
+  width: min(260px, 100%);
 }
 
 .order-bot-result b {

@@ -60,6 +60,10 @@ var (
 	plainDaysPattern   = regexp.MustCompile(`(?i)\b([0-9]{1,3})\s*(ngày|ngay|days?)\b`)
 	amountHintPattern  = regexp.MustCompile(`(?i)(nạp|nap|qr|thanh toán|thanh toan|số tiền|so tien|amount|ck|chuyển khoản|chuyen khoan)`)
 	serviceTypePattern = regexp.MustCompile(`(?i)(loại dịch vụ|loai dich vu|service[_\s-]*type|dịch vụ|dich vu)\s*[:=]\s*([^\n\r]+)`)
+	intentIDPattern    = regexp.MustCompile(`(?i)intent[_\s-]*id\s*[:=#]?\s*([0-9]+)`)
+	intentCodePattern  = regexp.MustCompile(`(?i)(?:intent[_\s-]*code|mã đơn|ma don|đơn hàng|don hang)\s*[:=#]?\s*([A-Z0-9][A-Z0-9_-]{5,})`)
+	quickIntentPattern = regexp.MustCompile(`(?i)\bQOI[A-Z0-9_-]{6,}\b`)
+	orderRefPattern    = regexp.MustCompile(`(?i)(?:reference|mã tham chiếu|ma tham chieu)\s*[:=#]?\s*([A-Z0-9][A-Z0-9_-]{5,})`)
 )
 
 type PermissionChecker interface {
@@ -68,9 +72,11 @@ type PermissionChecker interface {
 
 type Client interface {
 	Configured() bool
+	QuickOrderConfigured() bool
 	WalletBalance(ctx context.Context, input UserLookupRequest) (WalletBalanceEnvelope, error)
 	CreateDepositQR(ctx context.Context, input WalletDepositQRRequest) (WalletDepositQREnvelope, error)
 	ServicesExpiring(ctx context.Context, input ServicesExpiringRequest) (ServicesExpiringEnvelope, error)
+	CreateOrderPaymentQR(ctx context.Context, input OrderPaymentQRRequest) (OrderPaymentQREnvelope, error)
 }
 
 type Repository interface {
@@ -91,40 +97,60 @@ type UserLookupRequest struct {
 }
 
 type WalletBalanceInput struct {
-	ActorUserID   string
-	WorkspaceID   string
-	Email         string `json:"email,omitempty"`
-	UserID        int    `json:"user_id,omitempty"`
-	ChannelID     string `json:"channel_id,omitempty"`
-	PostToChannel *bool  `json:"post_to_channel,omitempty"`
+	ActorUserID      string
+	WorkspaceID      string
+	TriggerMessageID string `json:"-"`
+	Email            string `json:"email,omitempty"`
+	UserID           int    `json:"user_id,omitempty"`
+	ChannelID        string `json:"channel_id,omitempty"`
+	PostToChannel    *bool  `json:"post_to_channel,omitempty"`
 }
 
 type WalletDepositQRInput struct {
-	ActorUserID    string
-	WorkspaceID    string
-	Email          string `json:"email,omitempty"`
-	Amount         int    `json:"amount,omitempty"`
-	ExpiresMinutes int    `json:"expires_minutes,omitempty"`
-	ChannelID      string `json:"channel_id,omitempty"`
-	PostToChannel  *bool  `json:"post_to_channel,omitempty"`
+	ActorUserID      string
+	WorkspaceID      string
+	TriggerMessageID string `json:"-"`
+	Email            string `json:"email,omitempty"`
+	Amount           int    `json:"amount,omitempty"`
+	ExpiresMinutes   int    `json:"expires_minutes,omitempty"`
+	ChannelID        string `json:"channel_id,omitempty"`
+	PostToChannel    *bool  `json:"post_to_channel,omitempty"`
 }
 
 type ServicesExpiringInput struct {
-	ActorUserID    string
-	WorkspaceID    string
-	Email          string `json:"email,omitempty"`
-	UserID         int    `json:"user_id,omitempty"`
-	Days           int    `json:"days,omitempty"`
-	IncludeExpired bool   `json:"include_expired,omitempty"`
-	ServiceType    string `json:"service_type,omitempty"`
-	ChannelID      string `json:"channel_id,omitempty"`
-	PostToChannel  *bool  `json:"post_to_channel,omitempty"`
+	ActorUserID      string
+	WorkspaceID      string
+	TriggerMessageID string `json:"-"`
+	Email            string `json:"email,omitempty"`
+	UserID           int    `json:"user_id,omitempty"`
+	Days             int    `json:"days,omitempty"`
+	IncludeExpired   bool   `json:"include_expired,omitempty"`
+	ServiceType      string `json:"service_type,omitempty"`
+	ChannelID        string `json:"channel_id,omitempty"`
+	PostToChannel    *bool  `json:"post_to_channel,omitempty"`
 }
 
 type WalletDepositQRRequest struct {
 	Email          string `json:"email"`
 	Amount         int    `json:"amount"`
 	ExpiresMinutes int    `json:"expires_minutes,omitempty"`
+}
+
+type OrderPaymentQRInput struct {
+	ActorUserID      string
+	WorkspaceID      string
+	TriggerMessageID string `json:"-"`
+	IntentID         int    `json:"intent_id,omitempty"`
+	IntentCode       string `json:"intent_code,omitempty"`
+	Reference        string `json:"reference,omitempty"`
+	ChannelID        string `json:"channel_id,omitempty"`
+	PostToChannel    *bool  `json:"post_to_channel,omitempty"`
+}
+
+type OrderPaymentQRRequest struct {
+	IntentID   int    `json:"intent_id,omitempty"`
+	IntentCode string `json:"intent_code,omitempty"`
+	Reference  string `json:"reference,omitempty"`
 }
 
 type ServicesExpiringRequest struct {
@@ -163,8 +189,9 @@ type BotMessageDTO struct {
 }
 
 type StatusDTO struct {
-	Configured bool   `json:"configured"`
-	BaseURL    string `json:"base_url,omitempty"`
+	Configured           bool   `json:"configured"`
+	QuickOrderConfigured bool   `json:"quick_order_configured"`
+	BaseURL              string `json:"base_url,omitempty"`
 }
 
 type WalletBalanceResult struct {
@@ -175,6 +202,11 @@ type WalletBalanceResult struct {
 type WalletDepositQRResult struct {
 	Data       WalletDepositQRData `json:"data"`
 	BotMessage *BotMessageDTO      `json:"bot_message,omitempty"`
+}
+
+type OrderPaymentQRResult struct {
+	Data       OrderPaymentQRData `json:"data"`
+	BotMessage *BotMessageDTO     `json:"bot_message,omitempty"`
 }
 
 type ServicesExpiringResult struct {
@@ -224,13 +256,34 @@ type WalletDepositQRData struct {
 }
 
 type WalletDepositBank struct {
-	BankCode         string `json:"bank_code,omitempty"`
-	BIN              string `json:"bin,omitempty"`
-	AccountNumber    string `json:"account_number,omitempty"`
-	AccountName      string `json:"account_name,omitempty"`
-	TransferContent  string `json:"transfer_content,omitempty"`
-	RequestedAmount  int    `json:"requested_amount,omitempty"`
-	AutoCheck        bool   `json:"auto_check,omitempty"`
+	BankCode        string `json:"bank_code,omitempty"`
+	BIN             string `json:"bin,omitempty"`
+	AccountNumber   string `json:"account_number,omitempty"`
+	AccountName     string `json:"account_name,omitempty"`
+	TransferContent string `json:"transfer_content,omitempty"`
+	RequestedAmount int    `json:"requested_amount,omitempty"`
+	AutoCheck       bool   `json:"auto_check,omitempty"`
+}
+
+type OrderPaymentQREnvelope struct {
+	OK      bool               `json:"ok"`
+	Status  string             `json:"status,omitempty"`
+	Message string             `json:"message,omitempty"`
+	Data    OrderPaymentQRData `json:"data"`
+}
+
+type OrderPaymentQRData struct {
+	PaymentID       int            `json:"payment_id,omitempty"`
+	IntentID        int            `json:"intent_id,omitempty"`
+	ExternalOrderID string         `json:"external_order_id,omitempty"`
+	Reference       string         `json:"reference,omitempty"`
+	CustomerEmail   string         `json:"customer_email,omitempty"`
+	Amount          int            `json:"amount,omitempty"`
+	Currency        string         `json:"currency,omitempty"`
+	Status          string         `json:"status,omitempty"`
+	QRURL           string         `json:"qr_url,omitempty"`
+	Bank            map[string]any `json:"bank,omitempty"`
+	ExpiresAt       string         `json:"expires_at,omitempty"`
 }
 
 type ServicesExpiringEnvelope struct {
@@ -241,12 +294,12 @@ type ServicesExpiringEnvelope struct {
 }
 
 type ServicesExpiringData struct {
-	User           ExpiringUserSummary       `json:"user,omitempty"`
-	Days           int                       `json:"days,omitempty"`
-	IncludeExpired bool                      `json:"include_expired,omitempty"`
-	ServiceType    string                    `json:"service_type,omitempty"`
-	Summary        ServicesExpiringSummary   `json:"summary,omitempty"`
-	Items          []ServiceExpiringItem     `json:"items,omitempty"`
+	User           ExpiringUserSummary     `json:"user,omitempty"`
+	Days           int                     `json:"days,omitempty"`
+	IncludeExpired bool                    `json:"include_expired,omitempty"`
+	ServiceType    string                  `json:"service_type,omitempty"`
+	Summary        ServicesExpiringSummary `json:"summary,omitempty"`
+	Items          []ServiceExpiringItem   `json:"items,omitempty"`
 }
 
 type ExpiringUserSummary struct {
@@ -342,7 +395,10 @@ func (s *Service) Status(ctx context.Context, actorUserID string, workspaceID st
 	if err := s.ensurePermission(ctx, actorUserID, workspaceID, PermissionOrderView); err != nil {
 		return StatusDTO{}, err
 	}
-	return StatusDTO{Configured: s.client != nil && s.client.Configured()}, nil
+	return StatusDTO{
+		Configured:           s.client != nil && s.client.Configured(),
+		QuickOrderConfigured: s.client != nil && s.client.QuickOrderConfigured(),
+	}, nil
 }
 
 func (s *Service) HandleMessage(ctx context.Context, input botauto.MessageInput) ([]botauto.BotMessage, error) {
@@ -436,14 +492,15 @@ func (s *Service) handleRenewalAutoMessage(ctx context.Context, input botauto.Me
 	}, autoBotCommandLogFields(command)...)
 	slog.Info("Gia Han Bot bat dau tra cuu dich vu sap het han", fields...)
 	result, err := s.ServicesExpiring(ctx, ServicesExpiringInput{
-		ActorUserID:    input.ActorUserID,
-		WorkspaceID:    input.WorkspaceID,
-		Email:          command.Email,
-		UserID:         command.UserID,
-		Days:           command.Days,
-		IncludeExpired: command.IncludeExpired,
-		ServiceType:    command.ServiceType,
-		ChannelID:      input.ChannelID,
+		ActorUserID:      input.ActorUserID,
+		WorkspaceID:      input.WorkspaceID,
+		TriggerMessageID: input.MessageID,
+		Email:            command.Email,
+		UserID:           command.UserID,
+		Days:             command.Days,
+		IncludeExpired:   command.IncludeExpired,
+		ServiceType:      command.ServiceType,
+		ChannelID:        input.ChannelID,
 	})
 	if err != nil {
 		return s.postAutoError(ctx, input, defaultRenewalBotSlug, defaultRenewalChannelSlug, "Gia Hạn Bot", err, renewalBotGuide())
@@ -455,6 +512,21 @@ func (s *Service) handlePaymentAutoMessage(ctx context.Context, input botauto.Me
 	if command.IsHelp {
 		return s.postAutoGuide(ctx, input, defaultPaymentBotSlug, defaultPaymentChannelSlug, "auto_help_payment", paymentBotGuide())
 	}
+	if command.HasOrderPayment {
+		result, err := s.CreateOrderPaymentQR(ctx, OrderPaymentQRInput{
+			ActorUserID:      input.ActorUserID,
+			WorkspaceID:      input.WorkspaceID,
+			TriggerMessageID: input.MessageID,
+			IntentID:         command.IntentID,
+			IntentCode:       command.IntentCode,
+			Reference:        command.Reference,
+			ChannelID:        input.ChannelID,
+		})
+		if err != nil {
+			return s.postAutoError(ctx, input, defaultPaymentBotSlug, defaultPaymentChannelSlug, "Thanh Toán Bot", err, paymentBotGuide())
+		}
+		return autoBotMessages(result.BotMessage), nil
+	}
 	if !command.PaymentIntent && !command.HasAmount {
 		return nil, nil
 	}
@@ -462,12 +534,13 @@ func (s *Service) handlePaymentAutoMessage(ctx context.Context, input botauto.Me
 		return s.postAutoGuide(ctx, input, defaultPaymentBotSlug, defaultPaymentChannelSlug, "auto_help_payment", paymentBotGuide())
 	}
 	result, err := s.CreateDepositQR(ctx, WalletDepositQRInput{
-		ActorUserID:    input.ActorUserID,
-		WorkspaceID:    input.WorkspaceID,
-		Email:          command.Email,
-		Amount:         command.Amount,
-		ExpiresMinutes: command.ExpiresMinutes,
-		ChannelID:      input.ChannelID,
+		ActorUserID:      input.ActorUserID,
+		WorkspaceID:      input.WorkspaceID,
+		TriggerMessageID: input.MessageID,
+		Email:            command.Email,
+		Amount:           command.Amount,
+		ExpiresMinutes:   command.ExpiresMinutes,
+		ChannelID:        input.ChannelID,
 	})
 	if err != nil {
 		return s.postAutoError(ctx, input, defaultPaymentBotSlug, defaultPaymentChannelSlug, "Thanh Toán Bot", err, paymentBotGuide())
@@ -481,11 +554,12 @@ func (s *Service) handleTicketAutoMessage(ctx context.Context, input botauto.Mes
 	}
 	if command.HasLookup && command.WalletIntent {
 		result, err := s.WalletBalance(ctx, WalletBalanceInput{
-			ActorUserID: input.ActorUserID,
-			WorkspaceID: input.WorkspaceID,
-			Email:       command.Email,
-			UserID:      command.UserID,
-			ChannelID:   input.ChannelID,
+			ActorUserID:      input.ActorUserID,
+			WorkspaceID:      input.WorkspaceID,
+			TriggerMessageID: input.MessageID,
+			Email:            command.Email,
+			UserID:           command.UserID,
+			ChannelID:        input.ChannelID,
 		})
 		if err != nil {
 			return s.postAutoError(ctx, input, defaultSupportBotSlug, defaultSupportChannelSlug, "CSKH Bot", err, ticketBotGuide())
@@ -548,10 +622,11 @@ func (s *Service) WalletBalance(ctx context.Context, input WalletBalanceInput) (
 	result := WalletBalanceResult{Data: envelope.Data}
 	if shouldPost(input.PostToChannel) {
 		message, err := s.postBotMessage(ctx, input.WorkspaceID, defaultSupportBotSlug, input.ChannelID, defaultSupportChannelSlug, formatWalletBalanceMessage(envelope.Data), map[string]any{
-			"source":  "vpsttt_order",
-			"action":  "wallet_balance",
-			"email":   lookup.Email,
-			"user_id": lookup.UserID,
+			"source":             "vpsttt_order",
+			"action":             "wallet_balance",
+			"trigger_message_id": input.TriggerMessageID,
+			"email":              lookup.Email,
+			"user_id":            lookup.UserID,
 		})
 		if err != nil {
 			return WalletBalanceResult{}, err
@@ -606,14 +681,69 @@ func (s *Service) CreateDepositQR(ctx context.Context, input WalletDepositQRInpu
 	result := WalletDepositQRResult{Data: envelope.Data}
 	if shouldPost(input.PostToChannel) {
 		message, err := s.postBotMessage(ctx, input.WorkspaceID, defaultPaymentBotSlug, input.ChannelID, defaultPaymentChannelSlug, formatDepositQRMessage(envelope.Data), map[string]any{
-			"source":    "vpsttt_order",
-			"action":    "wallet_deposit_qr",
-			"email":     email,
-			"amount":    input.Amount,
-			"reference": envelope.Data.Reference,
+			"source":             "vpsttt_order",
+			"action":             "wallet_deposit_qr",
+			"card_type":          "payment_qr",
+			"trigger_message_id": input.TriggerMessageID,
+			"email":              email,
+			"amount":             input.Amount,
+			"reference":          envelope.Data.Reference,
+			"qr_url":             envelope.Data.QRURL,
+			"transfer_content":   envelope.Data.TransferContent,
+			"expires_at":         envelope.Data.ExpiresAt,
 		})
 		if err != nil {
 			return WalletDepositQRResult{}, err
+		}
+		result.BotMessage = &message
+	}
+	return result, nil
+}
+
+func (s *Service) CreateOrderPaymentQR(ctx context.Context, input OrderPaymentQRInput) (OrderPaymentQRResult, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, PermissionOrderBilling); err != nil {
+		return OrderPaymentQRResult{}, err
+	}
+	if err := s.ensureQuickOrderConfigured(); err != nil {
+		return OrderPaymentQRResult{}, err
+	}
+	intentCode := strings.TrimSpace(input.IntentCode)
+	reference := strings.TrimSpace(input.Reference)
+	if input.IntentID <= 0 && intentCode == "" && reference == "" {
+		return OrderPaymentQRResult{}, apperrors.BadRequest("VALIDATION_ERROR", "Cần truyền intent_id, intent_code hoặc mã tham chiếu của đơn hàng.")
+	}
+	if err := validateOptionalChannelID(input.ChannelID); err != nil {
+		return OrderPaymentQRResult{}, err
+	}
+
+	envelope, err := s.client.CreateOrderPaymentQR(ctx, OrderPaymentQRRequest{
+		IntentID:   input.IntentID,
+		IntentCode: intentCode,
+		Reference:  reference,
+	})
+	if err != nil {
+		return OrderPaymentQRResult{}, mapOrderClientError(err)
+	}
+	if err := ensureRemoteOK(envelope.OK, envelope.Status, envelope.Message); err != nil {
+		return OrderPaymentQRResult{}, err
+	}
+
+	result := OrderPaymentQRResult{Data: envelope.Data}
+	if shouldPost(input.PostToChannel) {
+		message, err := s.postBotMessage(ctx, input.WorkspaceID, defaultPaymentBotSlug, input.ChannelID, defaultPaymentChannelSlug, formatOrderPaymentQRMessage(envelope.Data), map[string]any{
+			"source":             "vpsttt_order",
+			"action":             "order_payment_qr",
+			"card_type":          "payment_qr",
+			"trigger_message_id": input.TriggerMessageID,
+			"intent_id":          envelope.Data.IntentID,
+			"external_order_id":  envelope.Data.ExternalOrderID,
+			"reference":          envelope.Data.Reference,
+			"amount":             envelope.Data.Amount,
+			"qr_url":             envelope.Data.QRURL,
+			"expires_at":         envelope.Data.ExpiresAt,
+		})
+		if err != nil {
+			return OrderPaymentQRResult{}, err
 		}
 		result.BotMessage = &message
 	}
@@ -671,12 +801,13 @@ func (s *Service) ServicesExpiring(ctx context.Context, input ServicesExpiringIn
 	result := ServicesExpiringResult{Data: envelope.Data}
 	if shouldPost(input.PostToChannel) {
 		message, err := s.postBotMessage(ctx, input.WorkspaceID, defaultRenewalBotSlug, input.ChannelID, defaultRenewalChannelSlug, formatExpiringServicesMessage(envelope.Data), map[string]any{
-			"source":       "vpsttt_order",
-			"action":       "services_expiring",
-			"email":        lookup.Email,
-			"user_id":      lookup.UserID,
-			"days":         days,
-			"service_type": serviceType,
+			"source":             "vpsttt_order",
+			"action":             "services_expiring",
+			"trigger_message_id": input.TriggerMessageID,
+			"email":              lookup.Email,
+			"user_id":            lookup.UserID,
+			"days":               days,
+			"service_type":       serviceType,
 		})
 		if err != nil {
 			return ServicesExpiringResult{}, err
@@ -687,20 +818,24 @@ func (s *Service) ServicesExpiring(ctx context.Context, input ServicesExpiringIn
 }
 
 type autoBotCommand struct {
-	Email          string
-	UserID         int
-	Days           int
-	IncludeExpired bool
-	ServiceType    string
-	Amount         int
-	ExpiresMinutes int
-	IsHelp         bool
-	HasLookup      bool
-	HasAmount      bool
-	WalletIntent   bool
-	PaymentIntent  bool
-	TicketIntent   bool
-	AlertIntent    bool
+	Email           string
+	UserID          int
+	Days            int
+	IncludeExpired  bool
+	ServiceType     string
+	Amount          int
+	ExpiresMinutes  int
+	IntentID        int
+	IntentCode      string
+	Reference       string
+	IsHelp          bool
+	HasLookup       bool
+	HasAmount       bool
+	HasOrderPayment bool
+	WalletIntent    bool
+	PaymentIntent   bool
+	TicketIntent    bool
+	AlertIntent     bool
 }
 
 func parseAutoBotCommand(body string) autoBotCommand {
@@ -719,6 +854,18 @@ func parseAutoBotCommand(body string) autoBotCommand {
 		TicketIntent:   containsAny(plain, "ticket", "ho tro", "khach", "loi", "khong truy cap", "khong vao duoc", "vps", "hosting", "domain", "proxy"),
 		AlertIntent:    containsAny(plain, "alert", "canh bao", "server", "down", "mat ping", "ping", "port", "cpu", "ram", "disk", "service", "timeout", "critical"),
 	}
+	if match := intentIDPattern.FindStringSubmatch(body); len(match) == 2 {
+		command.IntentID, _ = strconv.Atoi(match[1])
+	}
+	if match := intentCodePattern.FindStringSubmatch(body); len(match) == 2 {
+		command.IntentCode = strings.TrimSpace(match[1])
+	} else if match := quickIntentPattern.FindString(body); match != "" {
+		command.IntentCode = strings.TrimSpace(match)
+	}
+	if match := orderRefPattern.FindStringSubmatch(body); len(match) == 2 {
+		command.Reference = strings.TrimSpace(match[1])
+	}
+	command.HasOrderPayment = command.IntentID > 0 || command.IntentCode != "" || command.Reference != ""
 
 	for _, match := range labeledIntPattern.FindAllStringSubmatch(body, -1) {
 		if len(match) != 3 {
@@ -769,6 +916,7 @@ func autoBotCommandLogFields(command autoBotCommand) []any {
 		"amount", command.Amount,
 		"has_lookup", command.HasLookup,
 		"has_amount", command.HasAmount,
+		"has_order_payment", command.HasOrderPayment,
 		"is_help", command.IsHelp,
 		"wallet_intent", command.WalletIntent,
 		"payment_intent", command.PaymentIntent,
@@ -876,11 +1024,17 @@ Loại dịch vụ hỗ trợ: Tất cả, VPS, Proxy, Hosting, S3, Drive, WAF, 
 }
 
 func paymentBotGuide() string {
-	return strings.TrimSpace(`[Thanh Toán Bot] Mình tự động tạo QR nạp ví khi bạn gửi theo mẫu:
+	return strings.TrimSpace(`[Thanh Toán Bot] Mình hỗ trợ 2 loại QR.
+
+1. QR nạp ví:
 Email: khach@example.com
 Số tiền: 200000
 
-Số tiền tối thiểu là 1.000 VND. QR mặc định hết hạn sau 24 giờ.`)
+2. QR thanh toán đơn hàng Quick Order:
+Tạo QR cho đơn hàng
+Intent code: QOIABCD1234EFGH5678
+
+Số tiền nạp ví tối thiểu là 1.000 VND. QR mặc định hết hạn sau 24 giờ.`)
 }
 
 func ticketBotGuide() string {
@@ -1060,6 +1214,13 @@ func (s *Service) ensurePermission(ctx context.Context, userID string, workspace
 func (s *Service) ensureConfigured() error {
 	if s.client == nil || !s.client.Configured() {
 		return apperrors.Internal("Chưa cấu hình ORDER_INTERNAL_API_KEY cho bot order VPSTTT.")
+	}
+	return nil
+}
+
+func (s *Service) ensureQuickOrderConfigured() error {
+	if s.client == nil || !s.client.QuickOrderConfigured() {
+		return apperrors.Internal("Chưa cấu hình ORDER_QUICK_ORDER_KEY cho QR thanh toán đơn hàng.")
 	}
 	return nil
 }
@@ -1252,6 +1413,30 @@ func formatDepositQRMessage(data WalletDepositQRData) string {
 	}
 	if data.Bank.AccountName != "" {
 		builder.WriteString("Chủ TK: " + data.Bank.AccountName + "\n")
+	}
+	if data.QRURL != "" {
+		builder.WriteString("QR: " + data.QRURL + "\n")
+	}
+	if data.ExpiresAt != "" {
+		builder.WriteString("Hết hạn: " + data.ExpiresAt + "\n")
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func formatOrderPaymentQRMessage(data OrderPaymentQRData) string {
+	var builder strings.Builder
+	builder.WriteString("[Thanh Toán Bot] QR thanh toán đơn hàng\n")
+	if data.ExternalOrderID != "" {
+		builder.WriteString("Đơn hàng: " + data.ExternalOrderID + "\n")
+	} else if data.IntentID > 0 {
+		builder.WriteString("Intent ID: " + strconv.Itoa(data.IntentID) + "\n")
+	}
+	if data.CustomerEmail != "" {
+		builder.WriteString("Khách: " + data.CustomerEmail + "\n")
+	}
+	builder.WriteString("Số tiền: " + formatVND(data.Amount) + "\n")
+	if data.Reference != "" {
+		builder.WriteString("Mã tham chiếu: " + data.Reference + "\n")
 	}
 	if data.QRURL != "" {
 		builder.WriteString("QR: " + data.QRURL + "\n")
