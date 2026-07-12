@@ -24,7 +24,7 @@ ORDER_API_TIMEOUT=10s
 ```
 
 `ORDER_INTERNAL_API_KEY` được gửi tới Order API bằng header `X-API-Key`. Không commit key thật lên source.
-Biến này phải chứa internal key dùng thành công với nhóm `/api/internal/*` trong Swagger; không dùng Overview key có tiền tố `ovw_`.
+Biến này phải chứa internal key dùng thành công với nhóm `/api/internal/*` trong Swagger.
 
 ## Quyền RBAC
 

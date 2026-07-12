@@ -73,10 +73,6 @@ type Client interface {
 	ServicesExpiring(ctx context.Context, input ServicesExpiringRequest) (ServicesExpiringEnvelope, error)
 }
 
-type clientConfigurationValidator interface {
-	ConfigurationError() error
-}
-
 type Repository interface {
 	ChannelByID(ctx context.Context, workspaceID string, channelID string) (ChannelDTO, error)
 	SendBotMessage(ctx context.Context, params SendBotMessageParams) (BotMessageDTO, error)
@@ -167,9 +163,8 @@ type BotMessageDTO struct {
 }
 
 type StatusDTO struct {
-	Configured        bool   `json:"configured"`
-	BaseURL           string `json:"base_url,omitempty"`
-	ConfigurationError string `json:"configuration_error,omitempty"`
+	Configured bool   `json:"configured"`
+	BaseURL    string `json:"base_url,omitempty"`
 }
 
 type WalletBalanceResult struct {
@@ -297,16 +292,7 @@ func (s *Service) Status(ctx context.Context, actorUserID string, workspaceID st
 	if err := s.ensurePermission(ctx, actorUserID, workspaceID, PermissionOrderView); err != nil {
 		return StatusDTO{}, err
 	}
-	status := StatusDTO{Configured: s.client != nil && s.client.Configured()}
-	if status.Configured {
-		if validator, ok := s.client.(clientConfigurationValidator); ok {
-			if err := validator.ConfigurationError(); err != nil {
-				status.Configured = false
-				status.ConfigurationError = err.Error()
-			}
-		}
-	}
-	return status, nil
+	return StatusDTO{Configured: s.client != nil && s.client.Configured()}, nil
 }
 
 func (s *Service) HandleMessage(ctx context.Context, input botauto.MessageInput) ([]botauto.BotMessage, error) {
@@ -1024,11 +1010,6 @@ func (s *Service) ensurePermission(ctx context.Context, userID string, workspace
 func (s *Service) ensureConfigured() error {
 	if s.client == nil || !s.client.Configured() {
 		return apperrors.Internal("Chưa cấu hình ORDER_INTERNAL_API_KEY cho bot order VPSTTT.")
-	}
-	if validator, ok := s.client.(clientConfigurationValidator); ok {
-		if err := validator.ConfigurationError(); err != nil {
-			return apperrors.BadRequest("ORDER_API_CONFIG_INVALID", err.Error())
-		}
 	}
 	return nil
 }

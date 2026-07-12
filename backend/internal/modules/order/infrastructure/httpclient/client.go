@@ -45,16 +45,6 @@ func (c *Client) Configured() bool {
 	return c != nil && c.baseURL != nil && c.baseURL.Scheme != "" && c.baseURL.Host != "" && c.internalAPIKey != ""
 }
 
-func (c *Client) ConfigurationError() error {
-	if !c.Configured() {
-		return fmt.Errorf("chưa cấu hình URL hoặc internal API key của Order")
-	}
-	if strings.HasPrefix(strings.ToLower(c.internalAPIKey), "ovw_") {
-		return fmt.Errorf("ORDER_INTERNAL_API_KEY đang chứa Overview key (ovw_); hãy dùng internal X-API-Key đã test thành công trong Swagger")
-	}
-	return nil
-}
-
 func (c *Client) WalletBalance(ctx context.Context, input orderapp.UserLookupRequest) (orderapp.WalletBalanceEnvelope, error) {
 	var output orderapp.WalletBalanceEnvelope
 	err := c.post(ctx, "/internal/wallet/balance", input, &output)

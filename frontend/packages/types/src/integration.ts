@@ -91,7 +91,6 @@ export type SendBotMessageInput = {
 export type OrderBotStatus = {
   configured: boolean;
   base_url?: string;
-  configuration_error?: string;
 };
 
 export type OrderWalletBalanceData = {
