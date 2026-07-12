@@ -30,6 +30,7 @@ export type ChatMessage = {
   editedAt?: string;
   isDeleted?: boolean;
   isForwarded?: boolean;
+  isBot?: boolean;
   isPending?: boolean;
   reactions?: Array<{ emoji: string; count: number; reactedByMe?: boolean }>;
   metrics?: ChatMetric[];

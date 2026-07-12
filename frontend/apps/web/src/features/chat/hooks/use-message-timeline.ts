@@ -364,9 +364,11 @@ export function mapMessage(
   fallbackAuthor: ChatUser,
   canManageMessages = false
 ): ChatMessage {
-  const author = mapMessageAuthor(message.author ?? message.user, fallbackAuthor, message.sender_id ?? message.author_id);
-  const senderId = message.sender_id ?? message.author_id ?? author.id;
-  const isOwner = senderId === fallbackAuthor.id || author.id === fallbackAuthor.id;
+  const botAuthor = mapBotMessageAuthor(message);
+  const author =
+    botAuthor ?? mapMessageAuthor(message.author ?? message.user, fallbackAuthor, message.sender_id ?? message.author_id);
+  const senderId = botAuthor?.id ?? message.sender_id ?? message.author_id ?? author.id;
+  const isOwner = !botAuthor && (senderId === fallbackAuthor.id || author.id === fallbackAuthor.id);
   const attachments = mapMessageAttachments(message.attachments);
 
   return {
@@ -380,6 +382,7 @@ export function mapMessage(
     id: message.id,
     isDeleted: Boolean(message.deleted_at),
     isForwarded: Boolean(message.metadata && typeof message.metadata === "object" && message.metadata.forwarded_from),
+    isBot: Boolean(botAuthor),
     isMine: isOwner,
     isLocal: message.id.startsWith("local-"),
     isPending: message.id.startsWith("local-"),
@@ -392,6 +395,30 @@ export function mapMessage(
       reactedByMe: reaction.reacted_by_me
     })),
     sentAt: formatTime(message.created_at ?? message.sent_at)
+  };
+}
+
+function mapBotMessageAuthor(message: ApiMessage): ChatUser | null {
+  const metadata = message.metadata;
+  const botId = typeof metadata?.bot_id === "string" ? metadata.bot_id.trim() : "";
+  const botSlug = typeof metadata?.bot_slug === "string" ? metadata.bot_slug.trim().toLowerCase() : "";
+
+  if (message.kind !== "bot" && !botId && !botSlug) {
+    return null;
+  }
+
+  const names: Record<string, string> = {
+    "cskh-bot": "CSKH Bot",
+    "gia-han-bot": "Gia Hạn Bot",
+    "server-alert-bot": "Server Alert Bot",
+    "thanh-toan-bot": "Thanh Toán Bot",
+    "ticket-bot": "Ticket Bot"
+  };
+
+  return {
+    id: botId || (botSlug ? `bot:${botSlug}` : "bot:system"),
+    name: names[botSlug] ?? "Bot hệ thống",
+    status: "online"
   };
 }
 

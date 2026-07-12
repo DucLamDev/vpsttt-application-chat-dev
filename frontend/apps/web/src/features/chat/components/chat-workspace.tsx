@@ -4195,6 +4195,7 @@ function MessageTimeline({
           <div className="message-row__content">
             <header>
               <strong>{message.author.name}</strong>
+              {message.isBot ? <Badge tone="blue">BOT</Badge> : null}
               <span>{message.sentAt}</span>
               {message.isForwarded ? <span>Đã chuyển tiếp</span> : null}
               {message.editedAt ? <span>Đã sửa {message.editedAt}</span> : null}
