@@ -33,6 +33,29 @@ func TestValidateUploadAcceptsMetadataJSON(t *testing.T) {
 	}
 }
 
+func TestValidateUploadAcceptsBrowserVoiceFormats(t *testing.T) {
+	formats := []struct {
+		name     string
+		mimeType string
+	}{
+		{name: "voice.webm", mimeType: "audio/webm;codecs=opus"},
+		{name: "voice.ogg", mimeType: "audio/ogg;codecs=opus"},
+		{name: "voice.m4a", mimeType: "audio/mp4"},
+	}
+
+	for _, format := range formats {
+		t.Run(format.mimeType, func(t *testing.T) {
+			_, mimeType, _, err := validateUpload(format.name, format.mimeType, 1024, json.RawMessage(`{"media_type":"voice"}`))
+			if err != nil {
+				t.Fatalf("validateUpload() trả lỗi: %v", err)
+			}
+			if strings.Contains(mimeType, ";") {
+				t.Fatalf("mime type chưa được chuẩn hóa: %q", mimeType)
+			}
+		})
+	}
+}
+
 func TestNewObjectKeySanitizesFilename(t *testing.T) {
 	key, err := newObjectKey("workspace-1", "../Báo cáo quý 1.pdf", "files", func() time.Time {
 		return time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC)

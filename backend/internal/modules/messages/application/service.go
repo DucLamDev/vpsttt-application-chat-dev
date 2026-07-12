@@ -286,8 +286,8 @@ func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error)
 	if kind == "" {
 		kind = "text"
 	}
-	if kind != "text" {
-		return MessageDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Phase hiện tại chỉ hỗ trợ tin nhắn dạng text.")
+	if kind != "text" && kind != "file" {
+		return MessageDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Loại tin nhắn chỉ được là text hoặc file/media.")
 	}
 
 	body := strings.TrimSpace(input.Body)
@@ -324,13 +324,15 @@ func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error)
 		"auto_responder_count", len(s.autoResponders),
 	)
 	s.publishRealtime(ctx, "MessageCreated", dto)
-	s.runAutoResponders(ctx, botauto.MessageInput{
-		ActorUserID: strings.TrimSpace(input.ActorUserID),
-		WorkspaceID: dto.WorkspaceID,
-		ChannelID:   dto.ChannelID,
-		MessageID:   dto.ID,
-		Body:        body,
-	})
+	if kind == "text" {
+		s.runAutoResponders(ctx, botauto.MessageInput{
+			ActorUserID: strings.TrimSpace(input.ActorUserID),
+			WorkspaceID: dto.WorkspaceID,
+			ChannelID:   dto.ChannelID,
+			MessageID:   dto.ID,
+			Body:        body,
+		})
+	}
 	return dto, nil
 }
 

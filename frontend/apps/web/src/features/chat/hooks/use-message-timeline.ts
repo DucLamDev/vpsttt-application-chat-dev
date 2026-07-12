@@ -371,6 +371,8 @@ export function mapMessage(
   const isOwner = !botAuthor && (senderId === fallbackAuthor.id || author.id === fallbackAuthor.id);
   const attachments = mapMessageAttachments(message.attachments);
   const qrImageUrl = botAuthor ? messageQRImageURL(message) : undefined;
+  const isVoice = message.metadata?.message_type === "voice"
+    || (message.kind === "file" && /^Đã gửi(?: \d+)? tin nhắn thoại$/i.test(message.body));
 
   return {
     attachmentName: attachments[0]?.name,
@@ -387,6 +389,7 @@ export function mapMessage(
     isMine: isOwner,
     isLocal: message.id.startsWith("local-"),
     isPending: message.id.startsWith("local-"),
+    isVoice,
     rawChannelId: message.channel_id,
     rawCreatedAt: message.created_at ?? message.sent_at,
     rawSenderId: senderId,
@@ -462,7 +465,7 @@ function mapMessageAttachments(attachments?: MessageAttachment[]): MessageAttach
       const mimeType = attachment.mime_type ?? file?.mime_type;
       const size = attachment.byte_size ?? attachment.size_bytes ?? attachment.size ?? file?.byte_size ?? file?.size_bytes ?? file?.size;
       const url = attachment.url ?? attachment.download_url ?? file?.url ?? file?.download_url;
-      const isAudio = Boolean(mimeType?.startsWith("audio/"));
+      const isAudio = Boolean(mimeType?.startsWith("audio/") || mimeType === "application/ogg");
       const isImage = Boolean(mimeType?.startsWith("image/"));
       const isVideo = Boolean(mimeType?.startsWith("video/"));
 

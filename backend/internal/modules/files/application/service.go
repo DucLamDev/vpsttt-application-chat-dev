@@ -501,7 +501,14 @@ func isAllowedMimeType(mimeType string) bool {
 		return true
 	}
 	switch mimeType {
-	case "application/pdf",
+	case "audio/webm",
+		"audio/ogg",
+		"audio/mp4",
+		"audio/mpeg",
+		"audio/wav",
+		"audio/x-m4a",
+		"application/ogg",
+		"application/pdf",
 		"application/json",
 		"application/zip",
 		"application/octet-stream",

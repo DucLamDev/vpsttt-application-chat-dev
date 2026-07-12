@@ -269,6 +269,7 @@ export function ChatWorkspace() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef<number | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const seenNotificationIdsRef = useRef<Set<string> | null>(null);
   const seenContactRequestIdsRef = useRef<Set<string> | null>(null);
@@ -821,7 +822,9 @@ export function ChatWorkspace() {
 
   async function handleToggleRecording() {
     if (isRecording) {
-      mediaRecorderRef.current?.stop();
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
       return;
     }
 
@@ -836,9 +839,19 @@ export function ChatWorkspace() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: true
+        }
+      });
+      const preferredMimeType = preferredVoiceMimeType();
+      const recorder = preferredMimeType
+        ? new MediaRecorder(stream, { audioBitsPerSecond: 64_000, mimeType: preferredMimeType })
+        : new MediaRecorder(stream, { audioBitsPerSecond: 64_000 });
       recordingChunksRef.current = [];
+      recordingStartedAtRef.current = Date.now();
       recordingStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
 
@@ -848,25 +861,41 @@ export function ChatWorkspace() {
         }
       };
       recorder.onstop = () => {
-        const mimeType = recorder.mimeType || "audio/webm";
+        const mimeType = recorder.mimeType || preferredMimeType || "audio/webm";
         const blob = new Blob(recordingChunksRef.current, { type: mimeType });
-        const extension = mimeType.includes("mp4") ? "m4a" : "webm";
+        const extension = voiceFileExtension(mimeType);
+        const durationSeconds = Math.max(
+          1,
+          Math.round((Date.now() - (recordingStartedAtRef.current ?? Date.now())) / 1000)
+        );
         const file = new File([blob], `voice-${Date.now()}.${extension}`, { type: mimeType });
-        uploadQueue.addFiles([file]);
+        if (file.size > 0) {
+          uploadQueue.addVoice(file, durationSeconds);
+          setToast("Đã ghi âm xong. Nhấn Gửi để gửi tin nhắn thoại.");
+        } else {
+          setToast("Không thu được âm thanh. Vui lòng kiểm tra micro và thử lại.");
+        }
         recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
         recordingStreamRef.current = null;
+        recordingStartedAtRef.current = null;
         mediaRecorderRef.current = null;
         recordingChunksRef.current = [];
+        setRecordingSeconds(0);
         setIsRecording(false);
       };
 
-      recorder.start();
+      recorder.onerror = () => {
+        setToast("Ghi âm bị gián đoạn. Vui lòng thử lại.");
+      };
+
+      recorder.start(250);
       setRecordingSeconds(0);
       setIsRecording(true);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Không bật được micro.");
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
       recordingStreamRef.current = null;
+      recordingStartedAtRef.current = null;
       mediaRecorderRef.current = null;
       setIsRecording(false);
     }
@@ -879,6 +908,13 @@ export function ChatWorkspace() {
     const timer = window.setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
     return () => window.clearInterval(timer);
   }, [isRecording]);
+
+  useEffect(() => {
+    if (isRecording && recordingSeconds >= 300 && mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+      setToast("Tin nhắn thoại đã đạt giới hạn 5 phút và được dừng tự động.");
+    }
+  }, [isRecording, recordingSeconds]);
 
   useEffect(
     () => () => {
@@ -4045,18 +4081,20 @@ function UploadQueue({
         </header>
       ) : null}
       {items.map((item) => (
-        <article className={`upload-queue__item upload-queue__item--${item.status}`} key={item.id}>
+        <article className={`upload-queue__item upload-queue__item--${item.status}${item.isAudio ? " upload-queue__item--audio" : ""}`} key={item.id}>
           {item.isImage && item.previewUrl ? (
             <img alt={item.name} className="upload-queue__thumb" src={item.previewUrl} />
+          ) : item.isAudio && item.previewUrl ? (
+            <VoiceMessagePlayer id={`preview-${item.id}`} source={item.previewUrl} />
           ) : (
             <span className="upload-queue__icon">
-              {item.status === "attached" ? <CheckCircle2 size={16} /> : <Cloud size={16} />}
+              {item.isAudio ? <Mic size={16} /> : item.status === "attached" ? <CheckCircle2 size={16} /> : <Cloud size={16} />}
             </span>
           )}
           <div>
-            <strong>{item.name}</strong>
+            <strong>{item.isAudio ? "Tin nhắn thoại" : item.name}</strong>
             <small>
-              {formatFileSize(item.size)} - {item.error ?? labels[item.status]}
+              {item.durationSeconds ? `${formatVoiceTime(item.durationSeconds)} · ` : ""}{formatFileSize(item.size)} - {item.error ?? labels[item.status]}
             </small>
             {item.status === "uploading" ? <i /> : null}
           </div>
@@ -4294,6 +4332,9 @@ function MessageTimeline({
             ) : shouldRenderMessageBody(message) ? (
               <MessageBody body={message.qrImageUrl ? stripDisplayedQRURL(message.body) : message.body} />
             ) : null}
+            {message.isVoice && !message.attachments?.some((attachment) => attachment.isAudio) ? (
+              <div className="attachment-audio"><span className="attachment-media-loading">Đang tải tin nhắn thoại...</span></div>
+            ) : null}
             {message.qrImageUrl ? (
               <a
                 aria-label="Mở mã QR thanh toán"
@@ -4479,16 +4520,9 @@ function AttachmentMedia({
   }, [attachment.fileId, directSource, onResolve]);
 
   if (attachment.isAudio) {
-    return (
-      <div className="attachment-audio">
-        <span className="attachment-audio__mic"><Mic size={17} /></span>
-        {resolvedSource ? (
-          <audio controls preload="metadata" src={resolvedSource}>
-            Trình duyệt của bạn không hỗ trợ phát tin nhắn thoại.
-          </audio>
-        ) : <span className="attachment-media-loading">Đang tải voice...</span>}
-      </div>
-    );
+    return resolvedSource
+      ? <VoiceMessagePlayer id={attachment.id} source={resolvedSource} />
+      : <div className="attachment-audio"><span className="attachment-media-loading">Đang tải tin nhắn thoại...</span></div>;
   }
 
   if (attachment.isVideo) {
@@ -4512,13 +4546,134 @@ function AttachmentMedia({
   );
 }
 
+const voiceWaveformHeights = [10, 18, 12, 24, 16, 30, 20, 13, 27, 17, 34, 22, 12, 25, 16, 31, 19, 11, 23, 15, 29, 20, 13, 26, 17, 32, 21, 12, 24, 16, 28, 19];
+
+function VoiceMessagePlayer({ id, source }: { id: string; source: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const progress = duration > 0 ? currentTime / duration : 0;
+
+  useEffect(() => {
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+    setPlaybackRate(1);
+  }, [source]);
+
+  useEffect(() => {
+    const pauseOtherPlayer = (event: Event) => {
+      const activeId = (event as CustomEvent<string>).detail;
+      if (activeId !== id) {
+        audioRef.current?.pause();
+      }
+    };
+    window.addEventListener("webtui:voice-play", pauseOtherPlayer);
+    return () => window.removeEventListener("webtui:voice-play", pauseOtherPlayer);
+  }, [id]);
+
+  async function togglePlayback() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      window.dispatchEvent(new CustomEvent("webtui:voice-play", { detail: id }));
+      try {
+        await audio.play();
+      } catch {
+        setIsPlaying(false);
+      }
+    } else {
+      audio.pause();
+    }
+  }
+
+  function cyclePlaybackRate() {
+    const nextRate = playbackRate === 1 ? 1.5 : playbackRate === 1.5 ? 2 : 1;
+    setPlaybackRate(nextRate);
+    if (audioRef.current) audioRef.current.playbackRate = nextRate;
+  }
+
+  return (
+    <div className={isPlaying ? "voice-message voice-message--playing" : "voice-message"}>
+      <button
+        aria-label={isPlaying ? "Tạm dừng tin nhắn thoại" : "Phát tin nhắn thoại"}
+        className="voice-message__play"
+        onClick={() => void togglePlayback()}
+        type="button"
+      >
+        <span className={isPlaying ? "voice-message__pause-icon" : "voice-message__play-icon"} />
+      </button>
+      <div className="voice-message__timeline">
+        <div className="voice-message__waveform" aria-hidden="true">
+          {voiceWaveformHeights.map((height, index) => (
+            <i
+              className={index / voiceWaveformHeights.length <= progress ? "voice-message__bar voice-message__bar--played" : "voice-message__bar"}
+              key={`${id}-${index}`}
+              style={{ height }}
+            />
+          ))}
+        </div>
+        <input
+          aria-label="Tua tin nhắn thoại"
+          max={duration || 1}
+          min="0"
+          onChange={(event) => {
+            const nextTime = Number(event.target.value);
+            setCurrentTime(nextTime);
+            if (audioRef.current) audioRef.current.currentTime = nextTime;
+          }}
+          step="0.01"
+          type="range"
+          value={currentTime}
+        />
+      </div>
+      <time>{formatVoiceTime(isPlaying ? currentTime : duration)}</time>
+      <button aria-label="Đổi tốc độ phát" className="voice-message__rate" onClick={cyclePlaybackRate} type="button">
+        {playbackRate}x
+      </button>
+      <audio
+        onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+        onEnded={() => {
+          setCurrentTime(0);
+          setIsPlaying(false);
+        }}
+        onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+        onPause={() => setIsPlaying(false)}
+        onPlay={() => setIsPlaying(true)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        preload="metadata"
+        ref={audioRef}
+        src={source}
+      >
+        Trình duyệt của bạn không hỗ trợ phát tin nhắn thoại.
+      </audio>
+    </div>
+  );
+}
+
+function formatVoiceTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const rounded = Math.floor(seconds);
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`;
+}
+
 function shouldRenderMessageBody(message: ChatMessage): boolean {
   if (!message.body.trim()) {
     return false;
   }
 
+  if (message.isVoice) {
+    return false;
+  }
+
   const attachments = message.attachments ?? [];
   const hasOnlyImages = attachments.length > 0 && attachments.every((attachment) => attachment.isImage);
+  const hasOnlyAudio = attachments.length > 0 && attachments.every((attachment) => attachment.isAudio);
+  if (hasOnlyAudio && /^Đã gửi(?: \d+)? tin nhắn thoại$/.test(message.body.trim())) {
+    return false;
+  }
   if (!hasOnlyImages) {
     return true;
   }
@@ -4535,6 +4690,27 @@ function formatRecordingTime(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function preferredVoiceMimeType() {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return "";
+  }
+  return [
+    "audio/webm;codecs=opus",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+    "audio/webm"
+  ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+}
+
+function voiceFileExtension(mimeType: string) {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.includes("ogg")) return "ogg";
+  if (normalized.includes("mp4") || normalized.includes("m4a")) return "m4a";
+  if (normalized.includes("mpeg")) return "mp3";
+  if (normalized.includes("wav")) return "wav";
+  return "webm";
 }
 
 function MediaGalleryThumbnail({

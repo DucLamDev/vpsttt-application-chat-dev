@@ -5,10 +5,12 @@ import { create } from "zustand";
 export type UploadQueueStatus = "queued" | "uploading" | "attached" | "failed";
 
 export type UploadQueueItem = {
+  durationSeconds?: number;
   error?: string;
   file: File;
   fileId?: string;
   id: string;
+  isAudio?: boolean;
   isImage?: boolean;
   messageId?: string;
   name: string;
@@ -20,6 +22,7 @@ export type UploadQueueItem = {
 type UploadQueueState = {
   items: UploadQueueItem[];
   addFiles: (files: File[]) => void;
+  addVoice: (file: File, durationSeconds: number) => void;
   clearAttached: () => void;
   markAttached: (id: string, messageId: string, fileId: string) => void;
   markFailed: (id: string, error: string) => void;
@@ -34,6 +37,13 @@ export const useUploadStore = create<UploadQueueState>((set) => ({
       items: [
         ...state.items,
         ...files.map(createUploadItem)
+      ]
+    })),
+  addVoice: (file, durationSeconds) =>
+    set((state) => ({
+      items: [
+        ...state.items,
+        createUploadItem(file, durationSeconds)
       ]
     })),
   clearAttached: () =>
@@ -111,15 +121,18 @@ function createUploadId() {
   return `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function createUploadItem(file: File): UploadQueueItem {
+function createUploadItem(file: File, durationSeconds?: number): UploadQueueItem {
   const isImage = file.type.startsWith("image/");
+  const isAudio = file.type.startsWith("audio/") || file.type === "application/ogg";
 
   return {
+    durationSeconds,
     file,
     id: createUploadId(),
+    isAudio,
     isImage,
     name: file.name || (isImage ? "ảnh-dán-từ-clipboard.png" : "file-đính-kèm"),
-    previewUrl: isImage && typeof URL !== "undefined" ? URL.createObjectURL(file) : undefined,
+    previewUrl: (isImage || isAudio) && typeof URL !== "undefined" ? URL.createObjectURL(file) : undefined,
     size: file.size,
     status: "queued"
   };

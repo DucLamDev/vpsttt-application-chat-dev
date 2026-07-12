@@ -84,6 +84,28 @@ type otherUserMessageRepo struct {
 	emptyMessageRepo
 }
 
+type captureSendRepo struct {
+	emptyMessageRepo
+	sent SendParams
+}
+
+func (r *captureSendRepo) Send(_ context.Context, params SendParams) (messagesdomain.Message, error) {
+	r.sent = params
+	senderID := params.SenderID
+	now := time.Now().UTC()
+	return messagesdomain.Message{
+		ID:          "message-voice",
+		WorkspaceID: params.WorkspaceID,
+		ChannelID:   params.ChannelID,
+		SenderID:    &senderID,
+		Kind:        params.Kind,
+		Body:        params.Body,
+		Metadata:    params.Metadata,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, nil
+}
+
 func (r otherUserMessageRepo) Get(context.Context, MessageRef) (messagesdomain.Message, error) {
 	senderID := "user-a"
 	return messagesdomain.Message{
@@ -158,6 +180,26 @@ func TestSendRejectsEmptyTextMessage(t *testing.T) {
 	}
 	if appErr.Code != "VALIDATION_ERROR" {
 		t.Fatalf("mã lỗi = %q", appErr.Code)
+	}
+}
+
+func TestSendAcceptsVoiceMediaMessage(t *testing.T) {
+	repo := &captureSendRepo{}
+	service := NewService(repo, testPermissionChecker{allowed: true})
+
+	message, err := service.Send(context.Background(), SendInput{
+		ActorUserID: "user-1",
+		WorkspaceID: "workspace-1",
+		ChannelID:   "channel-1",
+		Kind:        "file",
+		Body:        "Đã gửi tin nhắn thoại",
+		Metadata:    []byte(`{"message_type":"voice"}`),
+	})
+	if err != nil {
+		t.Fatalf("Send() trả lỗi: %v", err)
+	}
+	if message.Kind != "file" || repo.sent.Kind != "file" {
+		t.Fatalf("kind = %q, muốn file", message.Kind)
 	}
 }
 

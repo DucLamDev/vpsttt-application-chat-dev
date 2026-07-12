@@ -48,19 +48,120 @@
   padding: 8px 10px;
 }
 
-.attachment-audio__mic {
+.voice-message {
   align-items: center;
-  background: #1677ff;
-  border-radius: 50%;
+  background: linear-gradient(135deg, #2f6bff, #1b56e8);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 22px;
+  box-shadow: 0 8px 20px rgb(30 91 230 / 18%);
   color: #fff;
-  display: flex;
-  flex: 0 0 auto;
-  height: 34px;
-  justify-content: center;
-  width: 34px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 36px minmax(145px, 1fr) auto auto;
+  max-width: min(390px, 76vw);
+  min-height: 54px;
+  padding: 7px 10px 7px 8px;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+  width: min(390px, 70vw);
 }
 
-.attachment-audio audio { height: 36px; max-width: 285px; width: min(285px, 55vw); }
+.voice-message--playing {
+  box-shadow: 0 10px 26px rgb(30 91 230 / 28%);
+}
+
+.voice-message audio { display: none; }
+
+.voice-message button {
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.voice-message__play {
+  align-items: center;
+  background: rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+  width: 36px;
+}
+
+.voice-message__play:hover { background: rgb(255 255 255 / 28%); }
+
+.voice-message__play-icon {
+  border-bottom: 6px solid transparent;
+  border-left: 10px solid #fff;
+  border-top: 6px solid transparent;
+  display: block;
+  margin-left: 2px;
+}
+
+.voice-message__pause-icon {
+  border-left: 4px solid #fff;
+  border-right: 4px solid #fff;
+  display: block;
+  height: 13px;
+  width: 5px;
+}
+
+.voice-message__timeline {
+  height: 36px;
+  min-width: 0;
+  position: relative;
+}
+
+.voice-message__waveform {
+  align-items: center;
+  display: flex;
+  gap: 2px;
+  height: 36px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.voice-message__bar {
+  background: rgb(255 255 255 / 42%);
+  border-radius: 999px;
+  display: block;
+  flex: 1 1 2px;
+  max-width: 3px;
+  min-width: 2px;
+  transition: background 80ms linear;
+}
+
+.voice-message__bar--played { background: #fff; }
+
+.voice-message__timeline input {
+  cursor: pointer;
+  height: 100%;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.voice-message time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 32px;
+  text-align: right;
+}
+
+.voice-message__rate {
+  background: rgb(255 255 255 / 14%);
+  border-radius: 999px;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  min-height: 25px;
+  min-width: 31px;
+  padding: 0 6px;
+}
+
+.voice-message__rate:hover { background: rgb(255 255 255 / 24%); }
 
 .attachment-media-loading {
   align-items: center;
@@ -75,10 +176,19 @@
 .attachment-image:disabled { cursor: wait; opacity: .8; }
 
 [data-theme="dark"] .attachment-audio { background: rgb(15 23 42 / 72%); border-color: #334155; }
+[data-theme="dark"] .voice-message { background: linear-gradient(135deg, #2459d8, #1744ad); }
 [data-theme="dark"] .recording-status { background: #35141c; border-color: #6f1d32; }
 
 @media (prefers-reduced-motion: reduce) {
   .recording-status span { animation: none; }
+}
+
+@media (max-width: 560px) {
+  .voice-message {
+    grid-template-columns: 34px minmax(100px, 1fr) auto;
+    width: min(330px, 82vw);
+  }
+  .voice-message__rate { display: none; }
 }
 
 /* Zalo-inspired chat surface */
@@ -2403,6 +2513,22 @@
   border-color: #abefc6;
 }
 
+.upload-queue__item--audio {
+  grid-template-columns: minmax(250px, 390px) minmax(120px, 1fr) auto auto;
+}
+
+.upload-queue__item--audio .voice-message {
+  max-width: 390px;
+  width: 100%;
+}
+
+@media (max-width: 560px) {
+  .upload-queue__item--audio {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .upload-queue__item--audio > div:not(.voice-message) { display: none; }
+}
+
 .upload-queue__icon {
   align-items: center;
   background: #eef4ff;
@@ -2428,7 +2554,7 @@
   margin-top: 2px;
 }
 
-.upload-queue__item i {
+.upload-queue__item > div > i {
   background: linear-gradient(90deg, var(--brand-700), #60a5fa, var(--brand-700));
   background-size: 200% 100%;
   border-radius: 999px;
@@ -2437,7 +2563,7 @@
   margin-top: 7px;
 }
 
-.upload-queue__item button {
+.upload-queue__item > button {
   align-items: center;
   background: #ffffff;
   border: 1px solid var(--border);
@@ -3340,7 +3466,7 @@
   color: #fecaca;
 }
 
-[data-theme="dark"] .upload-queue__item button {
+[data-theme="dark"] .upload-queue__item > button {
   background: #101827;
   border-color: var(--border);
   color: #bfdbfe;

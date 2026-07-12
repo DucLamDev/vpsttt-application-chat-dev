@@ -379,10 +379,11 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
       const uploads = input.uploads.filter((item) => item.status === "queued" || item.status === "failed");
       const messageBody = input.body || uploadMessageFallback(uploads);
+      const isVoiceMessage = Boolean(uploads.length && !input.body && uploads.every((upload) => upload.isAudio));
       const sentMessage = await api.messages.send(workspaceId, selectedChannelId, {
         body: messageBody,
-        // Media is uploaded and attached after creating the compatible text message.
-        kind: "text"
+        kind: isVoiceMessage ? "file" : "text",
+        ...(isVoiceMessage ? { metadata: { message_type: "voice" } } : {})
       });
 
       const attachedFiles: NonNullable<ApiMessage["attachments"]> = [];
@@ -394,7 +395,15 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
           const uploadedFile = await api.files.upload(workspaceId, {
             channel_id: selectedChannelId,
             file: upload.file,
-            message_id: sentMessage.id
+            message_id: sentMessage.id,
+            ...(upload.isAudio
+              ? {
+                  metadata: {
+                    duration_seconds: upload.durationSeconds ?? 0,
+                    media_type: "voice"
+                  }
+                }
+              : {})
           });
 
           await api.files.attach(workspaceId, selectedChannelId, sentMessage.id, {
@@ -422,6 +431,11 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
             .getState()
             .markFailed(upload.id, error instanceof Error ? error.message : "Không upload được file.");
         }
+      }
+
+      if (uploads.length && !attachedFiles.length && !input.body) {
+        await api.messages.delete(workspaceId, selectedChannelId, sentMessage.id).catch(() => undefined);
+        throw new Error("Không tải được tin nhắn thoại. Bản ghi tạm đã được thu hồi; hãy thử lại.");
       }
 
       return {
@@ -660,7 +674,7 @@ function uploadMessageFallback(uploads: UploadQueueItem[]): string {
   }
 
   const imageCount = uploads.filter((upload) => upload.isImage).length;
-  const audioCount = uploads.filter((upload) => upload.file.type.startsWith("audio/")).length;
+  const audioCount = uploads.filter((upload) => upload.isAudio).length;
 
   if (audioCount === uploads.length) {
     return audioCount === 1 ? "Đã gửi tin nhắn thoại" : `Đã gửi ${audioCount} tin nhắn thoại`;
