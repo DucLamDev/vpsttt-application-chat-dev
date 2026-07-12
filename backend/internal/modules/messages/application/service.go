@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
@@ -666,6 +667,12 @@ func (s *Service) runAutoResponders(ctx context.Context, input botauto.MessageIn
 		}
 		messages, err := responder.HandleMessage(ctx, input)
 		if err != nil {
+			slog.Warn("Auto responder xử lý tin nhắn thất bại",
+				"workspace_id", input.WorkspaceID,
+				"channel_id", input.ChannelID,
+				"message_id", input.MessageID,
+				"error", err,
+			)
 			continue
 		}
 		for _, message := range messages {
