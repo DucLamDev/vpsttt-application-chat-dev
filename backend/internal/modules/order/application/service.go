@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -20,6 +21,21 @@ var (
 	ErrOrderBotTargetNotFound = errors.New("order bot target not found")
 	ErrOrderChannelNotFound   = errors.New("order bot channel not found")
 )
+
+type UpstreamError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *UpstreamError) Error() string {
+	if e == nil {
+		return "order API request failed"
+	}
+	if strings.TrimSpace(e.Message) != "" {
+		return strings.TrimSpace(e.Message)
+	}
+	return fmt.Sprintf("order API returned status %d", e.StatusCode)
+}
 
 const (
 	PermissionOrderView    = "order.view"
@@ -468,7 +484,7 @@ func (s *Service) WalletBalance(ctx context.Context, input WalletBalanceInput) (
 	}
 	envelope, err := s.client.WalletBalance(ctx, lookup)
 	if err != nil {
-		return WalletBalanceResult{}, err
+		return WalletBalanceResult{}, mapOrderClientError(err)
 	}
 	if err := ensureRemoteOK(envelope.OK, envelope.Status, envelope.Message); err != nil {
 		return WalletBalanceResult{}, err
@@ -521,7 +537,7 @@ func (s *Service) CreateDepositQR(ctx context.Context, input WalletDepositQRInpu
 		ExpiresMinutes: expiresMinutes,
 	})
 	if err != nil {
-		return WalletDepositQRResult{}, err
+		return WalletDepositQRResult{}, mapOrderClientError(err)
 	}
 	if err := ensureRemoteOK(envelope.OK, envelope.Status, envelope.Message); err != nil {
 		return WalletDepositQRResult{}, err
@@ -553,7 +569,7 @@ func (s *Service) ServicesExpiring(ctx context.Context, input ServicesExpiringIn
 	}
 	lookup, err := normalizeLookup(input.Email, input.UserID)
 	if err != nil {
-		return ServicesExpiringResult{}, err
+		return ServicesExpiringResult{}, mapOrderClientError(err)
 	}
 	days := input.Days
 	if days == 0 {
@@ -1097,6 +1113,41 @@ func ensureRemoteOK(ok bool, status string, message string) error {
 		message = "Order API trả về lỗi."
 	}
 	return apperrors.BadRequest("ORDER_API_ERROR", message)
+}
+
+func mapOrderClientError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var upstream *UpstreamError
+	if errors.As(err, &upstream) {
+		code := "ORDER_API_UPSTREAM_ERROR"
+		message := "Order API không xử lý được yêu cầu."
+		switch upstream.StatusCode {
+		case http.StatusUnauthorized:
+			code = "ORDER_API_UNAUTHORIZED"
+			message = "Order API từ chối API key."
+		case http.StatusForbidden:
+			code = "ORDER_API_FORBIDDEN"
+			message = "Order API từ chối truy cập."
+		case http.StatusTooManyRequests:
+			code = "ORDER_API_RATE_LIMITED"
+			message = "Order API đang giới hạn tần suất yêu cầu."
+		}
+		if detail := strings.TrimSpace(upstream.Message); detail != "" {
+			message += " " + detail
+		}
+		appErr := apperrors.New(code, message, http.StatusBadGateway)
+		appErr.Details = map[string]any{"upstream_status": upstream.StatusCode}
+		return appErr
+	}
+
+	return apperrors.New(
+		"ORDER_API_UNAVAILABLE",
+		"Không kết nối được tới Order API. Vui lòng kiểm tra kết nối và thử lại.",
+		http.StatusServiceUnavailable,
+	)
 }
 
 func formatWalletBalanceMessage(data WalletBalanceData) string {

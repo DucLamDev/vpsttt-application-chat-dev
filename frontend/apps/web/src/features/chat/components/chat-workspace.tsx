@@ -3347,7 +3347,7 @@ function BotsPage({
               <p>Tra ví, tạo QR nạp ví và kiểm tra dịch vụ sắp hết hạn từ hệ thống order.</p>
             </div>
             <Button disabled={orderStatusQuery.isFetching} onClick={() => void orderStatusQuery.refetch()} size="sm" variant="secondary">
-              <Cloud size={15} /> Kiểm tra kết nối
+              <Cloud size={15} /> Kiểm tra cấu hình
             </Button>
           </header>
           <div className="order-bot-grid">

@@ -88,12 +88,27 @@ func (c *Client) post(ctx context.Context, path string, input any, output any) e
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		return fmt.Errorf("order API returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+		return parseUpstreamError(resp.StatusCode, responseBody)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(output); err != nil {
 		return fmt.Errorf("decode order API response: %w", err)
 	}
 	return nil
+}
+
+func parseUpstreamError(statusCode int, body []byte) error {
+	var payload struct {
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(body, &payload)
+	message := strings.TrimSpace(payload.Message)
+	if message == "" {
+		message = http.StatusText(statusCode)
+	}
+	return &orderapp.UpstreamError{
+		StatusCode: statusCode,
+		Message:    message,
+	}
 }
 
 func (c *Client) resolve(path string) string {
