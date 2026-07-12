@@ -31,5 +31,6 @@ Tài liệu dự án WebTui Chat được viết bằng tiếng Việt có dấu
 - [Security baseline](../backend/docs/security-baseline.md)
 - [Auth, user và RBAC](../backend/docs/auth-rbac.md)
 - [Workspace, phòng ban, kênh và direct message](../backend/docs/workspace-channel.md)
+- [Order Bot VPSTTT Phase 1](../backend/docs/order-bot-phase1.md)
 - [Chạy backend local](../backend/docs/local-run.md)
 - [OpenAPI nền](../backend/api/openapi/openapi.yaml)

@@ -17,8 +17,8 @@ func TestDefaultWorkspaceCatalogue(t *testing.T) {
 	}
 
 	bots := DefaultWorkspaceBots()
-	if len(bots) != 3 {
-		t.Fatalf("len(DefaultWorkspaceBots()) = %d, want 3", len(bots))
+	if len(bots) != 5 {
+		t.Fatalf("len(DefaultWorkspaceBots()) = %d, want 5", len(bots))
 	}
 	botSlugs := make(map[string]bool, len(bots))
 	for _, bot := range bots {

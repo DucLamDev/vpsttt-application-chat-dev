@@ -24,6 +24,14 @@ func (r *fakeWebhookRepo) ListIncoming(context.Context, string) ([]webhooksdomai
 	return nil, nil
 }
 
+func (r *fakeWebhookRepo) UpdateIncoming(context.Context, UpdateIncomingParams) (webhooksdomain.IncomingWebhook, error) {
+	return webhooksdomain.IncomingWebhook{}, nil
+}
+
+func (r *fakeWebhookRepo) DeleteIncoming(context.Context, string, string) error {
+	return nil
+}
+
 func (r *fakeWebhookRepo) CreateOutgoing(context.Context, CreateOutgoingParams) (webhooksdomain.OutgoingWebhook, error) {
 	return webhooksdomain.OutgoingWebhook{}, nil
 }
@@ -32,8 +40,20 @@ func (r *fakeWebhookRepo) ListOutgoing(context.Context, string) ([]webhooksdomai
 	return nil, nil
 }
 
+func (r *fakeWebhookRepo) UpdateOutgoing(context.Context, UpdateOutgoingParams) (webhooksdomain.OutgoingWebhook, error) {
+	return webhooksdomain.OutgoingWebhook{}, nil
+}
+
+func (r *fakeWebhookRepo) DeleteOutgoing(context.Context, string, string) error {
+	return nil
+}
+
 func (r *fakeWebhookRepo) ListDeliveries(context.Context, string, string, int) ([]webhooksdomain.Delivery, error) {
 	return nil, nil
+}
+
+func (r *fakeWebhookRepo) CreateTestDelivery(context.Context, TestDeliveryParams) (webhooksdomain.Delivery, error) {
+	return webhooksdomain.Delivery{}, nil
 }
 
 func (r *fakeWebhookRepo) SendIncomingMessage(context.Context, IncomingMessageParams) (webhooksdomain.IntegrationMessage, error) {

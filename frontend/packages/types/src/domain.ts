@@ -44,6 +44,8 @@ export type PermissionCode =
   | "file.upload"
   | "api_token.manage"
   | "bot.manage"
+  | "order.view"
+  | "order.billing"
   | "webhook.manage"
   | "cronjob.manage"
   | "backup.manage"

@@ -88,6 +88,121 @@ export type SendBotMessageInput = {
   metadata?: JsonValue;
 };
 
+export type OrderBotStatus = {
+  configured: boolean;
+  base_url?: string;
+};
+
+export type OrderWalletBalanceData = {
+  user_id?: number;
+  email?: string;
+  name?: string;
+  balance?: number;
+  balance_vnd?: number;
+  money?: number;
+  agency?: string;
+  services?: Record<string, number>;
+};
+
+export type OrderWalletBalanceInput = {
+  email?: string;
+  user_id?: number;
+  channel_id?: Id;
+  post_to_channel?: boolean;
+};
+
+export type OrderWalletBalanceResult = {
+  data: OrderWalletBalanceData;
+  bot_message?: BotMessage;
+};
+
+export type OrderWalletDepositQRData = {
+  request_id?: number;
+  reference?: string;
+  email?: string;
+  user_id?: number;
+  name?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  qr_url?: string;
+  bank?: {
+    bank_code?: string;
+    bin?: string;
+    account_number?: string;
+    account_name?: string;
+    transfer_content?: string;
+    requested_amount?: number;
+    auto_check?: boolean;
+  };
+  transfer_content?: string;
+  user_balance_before?: number;
+  expires_at?: string;
+};
+
+export type OrderWalletDepositQRInput = {
+  email: string;
+  amount: number;
+  expires_minutes?: number;
+  channel_id?: Id;
+  post_to_channel?: boolean;
+};
+
+export type OrderWalletDepositQRResult = {
+  data: OrderWalletDepositQRData;
+  bot_message?: BotMessage;
+};
+
+export type OrderServicesExpiringItem = {
+  service_type_key?: string;
+  service_type?: string;
+  service_id?: number;
+  name?: string;
+  meta?: string;
+  status?: string;
+  status_label?: string;
+  expires_at?: string;
+  days_remaining?: number;
+  autoextend?: number | null;
+  route?: string;
+  renewal_transfer_content?: string | null;
+};
+
+export type OrderServicesExpiringData = {
+  user?: {
+    user_id?: number;
+    email?: string;
+    name?: string;
+    balance?: number;
+  };
+  days?: number;
+  include_expired?: boolean;
+  service_type?: string;
+  summary?: {
+    total?: number;
+    expired?: number;
+    expiring?: number;
+    auto_renew_off?: number;
+    by_type?: Record<string, number>;
+  };
+  items?: OrderServicesExpiringItem[];
+};
+
+export type OrderServicesExpiringInput = {
+  email?: string;
+  user_id?: number;
+  days?: number;
+  include_expired?: boolean;
+  service_type?: "all" | "vps" | "proxy" | "hosting" | "s3" | "drive" | "waf" | "domain" | "separate";
+  channel_id?: Id;
+  post_to_channel?: boolean;
+};
+
+export type OrderServicesExpiringResult = {
+  data: OrderServicesExpiringData;
+  bot_message?: BotMessage;
+};
+
 export type IncomingWebhook = {
   id: Id;
   workspace_id: Id;
@@ -110,6 +225,12 @@ export type CreateIncomingWebhookInput = {
   name: string;
 };
 
+export type UpdateIncomingWebhookInput = {
+  channel_id?: Id | null;
+  name?: string;
+  status?: string;
+};
+
 export type OutgoingWebhook = {
   id: Id;
   workspace_id: Id;
@@ -130,6 +251,18 @@ export type CreateOutgoingWebhookInput = {
   name: string;
   target_url: string;
   event_types?: string[];
+};
+
+export type UpdateOutgoingWebhookInput = {
+  name?: string;
+  target_url?: string;
+  event_types?: string[];
+  status?: string;
+};
+
+export type TestOutgoingWebhookInput = {
+  event_type?: string;
+  payload?: JsonValue;
 };
 
 export type WebhookDelivery = {

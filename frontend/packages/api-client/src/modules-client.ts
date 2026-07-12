@@ -19,11 +19,21 @@ import type {
   IncomingWebhook,
   InstallBotInput,
   Notification,
+  OrderBotStatus,
+  OrderServicesExpiringInput,
+  OrderServicesExpiringResult,
+  OrderWalletBalanceInput,
+  OrderWalletBalanceResult,
+  OrderWalletDepositQRInput,
+  OrderWalletDepositQRResult,
   OutgoingWebhook,
   Presence,
   PresenceHeartbeatInput,
   SaveCronJobInput,
   SendBotMessageInput,
+  TestOutgoingWebhookInput,
+  UpdateIncomingWebhookInput,
+  UpdateOutgoingWebhookInput,
   WebhookDelivery
 } from "@webtui/types";
 import type { HttpClient, QueryParams } from "./http-client";
@@ -96,6 +106,17 @@ export function createWebhooksClient(http: HttpClient) {
         input
       );
     },
+    updateIncoming(workspaceId: string, webhookId: string, input: UpdateIncomingWebhookInput) {
+      return http.patch<IncomingWebhook>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/incoming-webhooks/${encodeURIComponent(webhookId)}`,
+        input
+      );
+    },
+    deleteIncoming(workspaceId: string, webhookId: string) {
+      return http.delete<void>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/incoming-webhooks/${encodeURIComponent(webhookId)}`
+      );
+    },
     async outgoing(workspaceId: string) {
       const data = await http.get<unknown>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/outgoing-webhooks`);
       return collectionFrom<OutgoingWebhook>(data, "outgoing_webhooks");
@@ -106,11 +127,28 @@ export function createWebhooksClient(http: HttpClient) {
         input
       );
     },
+    updateOutgoing(workspaceId: string, webhookId: string, input: UpdateOutgoingWebhookInput) {
+      return http.patch<OutgoingWebhook>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/outgoing-webhooks/${encodeURIComponent(webhookId)}`,
+        input
+      );
+    },
+    deleteOutgoing(workspaceId: string, webhookId: string) {
+      return http.delete<void>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/outgoing-webhooks/${encodeURIComponent(webhookId)}`
+      );
+    },
     async deliveries(workspaceId: string, webhookId: string) {
       const data = await http.get<unknown>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/outgoing-webhooks/${encodeURIComponent(webhookId)}/deliveries`
       );
       return collectionFrom<WebhookDelivery>(data, "deliveries");
+    },
+    testOutgoing(workspaceId: string, webhookId: string, input: TestOutgoingWebhookInput) {
+      return http.post<WebhookDelivery>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/outgoing-webhooks/${encodeURIComponent(webhookId)}/test`,
+        input
+      );
     }
   };
 }
@@ -139,6 +177,32 @@ export function createBotsClient(http: HttpClient) {
     sendMessage(workspaceId: string, botId: string, input: SendBotMessageInput) {
       return http.post<BotMessage>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/bots/${encodeURIComponent(botId)}/messages`,
+        input
+      );
+    }
+  };
+}
+
+export function createOrderBotClient(http: HttpClient) {
+  return {
+    status(workspaceId: string) {
+      return http.get<OrderBotStatus>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/order-bot/status`);
+    },
+    walletBalance(workspaceId: string, input: OrderWalletBalanceInput) {
+      return http.post<OrderWalletBalanceResult>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/order-bot/wallet/balance`,
+        input
+      );
+    },
+    depositQr(workspaceId: string, input: OrderWalletDepositQRInput) {
+      return http.post<OrderWalletDepositQRResult>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/order-bot/wallet/deposit-qr`,
+        input
+      );
+    },
+    expiringServices(workspaceId: string, input: OrderServicesExpiringInput) {
+      return http.post<OrderServicesExpiringResult>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/order-bot/services/expiring`,
         input
       );
     }

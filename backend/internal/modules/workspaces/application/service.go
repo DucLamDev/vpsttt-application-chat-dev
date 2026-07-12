@@ -52,9 +52,11 @@ func DefaultWorkspaceChannels() []DefaultChannelDefinition {
 
 func DefaultWorkspaceBots() []DefaultBotDefinition {
 	return []DefaultBotDefinition{
+		{Slug: "cskh-bot", Name: "CSKH Bot", Description: "Tra cứu ví, dịch vụ và hỗ trợ khách hàng từ hệ thống order VPSTTT", ChannelSlug: "ticket"},
 		{Slug: "ticket-bot", Name: "Ticket Bot", Description: "Báo ticket mới từ web bán hàng/billing", ChannelSlug: "ticket"},
 		{Slug: "server-alert-bot", Name: "Server Alert Bot", Description: "Báo server mất ping, port lỗi, dịch vụ down", ChannelSlug: "server-alert"},
 		{Slug: "gia-han-bot", Name: "Gia Hạn Bot", Description: "Báo khách hoặc dịch vụ sắp hết hạn", ChannelSlug: "gia-han"},
+		{Slug: "thanh-toan-bot", Name: "Thanh Toán Bot", Description: "Tạo QR nạp ví và hỗ trợ kiểm tra thanh toán", ChannelSlug: "ke-toan"},
 	}
 }
 

@@ -42,6 +42,9 @@ export const queryKeys = {
   notifications: {
     list: (workspaceId?: string) => ["notifications", workspaceId ?? "all"] as const
   },
+  orderBot: {
+    status: (workspaceId: string) => ["order-bot", workspaceId, "status"] as const
+  },
   presence: {
     list: (workspaceId: string) => ["presence", workspaceId] as const
   },

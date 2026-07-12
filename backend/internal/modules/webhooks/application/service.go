@@ -31,9 +31,14 @@ type TokenAuthenticator interface {
 type Repository interface {
 	CreateIncoming(ctx context.Context, params CreateIncomingParams) (webhooksdomain.IncomingWebhook, error)
 	ListIncoming(ctx context.Context, workspaceID string) ([]webhooksdomain.IncomingWebhook, error)
+	UpdateIncoming(ctx context.Context, params UpdateIncomingParams) (webhooksdomain.IncomingWebhook, error)
+	DeleteIncoming(ctx context.Context, workspaceID string, incomingWebhookID string) error
 	CreateOutgoing(ctx context.Context, params CreateOutgoingParams) (webhooksdomain.OutgoingWebhook, error)
 	ListOutgoing(ctx context.Context, workspaceID string) ([]webhooksdomain.OutgoingWebhook, error)
+	UpdateOutgoing(ctx context.Context, params UpdateOutgoingParams) (webhooksdomain.OutgoingWebhook, error)
+	DeleteOutgoing(ctx context.Context, workspaceID string, outgoingWebhookID string) error
 	ListDeliveries(ctx context.Context, workspaceID string, outgoingWebhookID string, limit int) ([]webhooksdomain.Delivery, error)
+	CreateTestDelivery(ctx context.Context, params TestDeliveryParams) (webhooksdomain.Delivery, error)
 	SendIncomingMessage(ctx context.Context, params IncomingMessageParams) (webhooksdomain.IntegrationMessage, error)
 	SendIntegrationMessage(ctx context.Context, params IntegrationMessageParams) (webhooksdomain.IntegrationMessage, error)
 	CreateDeliveriesForEvent(ctx context.Context, params OutboxDeliveryParams) (int, error)
@@ -68,6 +73,23 @@ type CreateIncomingParams struct {
 	CreatedBy   string
 }
 
+type UpdateIncomingInput struct {
+	ActorUserID string
+	WorkspaceID string
+	WebhookID   string
+	ChannelID   *string
+	Name        *string
+	Status      *string
+}
+
+type UpdateIncomingParams struct {
+	WorkspaceID string
+	WebhookID   string
+	ChannelID   *string
+	Name        *string
+	Status      *string
+}
+
 type CreateOutgoingInput struct {
 	ActorUserID string
 	WorkspaceID string
@@ -83,6 +105,40 @@ type CreateOutgoingParams struct {
 	SecretHash  string
 	EventTypes  []string
 	CreatedBy   string
+}
+
+type UpdateOutgoingInput struct {
+	ActorUserID string
+	WorkspaceID string
+	WebhookID   string
+	Name        *string
+	TargetURL   *string
+	EventTypes  *[]string
+	Status      *string
+}
+
+type UpdateOutgoingParams struct {
+	WorkspaceID string
+	WebhookID   string
+	Name        *string
+	TargetURL   *string
+	EventTypes  *[]string
+	Status      *string
+}
+
+type TestOutgoingInput struct {
+	ActorUserID string
+	WorkspaceID string
+	WebhookID   string
+	EventType   string
+	Payload     json.RawMessage
+}
+
+type TestDeliveryParams struct {
+	WorkspaceID        string
+	OutgoingWebhookID string
+	EventType         string
+	RequestBody       []byte
 }
 
 type IncomingMessageInput struct {
@@ -234,6 +290,44 @@ func (s *Service) ListIncoming(ctx context.Context, actorUserID string, workspac
 	return toIncomingDTOs(webhooks), nil
 }
 
+func (s *Service) UpdateIncoming(ctx context.Context, input UpdateIncomingInput) (IncomingWebhookDTO, error) {
+	if err := s.ensureManagePermission(ctx, input.ActorUserID, input.WorkspaceID); err != nil {
+		return IncomingWebhookDTO{}, err
+	}
+	if strings.TrimSpace(input.WebhookID) == "" {
+		return IncomingWebhookDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Thieu incoming webhook_id.")
+	}
+	name := cleanStringPtr(input.Name)
+	if name != nil && (*name == "" || len([]rune(*name)) > 120) {
+		return IncomingWebhookDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Ten incoming webhook phai dai tu 1 den 120 ky tu.")
+	}
+	status := cleanStringPtr(input.Status)
+	if status != nil && !validWebhookStatus(*status) {
+		return IncomingWebhookDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Trang thai incoming webhook khong hop le.")
+	}
+	webhook, err := s.repo.UpdateIncoming(ctx, UpdateIncomingParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		WebhookID:   strings.TrimSpace(input.WebhookID),
+		ChannelID:   cleanStringPtr(input.ChannelID),
+		Name:        name,
+		Status:      status,
+	})
+	if err != nil {
+		return IncomingWebhookDTO{}, mapWebhookError(err)
+	}
+	return toIncomingDTO(webhook), nil
+}
+
+func (s *Service) DeleteIncoming(ctx context.Context, actorUserID string, workspaceID string, incomingWebhookID string) error {
+	if err := s.ensureManagePermission(ctx, actorUserID, workspaceID); err != nil {
+		return err
+	}
+	if err := s.repo.DeleteIncoming(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(incomingWebhookID)); err != nil {
+		return mapWebhookError(err)
+	}
+	return nil
+}
+
 func (s *Service) CreateOutgoing(ctx context.Context, input CreateOutgoingInput) (CreatedOutgoingWebhookDTO, error) {
 	if err := s.ensureManagePermission(ctx, input.ActorUserID, input.WorkspaceID); err != nil {
 		return CreatedOutgoingWebhookDTO{}, err
@@ -275,6 +369,54 @@ func (s *Service) ListOutgoing(ctx context.Context, actorUserID string, workspac
 	return toOutgoingDTOs(webhooks), nil
 }
 
+func (s *Service) UpdateOutgoing(ctx context.Context, input UpdateOutgoingInput) (OutgoingWebhookDTO, error) {
+	if err := s.ensureManagePermission(ctx, input.ActorUserID, input.WorkspaceID); err != nil {
+		return OutgoingWebhookDTO{}, err
+	}
+	if strings.TrimSpace(input.WebhookID) == "" {
+		return OutgoingWebhookDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Thieu outgoing webhook_id.")
+	}
+	name := cleanStringPtr(input.Name)
+	if name != nil && (*name == "" || len([]rune(*name)) > 120) {
+		return OutgoingWebhookDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Ten outgoing webhook phai dai tu 1 den 120 ky tu.")
+	}
+	targetURL := cleanStringPtr(input.TargetURL)
+	if targetURL != nil && !validHTTPURL(*targetURL) {
+		return OutgoingWebhookDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Target URL cua outgoing webhook khong hop le.")
+	}
+	status := cleanStringPtr(input.Status)
+	if status != nil && !validWebhookStatus(*status) {
+		return OutgoingWebhookDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Trang thai outgoing webhook khong hop le.")
+	}
+	eventTypes := input.EventTypes
+	if eventTypes != nil {
+		normalized := normalizeEventTypes(*eventTypes)
+		eventTypes = &normalized
+	}
+	webhook, err := s.repo.UpdateOutgoing(ctx, UpdateOutgoingParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		WebhookID:   strings.TrimSpace(input.WebhookID),
+		Name:        name,
+		TargetURL:   targetURL,
+		EventTypes:  eventTypes,
+		Status:      status,
+	})
+	if err != nil {
+		return OutgoingWebhookDTO{}, mapWebhookError(err)
+	}
+	return toOutgoingDTO(webhook), nil
+}
+
+func (s *Service) DeleteOutgoing(ctx context.Context, actorUserID string, workspaceID string, outgoingWebhookID string) error {
+	if err := s.ensureManagePermission(ctx, actorUserID, workspaceID); err != nil {
+		return err
+	}
+	if err := s.repo.DeleteOutgoing(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(outgoingWebhookID)); err != nil {
+		return mapWebhookError(err)
+	}
+	return nil
+}
+
 func (s *Service) ListDeliveries(ctx context.Context, actorUserID string, workspaceID string, outgoingWebhookID string, limit int) ([]DeliveryDTO, error) {
 	if err := s.ensureManagePermission(ctx, actorUserID, workspaceID); err != nil {
 		return nil, err
@@ -287,6 +429,61 @@ func (s *Service) ListDeliveries(ctx context.Context, actorUserID string, worksp
 		return nil, err
 	}
 	return toDeliveryDTOs(deliveries), nil
+}
+
+func (s *Service) TestOutgoing(ctx context.Context, input TestOutgoingInput) (DeliveryDTO, error) {
+	if err := s.ensureManagePermission(ctx, input.ActorUserID, input.WorkspaceID); err != nil {
+		return DeliveryDTO{}, err
+	}
+	eventType := strings.TrimSpace(input.EventType)
+	if eventType == "" {
+		eventType = "webhook.test"
+	}
+	requestBody, err := normalizeJSON(input.Payload, "Payload test webhook khong phai JSON hop le.")
+	if err != nil {
+		return DeliveryDTO{}, err
+	}
+	delivery, err := s.repo.CreateTestDelivery(ctx, TestDeliveryParams{
+		WorkspaceID:        strings.TrimSpace(input.WorkspaceID),
+		OutgoingWebhookID: strings.TrimSpace(input.WebhookID),
+		EventType:         eventType,
+		RequestBody:       requestBody,
+	})
+	if err != nil {
+		return DeliveryDTO{}, mapWebhookError(err)
+	}
+	if s.sender == nil {
+		return toDeliveryDTO(delivery), nil
+	}
+	result, sendErr := s.sender.Send(ctx, delivery)
+	now := time.Now().UTC()
+	if sendErr != nil {
+		if err := s.repo.MarkDeliveryFailed(ctx, delivery.ID, result.StatusCode, result.Body, retryDelay(delivery.AttemptCount), maxDeliveryRetries); err != nil {
+			return DeliveryDTO{}, err
+		}
+		delivery.Status = "failed"
+		delivery.AttemptCount++
+		if result.StatusCode > 0 {
+			responseStatus := result.StatusCode
+			delivery.ResponseStatus = &responseStatus
+		}
+		delivery.ResponseBody = stringPtr(trimResponsePreview(result.Body))
+		nextAttempt := now.Add(retryDelay(delivery.AttemptCount - 1))
+		delivery.NextAttemptAt = &nextAttempt
+		delivery.UpdatedAt = now
+		return toDeliveryDTO(delivery), nil
+	}
+	if err := s.repo.MarkDeliverySuccess(ctx, delivery.ID, result.StatusCode, result.Body); err != nil {
+		return DeliveryDTO{}, err
+	}
+	delivery.Status = "success"
+	delivery.AttemptCount++
+	responseStatus := result.StatusCode
+	delivery.ResponseStatus = &responseStatus
+	delivery.ResponseBody = stringPtr(trimResponsePreview(result.Body))
+	delivery.DeliveredAt = &now
+	delivery.UpdatedAt = now
+	return toDeliveryDTO(delivery), nil
 }
 
 func (s *Service) DispatchIncoming(ctx context.Context, input IncomingMessageInput) (IntegrationMessageDTO, error) {
@@ -433,6 +630,18 @@ func normalizeEventTypes(values []string) []string {
 	return result
 }
 
+func cleanStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cleaned := strings.TrimSpace(*value)
+	return &cleaned
+}
+
+func validWebhookStatus(status string) bool {
+	return status == "active" || status == "disabled"
+}
+
 func normalizeJSON(value json.RawMessage, message string) ([]byte, error) {
 	if len(value) == 0 || strings.TrimSpace(string(value)) == "" || strings.TrimSpace(string(value)) == "null" {
 		return []byte(`{}`), nil
@@ -454,6 +663,17 @@ func retryDelay(attemptCount int) time.Duration {
 		return 5 * time.Minute
 	}
 	return delay
+}
+
+func trimResponsePreview(value string) string {
+	if len(value) > 4096 {
+		return value[:4096]
+	}
+	return value
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
 
 func mapWebhookError(err error) error {
@@ -516,27 +736,31 @@ func toOutgoingDTO(webhook webhooksdomain.OutgoingWebhook) OutgoingWebhookDTO {
 func toDeliveryDTOs(deliveries []webhooksdomain.Delivery) []DeliveryDTO {
 	dtos := make([]DeliveryDTO, 0, len(deliveries))
 	for _, delivery := range deliveries {
-		body := json.RawMessage(delivery.RequestBody)
-		if len(body) == 0 {
-			body = json.RawMessage(`{}`)
-		}
-		dtos = append(dtos, DeliveryDTO{
-			ID:                delivery.ID,
-			OutgoingWebhookID: delivery.OutgoingWebhookID,
-			EventID:           delivery.EventID,
-			EventType:         delivery.EventType,
-			RequestBody:       body,
-			ResponseStatus:    delivery.ResponseStatus,
-			ResponseBody:      delivery.ResponseBody,
-			Status:            delivery.Status,
-			AttemptCount:      delivery.AttemptCount,
-			NextAttemptAt:     formatOptionalTime(delivery.NextAttemptAt),
-			DeliveredAt:       formatOptionalTime(delivery.DeliveredAt),
-			CreatedAt:         formatTime(delivery.CreatedAt),
-			UpdatedAt:         formatTime(delivery.UpdatedAt),
-		})
+		dtos = append(dtos, toDeliveryDTO(delivery))
 	}
 	return dtos
+}
+
+func toDeliveryDTO(delivery webhooksdomain.Delivery) DeliveryDTO {
+	body := json.RawMessage(delivery.RequestBody)
+	if len(body) == 0 {
+		body = json.RawMessage(`{}`)
+	}
+	return DeliveryDTO{
+		ID:                delivery.ID,
+		OutgoingWebhookID: delivery.OutgoingWebhookID,
+		EventID:           delivery.EventID,
+		EventType:         delivery.EventType,
+		RequestBody:       body,
+		ResponseStatus:    delivery.ResponseStatus,
+		ResponseBody:      delivery.ResponseBody,
+		Status:            delivery.Status,
+		AttemptCount:      delivery.AttemptCount,
+		NextAttemptAt:     formatOptionalTime(delivery.NextAttemptAt),
+		DeliveredAt:       formatOptionalTime(delivery.DeliveredAt),
+		CreatedAt:         formatTime(delivery.CreatedAt),
+		UpdatedAt:         formatTime(delivery.UpdatedAt),
+	}
 }
 
 func toIntegrationMessageDTO(message webhooksdomain.IntegrationMessage) IntegrationMessageDTO {

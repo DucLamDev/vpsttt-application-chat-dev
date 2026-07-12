@@ -9,6 +9,7 @@ import {
   createBotsClient,
   createCronjobsClient,
   createNotificationsClient,
+  createOrderBotClient,
   createPresenceClient,
   createWebhooksClient
 } from "./modules-client";
@@ -38,6 +39,7 @@ export function createWebTuiApiClient(options: HttpClientOptions) {
     http,
     messages: createMessagesClient(http),
     notifications: createNotificationsClient(http),
+    orderBot: createOrderBotClient(http),
     presence: createPresenceClient(http),
     rbac: createRbacClient(http),
     users: createUsersClient(http),

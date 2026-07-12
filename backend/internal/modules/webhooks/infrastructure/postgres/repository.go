@@ -69,6 +69,51 @@ ORDER BY created_at DESC
 	return webhooks, rows.Err()
 }
 
+func (r *Repository) UpdateIncoming(ctx context.Context, params webhooksapp.UpdateIncomingParams) (webhooksdomain.IncomingWebhook, error) {
+	row := r.pool.QueryRow(ctx, `
+UPDATE incoming_webhooks iw
+SET name = COALESCE($3::text, iw.name),
+    status = COALESCE($4::text, iw.status),
+    channel_id = CASE WHEN $5::text IS NULL THEN iw.channel_id ELSE NULLIF($5::text, '')::uuid END
+WHERE iw.workspace_id = $1::uuid
+  AND iw.id = $2::uuid
+  AND (
+      $5::text IS NULL
+      OR $5::text = ''
+      OR EXISTS (
+          SELECT 1
+          FROM channels c
+          WHERE c.workspace_id = iw.workspace_id
+            AND c.id = NULLIF($5::text, '')::uuid
+            AND c.status = 'active'
+            AND c.deleted_at IS NULL
+      )
+  )
+RETURNING id::text, workspace_id::text, channel_id::text, name, status, created_by::text,
+          created_at, updated_at, last_used_at
+`, params.WorkspaceID, params.WebhookID, nullableString(params.Name), nullableString(params.Status), nullableString(params.ChannelID))
+	webhook, err := scanIncoming(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return webhooksdomain.IncomingWebhook{}, webhooksdomain.ErrIncomingWebhookNotFound
+	}
+	return webhook, err
+}
+
+func (r *Repository) DeleteIncoming(ctx context.Context, workspaceID string, incomingWebhookID string) error {
+	tag, err := r.pool.Exec(ctx, `
+DELETE FROM incoming_webhooks
+WHERE workspace_id = $1::uuid
+  AND id = $2::uuid
+`, workspaceID, incomingWebhookID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return webhooksdomain.ErrIncomingWebhookNotFound
+	}
+	return nil
+}
+
 func (r *Repository) CreateOutgoing(ctx context.Context, params webhooksapp.CreateOutgoingParams) (webhooksdomain.OutgoingWebhook, error) {
 	row := r.pool.QueryRow(ctx, `
 INSERT INTO outgoing_webhooks (workspace_id, name, target_url, secret_hash, event_types, created_by)
@@ -103,6 +148,45 @@ ORDER BY created_at DESC
 	return webhooks, rows.Err()
 }
 
+func (r *Repository) UpdateOutgoing(ctx context.Context, params webhooksapp.UpdateOutgoingParams) (webhooksdomain.OutgoingWebhook, error) {
+	eventTypes := []string{}
+	hasEventTypes := params.EventTypes != nil
+	if params.EventTypes != nil {
+		eventTypes = *params.EventTypes
+	}
+	row := r.pool.QueryRow(ctx, `
+UPDATE outgoing_webhooks ow
+SET name = COALESCE($3::text, ow.name),
+    target_url = COALESCE($4::text, ow.target_url),
+    status = COALESCE($5::text, ow.status),
+    event_types = CASE WHEN $6::boolean THEN $7::text[] ELSE ow.event_types END
+WHERE ow.workspace_id = $1::uuid
+  AND ow.id = $2::uuid
+RETURNING id::text, workspace_id::text, name, target_url, secret_hash, event_types, status,
+          created_by::text, created_at, updated_at
+`, params.WorkspaceID, params.WebhookID, nullableString(params.Name), nullableString(params.TargetURL), nullableString(params.Status), hasEventTypes, eventTypes)
+	webhook, err := scanOutgoing(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return webhooksdomain.OutgoingWebhook{}, webhooksdomain.ErrOutgoingWebhookNotFound
+	}
+	return webhook, err
+}
+
+func (r *Repository) DeleteOutgoing(ctx context.Context, workspaceID string, outgoingWebhookID string) error {
+	tag, err := r.pool.Exec(ctx, `
+DELETE FROM outgoing_webhooks
+WHERE workspace_id = $1::uuid
+  AND id = $2::uuid
+`, workspaceID, outgoingWebhookID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return webhooksdomain.ErrOutgoingWebhookNotFound
+	}
+	return nil
+}
+
 func (r *Repository) ListDeliveries(ctx context.Context, workspaceID string, outgoingWebhookID string, limit int) ([]webhooksdomain.Delivery, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT d.id::text, d.outgoing_webhook_id::text, ow.target_url, ow.secret_hash, d.event_id::text,
@@ -129,6 +213,47 @@ LIMIT $3
 		deliveries = append(deliveries, delivery)
 	}
 	return deliveries, rows.Err()
+}
+
+func (r *Repository) CreateTestDelivery(ctx context.Context, params webhooksapp.TestDeliveryParams) (webhooksdomain.Delivery, error) {
+	row := r.pool.QueryRow(ctx, `
+WITH target AS (
+    SELECT id, target_url, secret_hash
+    FROM outgoing_webhooks
+    WHERE workspace_id = $1::uuid
+      AND id = $2::uuid
+),
+inserted AS (
+    INSERT INTO webhook_deliveries (outgoing_webhook_id, event_type, request_body)
+    SELECT target.id, $3, $4::jsonb
+    FROM target
+    RETURNING id, outgoing_webhook_id, event_id, event_type, request_body::text,
+              response_status, response_body, status, attempt_count, next_attempt_at,
+              delivered_at, created_at, updated_at
+)
+SELECT inserted.id::text,
+       inserted.outgoing_webhook_id::text,
+       target.target_url,
+       target.secret_hash,
+       inserted.event_id::text,
+       inserted.event_type,
+       inserted.request_body,
+       inserted.response_status,
+       inserted.response_body,
+       inserted.status,
+       inserted.attempt_count,
+       inserted.next_attempt_at,
+       inserted.delivered_at,
+       inserted.created_at,
+       inserted.updated_at
+FROM inserted
+JOIN target ON target.id = inserted.outgoing_webhook_id
+`, params.WorkspaceID, params.OutgoingWebhookID, params.EventType, string(params.RequestBody))
+	delivery, err := scanDelivery(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return webhooksdomain.Delivery{}, webhooksdomain.ErrOutgoingWebhookNotFound
+	}
+	return delivery, err
 }
 
 func (r *Repository) SendIncomingMessage(ctx context.Context, params webhooksapp.IncomingMessageParams) (webhooksdomain.IntegrationMessage, error) {
@@ -508,6 +633,13 @@ func scanIntegrationMessage(row rowScanner) (webhooksdomain.IntegrationMessage, 
 	}
 	message.Metadata = []byte(metadata)
 	return message, nil
+}
+
+func nullableString(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func nullStringPtr(value sql.NullString) *string {

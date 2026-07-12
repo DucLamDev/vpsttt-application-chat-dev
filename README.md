@@ -20,6 +20,7 @@
 - [backend/docs/security-baseline.md](backend/docs/security-baseline.md): checklist bảo mật backend.
 - [backend/docs/auth-rbac.md](backend/docs/auth-rbac.md): contract auth, user và RBAC phase 3.
 - [backend/docs/workspace-channel.md](backend/docs/workspace-channel.md): contract workspace, phòng ban, kênh và direct message phase 4.
+- [backend/docs/order-bot-phase1.md](backend/docs/order-bot-phase1.md): tích hợp Order Bot VPSTTT Phase 1.
 - [backend/docs/local-run.md](backend/docs/local-run.md): hướng dẫn chạy backend local với database.
 - [backend/db/migrations/000001_initial_schema.up.sql](backend/db/migrations/000001_initial_schema.up.sql): migration schema nền.
 

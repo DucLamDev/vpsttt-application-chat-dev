@@ -22,10 +22,28 @@ type createIncomingRequest struct {
 	Name      string `json:"name"`
 }
 
+type updateIncomingRequest struct {
+	ChannelID *string `json:"channel_id"`
+	Name      *string `json:"name"`
+	Status    *string `json:"status"`
+}
+
 type createOutgoingRequest struct {
 	Name       string   `json:"name"`
 	TargetURL  string   `json:"target_url"`
 	EventTypes []string `json:"event_types"`
+}
+
+type updateOutgoingRequest struct {
+	Name       *string   `json:"name"`
+	TargetURL  *string   `json:"target_url"`
+	EventTypes *[]string `json:"event_types"`
+	Status     *string   `json:"status"`
+}
+
+type testOutgoingRequest struct {
+	EventType string          `json:"event_type"`
+	Payload   json.RawMessage `json:"payload"`
 }
 
 type dispatchIncomingRequest struct {
@@ -53,9 +71,14 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.Use(authMiddleware)
 	private.GET("/incoming-webhooks", h.ListIncoming)
 	private.POST("/incoming-webhooks", h.CreateIncoming)
+	private.PATCH("/incoming-webhooks/:webhook_id", h.UpdateIncoming)
+	private.DELETE("/incoming-webhooks/:webhook_id", h.DeleteIncoming)
 	private.GET("/outgoing-webhooks", h.ListOutgoing)
 	private.POST("/outgoing-webhooks", h.CreateOutgoing)
+	private.PATCH("/outgoing-webhooks/:webhook_id", h.UpdateOutgoing)
+	private.DELETE("/outgoing-webhooks/:webhook_id", h.DeleteOutgoing)
 	private.GET("/outgoing-webhooks/:webhook_id/deliveries", h.ListDeliveries)
+	private.POST("/outgoing-webhooks/:webhook_id/test", h.TestOutgoing)
 }
 
 func (h *Handler) CreateIncoming(c *gin.Context) {
@@ -84,6 +107,35 @@ func (h *Handler) ListIncoming(c *gin.Context) {
 		return
 	}
 	response.OK(c, nethttp.StatusOK, gin.H{"incoming_webhooks": webhooks})
+}
+
+func (h *Handler) UpdateIncoming(c *gin.Context) {
+	var req updateIncomingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khÃ´ng há»£p lá»‡.", nil)
+		return
+	}
+	webhook, err := h.service.UpdateIncoming(c.Request.Context(), webhooksapp.UpdateIncomingInput{
+		ActorUserID: middleware.CurrentUserID(c),
+		WorkspaceID: c.Param("workspace_id"),
+		WebhookID:   c.Param("webhook_id"),
+		ChannelID:   req.ChannelID,
+		Name:        req.Name,
+		Status:      req.Status,
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, webhook)
+}
+
+func (h *Handler) DeleteIncoming(c *gin.Context) {
+	if err := h.service.DeleteIncoming(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"), c.Param("webhook_id")); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.NoContent(c)
 }
 
 func (h *Handler) CreateOutgoing(c *gin.Context) {
@@ -115,6 +167,36 @@ func (h *Handler) ListOutgoing(c *gin.Context) {
 	response.OK(c, nethttp.StatusOK, gin.H{"outgoing_webhooks": webhooks})
 }
 
+func (h *Handler) UpdateOutgoing(c *gin.Context) {
+	var req updateOutgoingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khÃ´ng há»£p lá»‡.", nil)
+		return
+	}
+	webhook, err := h.service.UpdateOutgoing(c.Request.Context(), webhooksapp.UpdateOutgoingInput{
+		ActorUserID: middleware.CurrentUserID(c),
+		WorkspaceID: c.Param("workspace_id"),
+		WebhookID:   c.Param("webhook_id"),
+		Name:        req.Name,
+		TargetURL:   req.TargetURL,
+		EventTypes:  req.EventTypes,
+		Status:      req.Status,
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, webhook)
+}
+
+func (h *Handler) DeleteOutgoing(c *gin.Context) {
+	if err := h.service.DeleteOutgoing(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"), c.Param("webhook_id")); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.NoContent(c)
+}
+
 func (h *Handler) ListDeliveries(c *gin.Context) {
 	deliveries, err := h.service.ListDeliveries(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"), c.Param("webhook_id"), queryInt(c, "limit"))
 	if err != nil {
@@ -122,6 +204,26 @@ func (h *Handler) ListDeliveries(c *gin.Context) {
 		return
 	}
 	response.OK(c, nethttp.StatusOK, gin.H{"deliveries": deliveries})
+}
+
+func (h *Handler) TestOutgoing(c *gin.Context) {
+	var req testOutgoingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khÃ´ng há»£p lá»‡.", nil)
+		return
+	}
+	delivery, err := h.service.TestOutgoing(c.Request.Context(), webhooksapp.TestOutgoingInput{
+		ActorUserID: middleware.CurrentUserID(c),
+		WorkspaceID: c.Param("workspace_id"),
+		WebhookID:   c.Param("webhook_id"),
+		EventType:   req.EventType,
+		Payload:     req.Payload,
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, delivery)
 }
 
 func (h *Handler) DispatchIncoming(c *gin.Context) {

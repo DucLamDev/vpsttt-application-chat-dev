@@ -10,6 +10,7 @@ import (
 	"time"
 
 	messagesdomain "github.com/duclamdev/application-chat/backend/internal/modules/messages/domain"
+	"github.com/duclamdev/application-chat/backend/internal/shared/botauto"
 	apperrors "github.com/duclamdev/application-chat/backend/internal/shared/errors"
 	"github.com/duclamdev/application-chat/backend/internal/shared/pagination"
 )
@@ -37,9 +38,10 @@ type Repository interface {
 }
 
 type Service struct {
-	repo     Repository
-	checker  PermissionChecker
-	realtime RealtimePublisher
+	repo           Repository
+	checker        PermissionChecker
+	realtime       RealtimePublisher
+	autoResponders []botauto.Responder
 }
 
 type SendInput struct {
@@ -260,6 +262,10 @@ func NewService(repo Repository, checker PermissionChecker, realtime ...Realtime
 	return service
 }
 
+func (s *Service) SetAutoResponders(responders ...botauto.Responder) {
+	s.autoResponders = responders
+}
+
 func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error) {
 	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
 		return MessageDTO{}, err
@@ -298,6 +304,13 @@ func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error)
 	}
 	dto := toMessageDTO(message)
 	s.publishRealtime(ctx, "MessageCreated", dto)
+	s.runAutoResponders(ctx, botauto.MessageInput{
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+		WorkspaceID: dto.WorkspaceID,
+		ChannelID:   dto.ChannelID,
+		MessageID:   dto.ID,
+		Body:        body,
+	})
 	return dto, nil
 }
 
@@ -641,6 +654,51 @@ func (s *Service) publishRealtime(ctx context.Context, eventType string, message
 			"message": message,
 		},
 	})
+}
+
+func (s *Service) runAutoResponders(ctx context.Context, input botauto.MessageInput) {
+	if len(s.autoResponders) == 0 {
+		return
+	}
+	for _, responder := range s.autoResponders {
+		if responder == nil {
+			continue
+		}
+		messages, err := responder.HandleMessage(ctx, input)
+		if err != nil {
+			continue
+		}
+		for _, message := range messages {
+			s.publishRealtime(ctx, "MessageCreated", autoBotMessageDTO(message))
+		}
+	}
+}
+
+func autoBotMessageDTO(message botauto.BotMessage) MessageDTO {
+	metadata := message.Metadata
+	if len(metadata) == 0 {
+		metadata = json.RawMessage(`{}`)
+	}
+	createdAt := message.CreatedAt
+	if strings.TrimSpace(createdAt) == "" {
+		createdAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	kind := strings.TrimSpace(message.Kind)
+	if kind == "" {
+		kind = "bot"
+	}
+	return MessageDTO{
+		ID:          message.ID,
+		WorkspaceID: message.WorkspaceID,
+		ChannelID:   message.ChannelID,
+		Kind:        kind,
+		Body:        message.Body,
+		Metadata:    metadata,
+		CreatedAt:   createdAt,
+		UpdatedAt:   createdAt,
+		Mentions:    []string{},
+		Reactions:   []ReactionSummaryDTO{},
+	}
 }
 
 func normalizeMetadata(value json.RawMessage) ([]byte, error) {

@@ -24,6 +24,7 @@ export {
   createBotsClient,
   createCronjobsClient,
   createNotificationsClient,
+  createOrderBotClient,
   createPresenceClient,
   createWebhooksClient
 } from "./modules-client";

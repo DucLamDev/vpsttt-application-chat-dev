@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ type Config struct {
 	RabbitMQ     RabbitMQConfig
 	Storage      StorageConfig
 	Security     SecurityConfig
+	Order        OrderConfig
 }
 
 type AppConfig struct {
@@ -108,6 +110,13 @@ type SecurityConfig struct {
 	GoogleClientID       string
 }
 
+type OrderConfig struct {
+	BaseURL        string
+	InternalAPIKey string
+	QuickOrderKey  string
+	Timeout        time.Duration
+}
+
 func Load() (*Config, error) {
 	cfg := &Config{
 		App: AppConfig{
@@ -176,6 +185,12 @@ func Load() (*Config, error) {
 			WebhookSigningSecret: getEnv("WEBHOOK_SIGNING_SECRET", ""),
 			GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
 		},
+		Order: OrderConfig{
+			BaseURL:        getEnv("ORDER_API_BASE_URL", "https://order.vpsttt.com/api"),
+			InternalAPIKey: getEnv("ORDER_INTERNAL_API_KEY", ""),
+			QuickOrderKey:  getEnv("ORDER_QUICK_ORDER_KEY", ""),
+			Timeout:        getEnvDuration("ORDER_API_TIMEOUT", 10*time.Second),
+		},
 	}
 
 	return cfg, cfg.Validate()
@@ -219,6 +234,15 @@ func (c *Config) Validate() error {
 	}
 	if c.RabbitMQ.Enabled && c.RabbitMQ.URL == "" {
 		problems = append(problems, "RABBITMQ_URL bắt buộc khi RABBITMQ_ENABLED=true")
+	}
+	if c.Order.Timeout <= 0 {
+		problems = append(problems, "ORDER_API_TIMEOUT must be greater than 0")
+	}
+	if strings.TrimSpace(c.Order.BaseURL) != "" {
+		parsed, err := url.Parse(strings.TrimSpace(c.Order.BaseURL))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			problems = append(problems, "ORDER_API_BASE_URL must be a valid http/https URL")
+		}
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Storage.Provider)) {
 	case "", "local":

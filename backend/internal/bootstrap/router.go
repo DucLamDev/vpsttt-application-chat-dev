@@ -48,6 +48,10 @@ import (
 	notificationsapp "github.com/duclamdev/application-chat/backend/internal/modules/notifications/application"
 	notificationshttp "github.com/duclamdev/application-chat/backend/internal/modules/notifications/delivery/http"
 	notificationspostgres "github.com/duclamdev/application-chat/backend/internal/modules/notifications/infrastructure/postgres"
+	orderapp "github.com/duclamdev/application-chat/backend/internal/modules/order/application"
+	orderhttp "github.com/duclamdev/application-chat/backend/internal/modules/order/delivery/http"
+	orderclient "github.com/duclamdev/application-chat/backend/internal/modules/order/infrastructure/httpclient"
+	orderpostgres "github.com/duclamdev/application-chat/backend/internal/modules/order/infrastructure/postgres"
 	presenceapp "github.com/duclamdev/application-chat/backend/internal/modules/presence/application"
 	presencehttp "github.com/duclamdev/application-chat/backend/internal/modules/presence/delivery/http"
 	presencepostgres "github.com/duclamdev/application-chat/backend/internal/modules/presence/infrastructure/postgres"
@@ -201,6 +205,16 @@ func (a *API) registerAPIV1() {
 	botsHandler := botshttp.NewHandler(botsService)
 	botsHandler.RegisterRoutes(v1, authMiddleware)
 
+	orderRepo := orderpostgres.NewRepository(pool)
+	orderAPIClient := orderclient.New(orderclient.Config{
+		BaseURL:        a.cfg.Order.BaseURL,
+		InternalAPIKey: a.cfg.Order.InternalAPIKey,
+		Timeout:        a.cfg.Order.Timeout,
+	})
+	orderService := orderapp.NewService(orderAPIClient, orderRepo, rbacService)
+	orderHandler := orderhttp.NewHandler(orderService)
+	orderHandler.RegisterRoutes(v1, authMiddleware)
+
 	webhooksRepo := webhookspostgres.NewRepository(pool)
 	webhooksService := webhooksapp.NewService(webhooksRepo, rbacService, apiTokensService, webhooksender.NewSender())
 	webhooksHandler := webhookshttp.NewHandler(webhooksService, a.cfg.App.URL)
@@ -220,6 +234,7 @@ func (a *API) registerAPIV1() {
 		realtimePublisher = messagesws.NewPublisher(a.resources.WebSocket)
 	}
 	messagesService := messagesapp.NewService(messagesRepo, rbacService, realtimePublisher)
+	messagesService.SetAutoResponders(orderService)
 	messagesHandler := messageshttp.NewHandler(messagesService)
 	messagesHandler.RegisterRoutes(v1, authMiddleware)
 }

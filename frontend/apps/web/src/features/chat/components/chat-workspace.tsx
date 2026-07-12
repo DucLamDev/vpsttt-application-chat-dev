@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type ChangeEvent, type ClipboardEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ChangeEvent, type ClipboardEvent, type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import { queryKeys } from "@webtui/api-client";
@@ -23,6 +23,7 @@ import {
   Bell,
   Bot,
   CheckCircle2,
+  Clock3,
   Cloud,
   Edit3,
   FileText,
@@ -85,7 +86,20 @@ import { useUploadStore, type UploadQueueItem } from "../stores/upload-store";
 import { getCachedMediaUrl, resolveCachedMediaUrl } from "../model/media-cache";
 import { buildChatTargets } from "../model/chat-targets";
 import { buildDepartmentRows, departmentDescendantIds } from "../model/department-tree";
-import type { AuthSession, AuthUser, Bot as BotRecord, ChannelMember, ContactRequest, Department, DepartmentMember, WorkspaceMember } from "@webtui/types";
+import type {
+  AuthSession,
+  AuthUser,
+  Bot as BotRecord,
+  ChannelMember,
+  ContactRequest,
+  Department,
+  DepartmentMember,
+  OrderServicesExpiringData,
+  OrderServicesExpiringInput,
+  OrderWalletBalanceData,
+  OrderWalletDepositQRData,
+  WorkspaceMember
+} from "@webtui/types";
 import { AutomationPage } from "./automation-page";
 import { parseChatRoute } from "@/lib/chat-route";
 
@@ -102,7 +116,91 @@ const railItems = [
 ] as const;
 
 type RailItemId = (typeof railItems)[number]["id"];
+type MessageSidebarTab = "conversations" | "channels";
 type ChatWorkspaceData = ReturnType<typeof useChatWorkspaceData>;
+
+type ChannelHashStyle = CSSProperties & {
+  "--channel-hash-bg": string;
+  "--channel-hash-bg-soft": string;
+  "--channel-hash-border": string;
+  "--channel-hash-dark-bg": string;
+  "--channel-hash-dark-border": string;
+  "--channel-hash-dark-text": string;
+  "--channel-hash-shadow": string;
+  "--channel-hash-text": string;
+};
+
+const channelHashPalettes = [
+  { bg: "#e0f2fe", bgSoft: "#f0f9ff", border: "#bae6fd", darkBg: "#083344", darkBorder: "#155e75", darkText: "#67e8f9", shadow: "rgb(14 165 233 / 22%)", text: "#0284c7" },
+  { bg: "#dcfce7", bgSoft: "#f0fdf4", border: "#bbf7d0", darkBg: "#052e16", darkBorder: "#166534", darkText: "#86efac", shadow: "rgb(34 197 94 / 22%)", text: "#16a34a" },
+  { bg: "#fef3c7", bgSoft: "#fffbeb", border: "#fde68a", darkBg: "#451a03", darkBorder: "#92400e", darkText: "#fcd34d", shadow: "rgb(245 158 11 / 24%)", text: "#d97706" },
+  { bg: "#fee2e2", bgSoft: "#fef2f2", border: "#fecaca", darkBg: "#450a0a", darkBorder: "#991b1b", darkText: "#fca5a5", shadow: "rgb(239 68 68 / 24%)", text: "#dc2626" },
+  { bg: "#f3e8ff", bgSoft: "#faf5ff", border: "#e9d5ff", darkBg: "#2e1065", darkBorder: "#6b21a8", darkText: "#d8b4fe", shadow: "rgb(168 85 247 / 24%)", text: "#9333ea" },
+  { bg: "#fce7f3", bgSoft: "#fdf2f8", border: "#fbcfe8", darkBg: "#500724", darkBorder: "#9d174d", darkText: "#f9a8d4", shadow: "rgb(236 72 153 / 24%)", text: "#db2777" },
+  { bg: "#e0e7ff", bgSoft: "#eef2ff", border: "#c7d2fe", darkBg: "#1e1b4b", darkBorder: "#4338ca", darkText: "#a5b4fc", shadow: "rgb(99 102 241 / 24%)", text: "#4f46e5" },
+  { bg: "#ccfbf1", bgSoft: "#f0fdfa", border: "#99f6e4", darkBg: "#042f2e", darkBorder: "#0f766e", darkText: "#5eead4", shadow: "rgb(20 184 166 / 22%)", text: "#0d9488" }
+] as const;
+
+const channelHashPaletteBySlug: Record<string, (typeof channelHashPalettes)[number]> = {
+  "ban-giam-doc": channelHashPalettes[4],
+  "ban-giao-ca": channelHashPalettes[6],
+  "gia-han": channelHashPalettes[2],
+  "ke-toan": channelHashPalettes[1],
+  "ky-thuat": channelHashPalettes[7],
+  sale: channelHashPalettes[5],
+  "server-alert": channelHashPalettes[3],
+  "thong-bao": channelHashPalettes[0],
+  ticket: channelHashPalettes[1]
+};
+
+function channelHashStyle(channel: ChatChannel): ChannelHashStyle {
+  const key = normalizeChannelColorKey(channel.slug || channel.name || channel.id);
+  const palette = channelHashPaletteBySlug[key] ?? channelHashPalettes[stableColorIndex(key || channel.id)];
+
+  return {
+    "--channel-hash-bg": palette.bg,
+    "--channel-hash-bg-soft": palette.bgSoft,
+    "--channel-hash-border": palette.border,
+    "--channel-hash-dark-bg": palette.darkBg,
+    "--channel-hash-dark-border": palette.darkBorder,
+    "--channel-hash-dark-text": palette.darkText,
+    "--channel-hash-shadow": palette.shadow,
+    "--channel-hash-text": palette.text
+  };
+}
+
+function normalizeChannelColorKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function stableColorIndex(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index++) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash % channelHashPalettes.length;
+}
+
+function botComposerPlaceholder(channel?: ChatChannel | null) {
+  switch (channel?.slug) {
+    case "gia-han":
+      return "Gia Hạn Bot: Email: khach@example.com · Số ngày: 7 · Loại dịch vụ: Tất cả";
+    case "ke-toan":
+      return "Thanh Toán Bot: Email: khach@example.com · Số tiền: 200000";
+    case "ticket":
+      return "Ticket Bot: mô tả lỗi, hoặc nhập “Tra ví email@example.com”";
+    case "server-alert":
+      return "Server Alert Bot: Server: vps-01 · Lỗi: mất ping/port timeout...";
+    default:
+      return "Nhập tin nhắn...";
+  }
+}
 type ContactResult = {
   avatarUrl?: string | null;
   contactDirection?: "incoming" | "outgoing";
@@ -138,6 +236,9 @@ export function ChatWorkspace() {
   const pathname = usePathname();
   const routedRailItem = railItemFromRoute(pathname);
   const [activeRailItem, setActiveRailItem] = useState<RailItemId>(routedRailItem);
+  const [messageSidebarTab, setMessageSidebarTab] = useState<MessageSidebarTab>(
+    parseChatRoute(pathname)?.kind === "channel" ? "channels" : "conversations"
+  );
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [detailTab, setDetailTab] = useState<DetailTab>("pinned");
   const [searchQuery, setSearchQuery] = useState("");
@@ -194,6 +295,11 @@ export function ChatWorkspace() {
     enabled: Boolean(data.workspaceId && data.selectedChannelId && data.canAccessSelectedChannel),
     queryFn: () => api.channels.members(data.workspaceId, data.selectedChannelId),
     queryKey: queryKeys.channels.members(data.workspaceId, data.selectedChannelId)
+  });
+  const sidebarBotsQuery = useQuery({
+    enabled: Boolean(data.workspaceId && data.can("bot.manage") && activeRailItem === "messages"),
+    queryFn: () => api.bots.list(data.workspaceId),
+    queryKey: queryKeys.integrations.bots(data.workspaceId)
   });
   const chatTargets = useMemo(() => {
     return buildChatTargets(data.channels, data.directConversations);
@@ -262,6 +368,25 @@ export function ChatWorkspace() {
       return matchesFilter && matchesQuery;
     });
   }, [channelFilter, data.directConversations, favoriteChatIds, locallyReadChatIds, manuallyUnreadChatIds, searchQuery]);
+
+  const sidebarBots = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return (sidebarBotsQuery.data ?? []).filter((bot) =>
+      !normalizedQuery ||
+      bot.name.toLowerCase().includes(normalizedQuery) ||
+      bot.slug.toLowerCase().includes(normalizedQuery) ||
+      (bot.description ?? "").toLowerCase().includes(normalizedQuery)
+    );
+  }, [searchQuery, sidebarBotsQuery.data]);
+
+  const sidebarConversationUnreadCount = data.directConversations.reduce(
+    (total, conversation) => total + (effectiveUnreadCount(conversation.id, conversation.unreadCount) > 0 ? 1 : 0),
+    0
+  );
+  const sidebarChannelUnreadCount = data.channels.reduce(
+    (total, channel) => total + (effectiveUnreadCount(channel.id, channel.unreadCount) > 0 ? 1 : 0),
+    0
+  );
 
   const contactResults = useMemo(
     () =>
@@ -395,6 +520,7 @@ export function ChatWorkspace() {
       name: directConversation.user.name
     };
   }, [data.directConversations, data.selectedChannelWithMessages]);
+  const composerPlaceholder = botComposerPlaceholder(selectedChatChannel);
 
   const selectedRailLabel = railItems.find((item) => item.id === activeRailItem)?.label ?? "Tin nhắn";
   const panelTitle =
@@ -433,6 +559,7 @@ export function ChatWorkspace() {
   }
 
   function handleChannelSelect(channelId: string) {
+    setMessageSidebarTab(data.directConversations.some((conversation) => conversation.id === channelId) ? "conversations" : "channels");
     data.setSelectedChannelId(channelId);
     setLocallyReadChatIds((current) => new Set(current).add(channelId));
     if (manuallyUnreadChatIds.has(channelId)) {
@@ -450,6 +577,12 @@ export function ChatWorkspace() {
     setMessageSearchDateFrom("");
     setMessageSearchDateTo("");
     setActiveRailItem("messages");
+  }
+
+  function handleMessageSidebarTabChange(tab: MessageSidebarTab) {
+    setMessageSidebarTab(tab);
+    setSearchQuery("");
+    setChannelFilter("all");
   }
 
   function handleRailSelect(itemId: RailItemId) {
@@ -1080,12 +1213,43 @@ export function ChatWorkspace() {
 
         {activeRailItem === "messages" ? (
           <>
+            <div className="message-sidebar-tabs" aria-label="Loại danh sách tin nhắn" role="tablist">
+              <button
+                aria-controls="message-sidebar-conversations"
+                aria-selected={messageSidebarTab === "conversations"}
+                className={messageSidebarTab === "conversations" ? "message-sidebar-tab message-sidebar-tab--active" : "message-sidebar-tab"}
+                onClick={() => handleMessageSidebarTabChange("conversations")}
+                role="tab"
+                type="button"
+              >
+                <MessageCircle size={17} />
+                <span>Hội thoại</span>
+                <b className={sidebarConversationUnreadCount ? "message-sidebar-tab__count message-sidebar-tab__count--unread" : "message-sidebar-tab__count"}>
+                  {sidebarConversationUnreadCount || data.directConversations.length}
+                </b>
+              </button>
+              <button
+                aria-controls="message-sidebar-channels"
+                aria-selected={messageSidebarTab === "channels"}
+                className={messageSidebarTab === "channels" ? "message-sidebar-tab message-sidebar-tab--active" : "message-sidebar-tab"}
+                onClick={() => handleMessageSidebarTabChange("channels")}
+                role="tab"
+                type="button"
+              >
+                <Hash size={17} />
+                <span>Kênh & Bot</span>
+                <b className={sidebarChannelUnreadCount ? "message-sidebar-tab__count message-sidebar-tab__count--unread" : "message-sidebar-tab__count"}>
+                  {sidebarChannelUnreadCount || data.channels.length}
+                </b>
+              </button>
+            </div>
+
             <div className="channel-search">
               <Input
-                aria-label="Tìm kiếm kênh hoặc hội thoại"
+                aria-label={messageSidebarTab === "conversations" ? "Tìm kiếm hội thoại" : "Tìm kiếm kênh hoặc bot"}
                 leftAddon={<Search size={17} />}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Tìm kiếm..."
+                placeholder={messageSidebarTab === "conversations" ? "Tìm hội thoại..." : "Tìm kênh hoặc bot..."}
                 value={searchQuery}
               />
             </div>
@@ -1098,123 +1262,161 @@ export function ChatWorkspace() {
               value={channelFilter}
             />
 
-            <div className="list-section conversations">
-              <span className="section-label">Hội thoại</span>
-              {data.directConversationsQuery.isLoading || data.createWorkspaceMutation.isPending ? (
-                <PanelSkeleton />
-              ) : filteredConversations.length ? (
-                filteredConversations.map((item) => {
-                  const unreadCount = effectiveUnreadCount(item.id, item.unreadCount);
-                  return (
-                    <button
-                      className={`conversation-row${item.id === data.selectedChannelId ? " conversation-row--active" : ""}${unreadCount ? " conversation-row--unread" : ""}`}
-                      key={item.id}
-                      onClick={() => handleChannelSelect(item.id)}
-                      type="button"
-                    >
-                      <Avatar name={item.user.name} size="md" src={item.user.avatarUrl} status={item.user.status} />
-                      <span className="conversation-row__body">
-                        <strong>{item.user.name}</strong>
-                        <small>{item.lastMessage}</small>
-                      </span>
-                      <span className="conversation-row__meta">
-                        <time>{item.relativeTime}</time>
-                        {unreadCount ? <Badge className="conversation-row__unread-badge" tone="red">{unreadCount}</Badge> : null}
-                        <Tooltip label={isFavoriteChat(item.id) ? "Bỏ yêu thích" : "Yêu thích"}>
-                          <span
-                            aria-label={isFavoriteChat(item.id) ? "Bỏ yêu thích" : "Yêu thích"}
-                            className={isFavoriteChat(item.id) ? "pin-action pin-action--active" : "pin-action"}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleToggleFavorite(item.id);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                handleToggleFavorite(item.id);
-                              }
-                            }}
-                            role="button"
-                            tabIndex={0}
-                          >
-                            <Star size={15} />
+            {messageSidebarTab === "conversations" ? (
+              <div className="message-sidebar-tab-content" id="message-sidebar-conversations" role="tabpanel">
+                <div className="list-section conversations">
+                  <span className="section-label">Hội thoại gần đây</span>
+                  {data.directConversationsQuery.isLoading || data.createWorkspaceMutation.isPending ? (
+                    <PanelSkeleton />
+                  ) : filteredConversations.length ? (
+                    filteredConversations.map((item) => {
+                      const unreadCount = effectiveUnreadCount(item.id, item.unreadCount);
+                      return (
+                        <button
+                          className={`conversation-row${item.id === data.selectedChannelId ? " conversation-row--active" : ""}${unreadCount ? " conversation-row--unread" : ""}`}
+                          key={item.id}
+                          onClick={() => handleChannelSelect(item.id)}
+                          type="button"
+                        >
+                          <Avatar name={item.user.name} size="md" src={item.user.avatarUrl} status={item.user.status} />
+                          <span className="conversation-row__body">
+                            <strong>{item.user.name}</strong>
+                            <small>{item.lastMessage}</small>
                           </span>
-                        </Tooltip>
-                      </span>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="conversation-empty">
-                  <EmptyState
-                    description={channelFilter === "all" ? "Tìm bạn bè, gửi lời mời và bắt đầu nhắn tin riêng như Zalo." : "Không có hội thoại nào phù hợp với bộ lọc hiện tại."}
-                    title={channelFilter === "unread" ? "Không có tin chưa đọc" : channelFilter === "favorite" ? "Chưa có hội thoại yêu thích" : "Chưa có hội thoại"}
-                  />
-                  {channelFilter === "all" ? (
-                    <Button onClick={() => handleRailSelect("contacts")} size="sm" variant="secondary">
-                      <Users size={15} />
-                      Tìm bạn bè
-                    </Button>
-                  ) : null}
+                          <span className="conversation-row__meta">
+                            <time>{item.relativeTime}</time>
+                            {unreadCount ? <Badge className="conversation-row__unread-badge" tone="red">{unreadCount}</Badge> : null}
+                            <Tooltip label={isFavoriteChat(item.id) ? "Bỏ yêu thích" : "Yêu thích"}>
+                              <span
+                                aria-label={isFavoriteChat(item.id) ? "Bỏ yêu thích" : "Yêu thích"}
+                                className={isFavoriteChat(item.id) ? "pin-action pin-action--active" : "pin-action"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleToggleFavorite(item.id);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    handleToggleFavorite(item.id);
+                                  }
+                                }}
+                                role="button"
+                                tabIndex={0}
+                              >
+                                <Star size={15} />
+                              </span>
+                            </Tooltip>
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="conversation-empty">
+                      <EmptyState
+                        description={channelFilter === "all" ? "Tìm bạn bè, gửi lời mời và bắt đầu nhắn tin riêng như Zalo." : "Không có hội thoại nào phù hợp với bộ lọc hiện tại."}
+                        title={channelFilter === "unread" ? "Không có tin chưa đọc" : channelFilter === "favorite" ? "Chưa có hội thoại yêu thích" : "Chưa có hội thoại"}
+                      />
+                      {channelFilter === "all" ? (
+                        <Button onClick={() => handleRailSelect("contacts")} size="sm" variant="secondary">
+                          <Users size={15} />
+                          Tìm bạn bè
+                        </Button>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-
-            <div className="list-section channels-section">
-              <span className="section-label">Kênh & bot</span>
-              {data.workspacesQuery.isLoading || data.channelsQuery.isLoading ? (
-                <PanelSkeleton />
-              ) : sidebarChannels.length ? (
-                sidebarChannels.map((channel) => {
-                  const unreadCount = effectiveUnreadCount(channel.id, channel.unreadCount);
-                  return (
-                    <button
-                      className={`channel-row${channel.id === data.selectedChannelId ? " channel-row--active" : ""}${unreadCount ? " channel-row--unread" : ""}`}
-                      key={channel.id}
-                      onClick={() => handleChannelSelect(channel.id)}
-                      type="button"
-                    >
-                      <span className={`channel-hash channel-hash--${channel.tone}`}>#</span>
-                      <span className="channel-row__body">
-                        <strong>{channel.name}</strong>
-                        <small>{channel.description}</small>
-                      </span>
-                      <span className="conversation-row__meta">
-                        <time>{channel.relativeTime}</time>
-                        {unreadCount ? <Badge className="conversation-row__unread-badge" tone="red">{unreadCount}</Badge> : null}
-                        <Tooltip label={isFavoriteChat(channel.id, channel.isFavorite) ? "Bỏ yêu thích" : "Yêu thích"}>
-                          <span
-                            aria-label={isFavoriteChat(channel.id, channel.isFavorite) ? "Bỏ yêu thích" : "Yêu thích"}
-                            className={isFavoriteChat(channel.id, channel.isFavorite) ? "pin-action pin-action--active" : "pin-action"}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleToggleFavorite(channel.id);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                handleToggleFavorite(channel.id);
-                              }
-                            }}
-                            role="button"
-                            tabIndex={0}
-                          >
-                            <Star size={15} />
+              </div>
+            ) : (
+              <div className="message-sidebar-tab-content" id="message-sidebar-channels" role="tabpanel">
+                <div className="list-section channels-section">
+                  <span className="section-label">Kênh của bạn</span>
+                  {data.workspacesQuery.isLoading || data.channelsQuery.isLoading ? (
+                    <PanelSkeleton />
+                  ) : sidebarChannels.length ? (
+                    sidebarChannels.map((channel) => {
+                      const unreadCount = effectiveUnreadCount(channel.id, channel.unreadCount);
+                      return (
+                        <button
+                          className={`channel-row${channel.id === data.selectedChannelId ? " channel-row--active" : ""}${unreadCount ? " channel-row--unread" : ""}`}
+                          key={channel.id}
+                          onClick={() => handleChannelSelect(channel.id)}
+                          type="button"
+                        >
+                          <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>#</span>
+                          <span className="channel-row__body">
+                            <strong>{channel.name}</strong>
+                            <small>{channel.description}</small>
                           </span>
-                        </Tooltip>
-                      </span>
-                    </button>
-                  );
-                })
-              ) : (
-                <EmptyState
-                  description={channelFilter === "all" ? "Kênh dùng cho nhóm, bot và thông báo chung." : "Không có kênh nào phù hợp với bộ lọc hiện tại."}
-                  title={channelFilter === "unread" ? "Không có kênh chưa đọc" : channelFilter === "favorite" ? "Chưa có kênh yêu thích" : "Chưa có kênh"}
-                />
-              )}
-            </div>
+                          <span className="channel-row__meta">
+                            <time>{channel.relativeTime}</time>
+                            {unreadCount ? <Badge className="conversation-row__unread-badge" tone="red">{unreadCount}</Badge> : null}
+                            <Tooltip label={isFavoriteChat(channel.id, channel.isFavorite) ? "Bỏ yêu thích" : "Yêu thích"}>
+                              <span
+                                aria-label={isFavoriteChat(channel.id, channel.isFavorite) ? "Bỏ yêu thích" : "Yêu thích"}
+                                className={isFavoriteChat(channel.id, channel.isFavorite) ? "pin-action pin-action--active" : "pin-action"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleToggleFavorite(channel.id);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    handleToggleFavorite(channel.id);
+                                  }
+                                }}
+                                role="button"
+                                tabIndex={0}
+                              >
+                                <Star size={15} />
+                              </span>
+                            </Tooltip>
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <EmptyState
+                      description={channelFilter === "all" ? "Kênh dùng cho nhóm, bot và thông báo chung." : "Không có kênh nào phù hợp với bộ lọc hiện tại."}
+                      title={channelFilter === "unread" ? "Không có kênh chưa đọc" : channelFilter === "favorite" ? "Chưa có kênh yêu thích" : "Chưa có kênh"}
+                    />
+                  )}
+                </div>
+
+                {channelFilter === "all" ? (
+                  <div className="list-section sidebar-bots-section">
+                    <span className="section-label">Bot workspace</span>
+                    {sidebarBotsQuery.isLoading ? (
+                      <PanelSkeleton />
+                    ) : data.can("bot.manage") && sidebarBots.length ? (
+                      sidebarBots.map((bot) => (
+                        <button className="sidebar-bot-row" key={bot.id} onClick={() => handleRailSelect("bots")} type="button">
+                          <span className="sidebar-bot-row__avatar">
+                            {bot.avatar_url ? <img alt="" src={bot.avatar_url} /> : <Bot size={20} />}
+                            <i />
+                          </span>
+                          <span className="sidebar-bot-row__body">
+                            <strong>{bot.name}</strong>
+                            <small>{bot.description || `@${bot.slug}`}</small>
+                          </span>
+                          <span className="sidebar-bot-row__status">{bot.status === "active" ? "Bật" : "Tắt"}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <button className="sidebar-bot-row sidebar-bot-row--module" onClick={() => handleRailSelect("bots")} type="button">
+                        <span className="sidebar-bot-row__avatar"><Bot size={20} /></span>
+                        <span className="sidebar-bot-row__body">
+                          <strong>Quản lý bot</strong>
+                          <small>{data.can("bot.manage") ? "Tạo bot đầu tiên cho workspace" : "Xem module bot workspace"}</small>
+                        </span>
+                        <span className="sidebar-bot-row__arrow">›</span>
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </>
         ) : (
           <SidebarContextPanel
@@ -1239,6 +1441,8 @@ export function ChatWorkspace() {
             activeRailItem={activeRailItem}
             canManageBots={data.can("bot.manage")}
             canManageCronjobs={data.can("cronjob.manage")}
+            canUseOrderBot={data.can("order.view")}
+            canUseOrderBilling={data.can("order.billing")}
             canCreateChannel={canCreateChannel}
             canManageWebhooks={data.can("webhook.manage")}
             channels={data.channels.filter((channel) => channel.type !== "direct")}
@@ -1471,7 +1675,7 @@ export function ChatWorkspace() {
                     disabled={data.sendMessageMutation.isPending || !canSendMessage}
                     onChange={(event) => handleDraftChange(event.target.value)}
                     onPaste={handleComposerPaste}
-                    placeholder="Nhập tin nhắn..."
+                    placeholder={composerPlaceholder}
                     value={draft}
                   />
                 </div>
@@ -1681,6 +1885,8 @@ function WorkspaceSectionPage({
   canManageCronjobs,
   canManageDepartments,
   canManageWebhooks,
+  canUseOrderBilling,
+  canUseOrderBot,
   canCreateChannel,
   channels,
   contacts,
@@ -1718,6 +1924,8 @@ function WorkspaceSectionPage({
   canManageCronjobs: boolean;
   canManageDepartments: boolean;
   canManageWebhooks: boolean;
+  canUseOrderBilling: boolean;
+  canUseOrderBot: boolean;
   canCreateChannel: boolean;
   channels: ChatChannel[];
   contacts: ContactResult[];
@@ -1821,7 +2029,9 @@ function WorkspaceSectionPage({
   if (activeRailItem === "bots") {
     return (
       <BotsPage
+        canBillOrder={canUseOrderBilling}
         canManage={canManageBots}
+        canUseOrder={canUseOrderBot}
         channels={channels}
         workspaceId={workspaceId}
       />
@@ -2021,7 +2231,7 @@ function ChannelsDirectoryPage({
         <div className="workspace-grid-list">
           {channels.map((channel) => (
             <article className="workspace-tile" key={channel.id}>
-              <span className={`channel-hash channel-hash--${channel.tone}`}>
+              <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>
                 <Hash size={20} />
               </span>
               <strong>{channel.name}</strong>
@@ -2234,6 +2444,9 @@ function DepartmentsPage({
   });
 
   const isMutating = updateMutation.isPending || deleteMutation.isPending || upsertMemberMutation.isPending || removeMemberMutation.isPending || assignChannelMutation.isPending;
+  const assignedChannelCount = channels.filter((channel) => channel.departmentId).length;
+  const rootDepartmentCount = departments.filter((department) => !department.parent_id).length;
+  const selectedLeadCount = departmentMembers.filter((member) => member.role === "lead").length;
 
   function openDepartment(department: Department) {
     setSelectedDepartmentId(department.id);
@@ -2276,6 +2489,25 @@ function DepartmentsPage({
           <Plus size={16} /> Tạo phòng ban
         </Button>
       </header>
+
+      <section className="department-overview-grid">
+        <article>
+          <span><Users size={18} /></span>
+          <div><strong>{departments.length}</strong><small>Tổng phòng ban</small></div>
+        </article>
+        <article>
+          <span><Archive size={18} /></span>
+          <div><strong>{rootDepartmentCount}</strong><small>Phòng ban cấp gốc</small></div>
+        </article>
+        <article>
+          <span><Hash size={18} /></span>
+          <div><strong>{assignedChannelCount}/{channels.length}</strong><small>Kênh đã gán phòng ban</small></div>
+        </article>
+        <article>
+          <span><ShieldCheck size={18} /></span>
+          <div><strong>{workspaceMembers.length}</strong><small>Thành viên workspace</small></div>
+        </article>
+      </section>
 
       {isFormOpen ? (
         <form className="department-create-form" onSubmit={handleSubmit}>
@@ -2340,6 +2572,10 @@ function DepartmentsPage({
             <div>
               <span className="workspace-page__eyebrow">Chi tiết phòng ban</span>
               <h2>{selectedDepartment.name}</h2>
+              <div className="department-detail-badges">
+                <Badge tone="blue">{selectedLeadCount} trưởng phòng</Badge>
+                <Badge tone="slate">{assignedChannels.length} kênh</Badge>
+              </div>
               <p>#{selectedDepartment.slug} · {departmentMembers.length} thành viên · {assignedChannels.length} kênh</p>
             </div>
             <Button aria-label="Đóng chi tiết phòng ban" onClick={() => setSelectedDepartmentId("")} variant="icon"><X size={18} /></Button>
@@ -2469,7 +2705,7 @@ function DepartmentsPage({
                 <div className="department-channel-list">
                   {assignedChannels.map((channel) => (
                     <article key={channel.id}>
-                      <span className={`channel-hash channel-hash--${channel.tone}`}>#</span>
+                      <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>#</span>
                       <span><strong>{channel.name}</strong><small>{channel.description}</small></span>
                       <Button
                         disabled={isMutating}
@@ -2856,12 +3092,30 @@ function sessionDeviceLabel(session: AuthSession) {
   return "Trình duyệt web";
 }
 
+type OrderBotResult =
+  | { data: OrderWalletBalanceData; kind: "wallet" }
+  | { data: OrderWalletDepositQRData; kind: "deposit" }
+  | { data: OrderServicesExpiringData; kind: "expiring" };
+
+const orderServiceTypeOptions: Array<{ label: string; value: NonNullable<OrderServicesExpiringInput["service_type"]> }> = [
+  { label: "Tất cả", value: "all" },
+  { label: "VPS", value: "vps" },
+  { label: "Proxy", value: "proxy" },
+  { label: "Hosting", value: "hosting" },
+  { label: "S3", value: "s3" },
+  { label: "Domain", value: "domain" }
+];
+
 function BotsPage({
+  canBillOrder,
   canManage,
+  canUseOrder,
   channels,
   workspaceId
 }: {
+  canBillOrder: boolean;
   canManage: boolean;
+  canUseOrder: boolean;
   channels: ChatChannel[];
   workspaceId?: string;
 }) {
@@ -2873,9 +3127,20 @@ function BotsPage({
   const [createDescription, setCreateDescription] = useState("");
   const [targetChannelId, setTargetChannelId] = useState("");
   const [testMessage, setTestMessage] = useState("");
+  const [orderEmail, setOrderEmail] = useState("");
+  const [orderUserId, setOrderUserId] = useState("");
+  const [orderDepositAmount, setOrderDepositAmount] = useState("200000");
+  const [orderExpiringDays, setOrderExpiringDays] = useState("7");
+  const [orderServiceType, setOrderServiceType] = useState<OrderServicesExpiringInput["service_type"]>("all");
+  const [orderResult, setOrderResult] = useState<OrderBotResult | null>(null);
   const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
   const availableChannels = useMemo(() => channels.filter((channel) => channel.isMember), [channels]);
 
+  const orderStatusQuery = useQuery({
+    enabled: Boolean(workspaceId && canUseOrder),
+    queryFn: () => api.orderBot.status(workspaceId as string),
+    queryKey: queryKeys.orderBot.status(workspaceId ?? "")
+  });
   const botsQuery = useQuery({
     enabled: Boolean(workspaceId && canManage),
     queryFn: () => api.bots.list(workspaceId as string),
@@ -2941,6 +3206,49 @@ function BotsPage({
     }
   });
 
+  const orderWalletMutation = useMutation({
+    mutationFn: () => api.orderBot.walletBalance(workspaceId as string, buildOrderLookup(orderEmail, orderUserId)),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không tra được ví khách hàng."), tone: "error" }),
+    onSuccess: async (result) => {
+      setOrderResult({ data: result.data, kind: "wallet" });
+      if (result.bot_message?.channel_id) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.messages.channel(workspaceId ?? "", result.bot_message.channel_id) });
+      }
+      setFeedback({ message: "CSKH Bot đã tra ví và gửi kết quả vào kênh ticket.", tone: "success" });
+    }
+  });
+  const orderDepositMutation = useMutation({
+    mutationFn: () => api.orderBot.depositQr(workspaceId as string, {
+      ...buildOrderEmail(orderEmail),
+      amount: parsePositiveInt(orderDepositAmount),
+      expires_minutes: 1440
+    }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không tạo được QR nạp ví."), tone: "error" }),
+    onSuccess: async (result) => {
+      setOrderResult({ data: result.data, kind: "deposit" });
+      if (result.bot_message?.channel_id) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.messages.channel(workspaceId ?? "", result.bot_message.channel_id) });
+      }
+      setFeedback({ message: "Thanh Toán Bot đã tạo QR và gửi vào kênh kế toán.", tone: "success" });
+    }
+  });
+  const orderExpiringMutation = useMutation({
+    mutationFn: () => api.orderBot.expiringServices(workspaceId as string, {
+      ...buildOrderLookup(orderEmail, orderUserId),
+      days: parsePositiveInt(orderExpiringDays),
+      include_expired: false,
+      service_type: orderServiceType
+    }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không kiểm tra được dịch vụ sắp hết hạn."), tone: "error" }),
+    onSuccess: async (result) => {
+      setOrderResult({ data: result.data, kind: "expiring" });
+      if (result.bot_message?.channel_id) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.messages.channel(workspaceId ?? "", result.bot_message.channel_id) });
+      }
+      setFeedback({ message: "Gia Hạn Bot đã gửi danh sách dịch vụ cần chú ý.", tone: "success" });
+    }
+  });
+
   function handleCreateBot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = createName.trim();
@@ -2954,6 +3262,8 @@ function BotsPage({
 
   const activeBots = bots.filter((bot) => bot.status === "active").length;
   const installations = installationsQuery.data ?? [];
+  const orderConfigured = orderStatusQuery.data?.configured ?? false;
+  const orderBusy = orderWalletMutation.isPending || orderDepositMutation.isPending || orderExpiringMutation.isPending;
 
   return (
     <div className="workspace-page bot-page">
@@ -3028,6 +3338,53 @@ function BotsPage({
         </div>
       ) : null}
 
+      {canUseOrder ? (
+        <section className="order-bot-panel">
+          <header>
+            <div>
+              <Badge tone={orderConfigured ? "green" : "red"}>{orderConfigured ? "Đã cấu hình" : "Thiếu API key"}</Badge>
+              <h2>VPSTTT Order CSKH</h2>
+              <p>Tra ví, tạo QR nạp ví và kiểm tra dịch vụ sắp hết hạn từ hệ thống order.</p>
+            </div>
+            <Button disabled={orderStatusQuery.isFetching} onClick={() => void orderStatusQuery.refetch()} size="sm" variant="secondary">
+              <Cloud size={15} /> Kiểm tra kết nối
+            </Button>
+          </header>
+          <div className="order-bot-grid">
+            <div className="order-bot-card order-bot-card--lookup">
+              <strong>Khách hàng</strong>
+              <label>Email<input onChange={(event) => setOrderEmail(event.target.value)} placeholder="khach@example.com" value={orderEmail} /></label>
+              <label>User ID<input onChange={(event) => setOrderUserId(event.target.value.replace(/\D/g, ""))} placeholder="8075" value={orderUserId} /></label>
+              <Button disabled={!orderConfigured || orderBusy || !hasOrderLookup(orderEmail, orderUserId)} onClick={() => orderWalletMutation.mutate()} size="sm" type="button">
+                <Search size={15} /> Tra ví
+              </Button>
+            </div>
+
+            <div className="order-bot-card">
+              <strong>Dịch vụ sắp hết hạn</strong>
+              <label>Số ngày<input onChange={(event) => setOrderExpiringDays(event.target.value.replace(/\D/g, ""))} value={orderExpiringDays} /></label>
+              <label>Loại dịch vụ<select onChange={(event) => setOrderServiceType(event.target.value as OrderServicesExpiringInput["service_type"])} value={orderServiceType}>
+                {orderServiceTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select></label>
+              <Button disabled={!orderConfigured || orderBusy || !hasOrderLookup(orderEmail, orderUserId)} onClick={() => orderExpiringMutation.mutate()} size="sm" type="button" variant="secondary">
+                <Clock3 size={15} /> Gửi Gia Hạn Bot
+              </Button>
+            </div>
+
+            <div className="order-bot-card">
+              <strong>QR nạp ví</strong>
+              <label>Số tiền<input onChange={(event) => setOrderDepositAmount(event.target.value.replace(/\D/g, ""))} value={orderDepositAmount} /></label>
+              <small>QR mặc định hết hạn sau 24 giờ và gửi vào kênh kế toán.</small>
+              <Button disabled={!canBillOrder || !orderConfigured || orderBusy || !orderEmail.trim() || parsePositiveInt(orderDepositAmount) < 1000} onClick={() => orderDepositMutation.mutate()} size="sm" type="button" variant="secondary">
+                <FileText size={15} /> Tạo QR
+              </Button>
+              {!canBillOrder ? <small>Bạn cần quyền order.billing để tạo QR.</small> : null}
+            </div>
+          </div>
+          {orderResult ? <OrderBotResultView result={orderResult} /> : null}
+        </section>
+      ) : null}
+
       {canManage ? (
         <div className="bot-workspace-grid">
           <section className="bot-catalog">
@@ -3096,6 +3453,84 @@ function BotsPage({
       ) : null}
     </div>
   );
+}
+
+function OrderBotResultView({ result }: { result: OrderBotResult }) {
+  if (result.kind === "wallet") {
+    const services = result.data.services ?? {};
+    return (
+      <div className="order-bot-result">
+        <strong>Ví khách hàng</strong>
+        <span>{orderCustomerLabel(result.data.name, result.data.email, result.data.user_id)}</span>
+        <b>{formatOrderMoney(result.data.balance_vnd ?? result.data.balance ?? result.data.money ?? 0)}</b>
+        <small>{formatOrderServiceMap(services) || "Chưa có thống kê dịch vụ."}</small>
+      </div>
+    );
+  }
+  if (result.kind === "deposit") {
+    const bank = result.data.bank ?? {};
+    return (
+      <div className="order-bot-result">
+        <strong>QR nạp ví</strong>
+        <span>{orderCustomerLabel(result.data.name, result.data.email, result.data.user_id)}</span>
+        <b>{formatOrderMoney(result.data.amount ?? 0)}</b>
+        <small>{result.data.reference ? `Mã: ${result.data.reference}` : "Đã tạo yêu cầu nạp ví."}</small>
+        <small>{bank.transfer_content || result.data.transfer_content ? `Nội dung CK: ${bank.transfer_content || result.data.transfer_content}` : null}</small>
+        {result.data.qr_url ? <a href={result.data.qr_url} rel="noreferrer" target="_blank">Mở QR thanh toán</a> : null}
+      </div>
+    );
+  }
+  const summary = result.data.summary ?? {};
+  const items = result.data.items ?? [];
+  return (
+    <div className="order-bot-result">
+      <strong>Dịch vụ sắp hết hạn</strong>
+      <span>{orderCustomerLabel(result.data.user?.name, result.data.user?.email, result.data.user?.user_id)}</span>
+      <b>{summary.total ?? items.length} dịch vụ</b>
+      <small>Hết hạn: {summary.expired ?? 0} · Sắp hết hạn: {summary.expiring ?? 0} · Auto-renew tắt: {summary.auto_renew_off ?? 0}</small>
+      {items.slice(0, 3).map((item) => (
+        <small key={`${item.service_type_key}-${item.service_id}-${item.expires_at}`}>
+          {item.service_type || item.service_type_key || "Dịch vụ"} #{item.service_id} · {item.days_remaining ?? 0} ngày · {item.expires_at || "chưa rõ hạn"}
+        </small>
+      ))}
+    </div>
+  );
+}
+
+function hasOrderLookup(email: string, userId: string) {
+  return Boolean(email.trim() || parsePositiveInt(userId) > 0);
+}
+
+function buildOrderLookup(email: string, userId: string) {
+  const payload: { email?: string; user_id?: number } = {};
+  if (email.trim()) payload.email = email.trim();
+  const parsedUserId = parsePositiveInt(userId);
+  if (parsedUserId > 0) payload.user_id = parsedUserId;
+  return payload;
+}
+
+function buildOrderEmail(email: string) {
+  return { email: email.trim() };
+}
+
+function parsePositiveInt(value: string | number | undefined) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function orderCustomerLabel(name?: string, email?: string, userId?: number) {
+  return [name, email, userId ? `#${userId}` : ""].filter(Boolean).join(" · ") || "Không rõ khách hàng";
+}
+
+function formatOrderMoney(value: number) {
+  return `${Math.round(value).toLocaleString("vi-VN")} VND`;
+}
+
+function formatOrderServiceMap(services: Record<string, number>) {
+  return Object.entries(services)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key.toUpperCase()} ${value}`)
+    .join(" · ");
 }
 
 function resizeAvatarFile(file: File): Promise<string> {
@@ -3306,7 +3741,7 @@ function ChatHeader({
   return (
     <header className="chat-header">
       <div className="chat-title">
-        <span className={`channel-hash channel-hash--${channel.tone}`}>#</span>
+        <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>#</span>
         <div>
           <h1>{channel.name}</h1>
           <p>{channel.description}</p>
