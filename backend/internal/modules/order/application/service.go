@@ -484,6 +484,11 @@ func (s *Service) WalletBalance(ctx context.Context, input WalletBalanceInput) (
 	}
 	envelope, err := s.client.WalletBalance(ctx, lookup)
 	if err != nil {
+		slog.Warn("Order API request failed",
+			"action", "wallet_balance",
+			"workspace_id", input.WorkspaceID,
+			"error", err,
+		)
 		return WalletBalanceResult{}, mapOrderClientError(err)
 	}
 	if err := ensureRemoteOK(envelope.OK, envelope.Status, envelope.Message); err != nil {
@@ -537,6 +542,11 @@ func (s *Service) CreateDepositQR(ctx context.Context, input WalletDepositQRInpu
 		ExpiresMinutes: expiresMinutes,
 	})
 	if err != nil {
+		slog.Warn("Order API request failed",
+			"action", "wallet_deposit_qr",
+			"workspace_id", input.WorkspaceID,
+			"error", err,
+		)
 		return WalletDepositQRResult{}, mapOrderClientError(err)
 	}
 	if err := ensureRemoteOK(envelope.OK, envelope.Status, envelope.Message); err != nil {
@@ -569,6 +579,11 @@ func (s *Service) ServicesExpiring(ctx context.Context, input ServicesExpiringIn
 	}
 	lookup, err := normalizeLookup(input.Email, input.UserID)
 	if err != nil {
+		slog.Warn("Order API request failed",
+			"action", "services_expiring",
+			"workspace_id", input.WorkspaceID,
+			"error", err,
+		)
 		return ServicesExpiringResult{}, mapOrderClientError(err)
 	}
 	days := input.Days
@@ -1124,6 +1139,7 @@ func mapOrderClientError(err error) error {
 	if errors.As(err, &upstream) {
 		code := "ORDER_API_UPSTREAM_ERROR"
 		message := "Order API không xử lý được yêu cầu."
+		responseStatus := http.StatusBadGateway
 		switch upstream.StatusCode {
 		case http.StatusUnauthorized:
 			code = "ORDER_API_UNAUTHORIZED"
@@ -1134,11 +1150,16 @@ func mapOrderClientError(err error) error {
 		case http.StatusTooManyRequests:
 			code = "ORDER_API_RATE_LIMITED"
 			message = "Order API đang giới hạn tần suất yêu cầu."
+			responseStatus = http.StatusServiceUnavailable
+		case http.StatusServiceUnavailable:
+			code = "ORDER_API_UNAVAILABLE"
+			message = "Order API chưa sẵn sàng."
+			responseStatus = http.StatusServiceUnavailable
 		}
 		if detail := strings.TrimSpace(upstream.Message); detail != "" {
 			message += " " + detail
 		}
-		appErr := apperrors.New(code, message, http.StatusBadGateway)
+		appErr := apperrors.New(code, message, responseStatus)
 		appErr.Details = map[string]any{"upstream_status": upstream.StatusCode}
 		return appErr
 	}
