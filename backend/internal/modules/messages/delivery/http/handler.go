@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"log/slog"
 	nethttp "net/http"
 	"net/url"
 	"strconv"
@@ -86,6 +87,15 @@ func (h *Handler) Send(c *gin.Context) {
 		return
 	}
 
+	slog.Info("Nhan request gui tin nhan",
+		"workspace_id", c.Param("workspace_id"),
+		"channel_id", c.Param("channel_id"),
+		"actor_user_id", middleware.CurrentUserID(c),
+		"kind", req.Kind,
+		"body_len", len([]rune(req.Body)),
+		"has_parent", req.ParentID != "",
+		"mention_count", len(req.MentionedUserIDs),
+	)
 	message, err := h.service.Send(c.Request.Context(), messagesapp.SendInput{
 		ActorUserID:      middleware.CurrentUserID(c),
 		WorkspaceID:      c.Param("workspace_id"),
@@ -97,9 +107,21 @@ func (h *Handler) Send(c *gin.Context) {
 		MentionedUserIDs: req.MentionedUserIDs,
 	})
 	if err != nil {
+		slog.Warn("Gui tin nhan that bai",
+			"workspace_id", c.Param("workspace_id"),
+			"channel_id", c.Param("channel_id"),
+			"actor_user_id", middleware.CurrentUserID(c),
+			"error", err,
+		)
 		response.Error(c, err)
 		return
 	}
+	slog.Info("Gui tin nhan thanh cong",
+		"workspace_id", message.WorkspaceID,
+		"channel_id", message.ChannelID,
+		"message_id", message.ID,
+		"kind", message.Kind,
+	)
 	response.Created(c, message)
 }
 

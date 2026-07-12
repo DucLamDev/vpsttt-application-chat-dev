@@ -85,7 +85,7 @@ WITH target AS (
 SELECT inserted.id, inserted.workspace_id, inserted.channel_id, target.bot_id::text,
        inserted.kind, inserted.body, inserted.metadata, inserted.created_at
 FROM inserted
-JOIN target ON target.channel_id = inserted.channel_id
+JOIN target ON target.channel_id::text = inserted.channel_id
 `, params.WorkspaceID, params.BotSlug, params.Body, params.ChannelID, params.ChannelSlug, string(params.Metadata))
 
 	message, err := scanBotMessage(row)

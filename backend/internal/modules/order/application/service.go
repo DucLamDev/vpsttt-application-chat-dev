@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strconv"
@@ -279,16 +280,60 @@ func (s *Service) Status(ctx context.Context, actorUserID string, workspaceID st
 }
 
 func (s *Service) HandleMessage(ctx context.Context, input botauto.MessageInput) ([]botauto.BotMessage, error) {
-	if s == nil || s.repo == nil || strings.TrimSpace(input.Body) == "" {
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	channelID := strings.TrimSpace(input.ChannelID)
+	body := strings.TrimSpace(input.Body)
+	if s == nil {
+		slog.Warn("Order bot auto responder chua duoc khoi tao",
+			"workspace_id", workspaceID,
+			"channel_id", channelID,
+			"message_id", input.MessageID,
+		)
 		return nil, nil
 	}
-	channel, err := s.repo.ChannelByID(ctx, strings.TrimSpace(input.WorkspaceID), strings.TrimSpace(input.ChannelID))
+	if s.repo == nil {
+		slog.Warn("Order bot repository chua duoc cau hinh",
+			"workspace_id", workspaceID,
+			"channel_id", channelID,
+			"message_id", input.MessageID,
+		)
+		return nil, nil
+	}
+	if body == "" {
+		slog.Debug("Order bot bo qua tin nhan rong",
+			"workspace_id", workspaceID,
+			"channel_id", channelID,
+			"message_id", input.MessageID,
+		)
+		return nil, nil
+	}
+	slog.Debug("Order bot nhan tin hieu auto responder",
+		"workspace_id", workspaceID,
+		"channel_id", channelID,
+		"message_id", input.MessageID,
+		"body_len", len([]rune(body)),
+	)
+	channel, err := s.repo.ChannelByID(ctx, workspaceID, channelID)
 	if err != nil {
+		slog.Warn("Order bot khong lay duoc thong tin kenh",
+			"workspace_id", workspaceID,
+			"channel_id", channelID,
+			"message_id", input.MessageID,
+			"error", err,
+		)
 		return nil, nil
 	}
 
 	command := parseAutoBotCommand(input.Body)
-	switch strings.TrimSpace(channel.Slug) {
+	channelSlug := strings.TrimSpace(channel.Slug)
+	fields := append([]any{
+		"workspace_id", workspaceID,
+		"channel_id", channelID,
+		"channel_slug", channelSlug,
+		"message_id", input.MessageID,
+	}, autoBotCommandLogFields(command)...)
+	slog.Info("Order bot kiem tra kenh va intent", fields...)
+	switch channelSlug {
 	case defaultRenewalChannelSlug:
 		return s.handleRenewalAutoMessage(ctx, input, command)
 	case defaultPaymentChannelSlug:
@@ -298,14 +343,32 @@ func (s *Service) HandleMessage(ctx context.Context, input botauto.MessageInput)
 	case defaultAlertChannelSlug:
 		return s.handleAlertAutoMessage(ctx, input, command)
 	default:
+		slog.Debug("Order bot bo qua kenh khong thuoc bot order",
+			"workspace_id", workspaceID,
+			"channel_id", channelID,
+			"channel_slug", channelSlug,
+			"message_id", input.MessageID,
+		)
 		return nil, nil
 	}
 }
 
 func (s *Service) handleRenewalAutoMessage(ctx context.Context, input botauto.MessageInput, command autoBotCommand) ([]botauto.BotMessage, error) {
 	if command.IsHelp || !command.HasLookup {
+		fields := append([]any{
+			"workspace_id", input.WorkspaceID,
+			"channel_id", input.ChannelID,
+			"message_id", input.MessageID,
+		}, autoBotCommandLogFields(command)...)
+		slog.Info("Gia Han Bot gui huong dan vi thieu lookup hoac nguoi dung hoi help", fields...)
 		return s.postAutoGuide(ctx, input, defaultRenewalBotSlug, defaultRenewalChannelSlug, "auto_help_gia_han", renewalBotGuide())
 	}
+	fields := append([]any{
+		"workspace_id", input.WorkspaceID,
+		"channel_id", input.ChannelID,
+		"message_id", input.MessageID,
+	}, autoBotCommandLogFields(command)...)
+	slog.Info("Gia Han Bot bat dau tra cuu dich vu sap het han", fields...)
 	result, err := s.ServicesExpiring(ctx, ServicesExpiringInput{
 		ActorUserID:    input.ActorUserID,
 		WorkspaceID:    input.WorkspaceID,
@@ -616,6 +679,39 @@ func parseAutoBotCommand(body string) autoBotCommand {
 	return command
 }
 
+func autoBotCommandLogFields(command autoBotCommand) []any {
+	return []any{
+		"email", maskLogEmail(command.Email),
+		"user_id", command.UserID,
+		"days", command.Days,
+		"service_type", command.ServiceType,
+		"amount", command.Amount,
+		"has_lookup", command.HasLookup,
+		"has_amount", command.HasAmount,
+		"is_help", command.IsHelp,
+		"wallet_intent", command.WalletIntent,
+		"payment_intent", command.PaymentIntent,
+		"ticket_intent", command.TicketIntent,
+		"alert_intent", command.AlertIntent,
+	}
+}
+
+func maskLogEmail(email string) string {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return ""
+	}
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 {
+		return "***"
+	}
+	local := []rune(parts[0])
+	if len(local) <= 2 {
+		return "**@" + parts[1]
+	}
+	return string(local[:2]) + "***@" + parts[1]
+}
+
 func (s *Service) postAutoGuide(ctx context.Context, input botauto.MessageInput, botSlug string, channelSlug string, action string, body string) ([]botauto.BotMessage, error) {
 	return s.postAutoText(ctx, input, botSlug, channelSlug, body, map[string]any{
 		"source":             "vpsttt_order",
@@ -625,6 +721,15 @@ func (s *Service) postAutoGuide(ctx context.Context, input botauto.MessageInput,
 }
 
 func (s *Service) postAutoError(ctx context.Context, input botauto.MessageInput, botSlug string, channelSlug string, botName string, err error, guide string) ([]botauto.BotMessage, error) {
+	slog.Warn("Order bot tao phan hoi loi",
+		"workspace_id", input.WorkspaceID,
+		"channel_id", input.ChannelID,
+		"message_id", input.MessageID,
+		"bot_slug", botSlug,
+		"target_channel_slug", channelSlug,
+		"bot_name", botName,
+		"error", err,
+	)
 	body := "[" + botName + "] Mình chưa xử lý được yêu cầu này.\n"
 	body += "Lý do: " + strings.TrimSpace(err.Error()) + "\n\n"
 	body += guide
@@ -636,8 +741,29 @@ func (s *Service) postAutoError(ctx context.Context, input botauto.MessageInput,
 }
 
 func (s *Service) postAutoText(ctx context.Context, input botauto.MessageInput, botSlug string, channelSlug string, body string, metadata map[string]any) ([]botauto.BotMessage, error) {
+	action := any(nil)
+	if metadata != nil {
+		action = metadata["action"]
+	}
+	slog.Info("Order bot chuan bi gui phan hoi",
+		"workspace_id", input.WorkspaceID,
+		"channel_id", input.ChannelID,
+		"message_id", input.MessageID,
+		"bot_slug", botSlug,
+		"target_channel_slug", channelSlug,
+		"body_len", len([]rune(body)),
+		"action", action,
+	)
 	message, err := s.postBotMessage(ctx, input.WorkspaceID, botSlug, input.ChannelID, channelSlug, body, metadata)
 	if err != nil {
+		slog.Warn("Order bot gui phan hoi that bai",
+			"workspace_id", input.WorkspaceID,
+			"channel_id", input.ChannelID,
+			"message_id", input.MessageID,
+			"bot_slug", botSlug,
+			"target_channel_slug", channelSlug,
+			"error", err,
+		)
 		return nil, err
 	}
 	return autoBotMessages(&message), nil
@@ -858,14 +984,30 @@ func (s *Service) ensureConfigured() error {
 }
 
 func (s *Service) postBotMessage(ctx context.Context, workspaceID string, botSlug string, channelID string, channelSlug string, body string, metadata map[string]any) (BotMessageDTO, error) {
+	slog.Info("Order bot bat dau postBotMessage",
+		"workspace_id", strings.TrimSpace(workspaceID),
+		"channel_id", strings.TrimSpace(channelID),
+		"bot_slug", botSlug,
+		"target_channel_slug", channelSlug,
+	)
 	if s.repo == nil {
 		return BotMessageDTO{}, apperrors.Internal("Order bot repository chưa được cấu hình.")
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
 	}
 	metadata["generated_at"] = s.now().Format(time.RFC3339)
 	rawMetadata, err := json.Marshal(metadata)
 	if err != nil {
 		return BotMessageDTO{}, err
 	}
+	slog.Info("Order bot insert message vao database",
+		"workspace_id", strings.TrimSpace(workspaceID),
+		"channel_id", strings.TrimSpace(channelID),
+		"bot_slug", botSlug,
+		"target_channel_slug", channelSlug,
+		"action", metadata["action"],
+	)
 	message, err := s.repo.SendBotMessage(ctx, SendBotMessageParams{
 		WorkspaceID: strings.TrimSpace(workspaceID),
 		BotSlug:     botSlug,
@@ -875,9 +1017,32 @@ func (s *Service) postBotMessage(ctx context.Context, workspaceID string, botSlu
 		Metadata:    rawMetadata,
 	})
 	if errors.Is(err, ErrOrderBotTargetNotFound) {
+		slog.Warn("Order bot khong tim thay bot hoac bot_installation cho kenh dich",
+			"workspace_id", strings.TrimSpace(workspaceID),
+			"channel_id", strings.TrimSpace(channelID),
+			"bot_slug", botSlug,
+			"target_channel_slug", channelSlug,
+		)
 		return BotMessageDTO{}, apperrors.BadRequest("ORDER_BOT_NOT_INSTALLED", "Bot order chưa được cài vào kênh đích.")
 	}
-	return message, err
+	if err != nil {
+		slog.Warn("Order bot insert message vao database that bai",
+			"workspace_id", strings.TrimSpace(workspaceID),
+			"channel_id", strings.TrimSpace(channelID),
+			"bot_slug", botSlug,
+			"target_channel_slug", channelSlug,
+			"error", err,
+		)
+		return BotMessageDTO{}, err
+	}
+	slog.Info("Order bot insert message vao database thanh cong",
+		"workspace_id", message.WorkspaceID,
+		"channel_id", message.ChannelID,
+		"message_id", message.ID,
+		"bot_id", message.BotID,
+		"bot_slug", botSlug,
+	)
+	return message, nil
 }
 
 func normalizeLookup(email string, userID int) (UserLookupRequest, error) {

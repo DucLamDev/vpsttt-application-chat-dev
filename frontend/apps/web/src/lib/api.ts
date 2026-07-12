@@ -5,7 +5,16 @@ import {
 import { useAuthStore } from "@/features/auth/auth-store";
 import { clearMediaObjectUrlCache } from "@/features/chat/model/media-cache";
 
-export const runtimeEnvironment = createRuntimeEnvironment();
+// Keep the API client and the health indicator on the same runtime target.
+// Calling createRuntimeEnvironment() without this source silently falls back to
+// the production API, even when NEXT_PUBLIC_API_BASE_URL is configured for a
+// local/staging frontend build.
+export const runtimeEnvironment = createRuntimeEnvironment({
+  NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+  NEXT_PUBLIC_WS_BASE_URL: process.env.NEXT_PUBLIC_WS_BASE_URL,
+  NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
+  NEXT_PUBLIC_DEFAULT_LOCALE: process.env.NEXT_PUBLIC_DEFAULT_LOCALE
+});
 
 let refreshRequest: Promise<string | null> | null = null;
 

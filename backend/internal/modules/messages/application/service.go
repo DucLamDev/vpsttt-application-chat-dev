@@ -265,6 +265,16 @@ func NewService(repo Repository, checker PermissionChecker, realtime ...Realtime
 
 func (s *Service) SetAutoResponders(responders ...botauto.Responder) {
 	s.autoResponders = responders
+	activeCount := 0
+	for _, responder := range responders {
+		if responder != nil {
+			activeCount++
+		}
+	}
+	slog.Info("Da cau hinh auto responder cho message service",
+		"count", len(responders),
+		"active_count", activeCount,
+	)
 }
 
 func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error) {
@@ -304,6 +314,15 @@ func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error)
 		return MessageDTO{}, mapMessageError(err)
 	}
 	dto := toMessageDTO(message)
+	slog.Info("Message service da luu tin nhan nguoi dung",
+		"workspace_id", dto.WorkspaceID,
+		"channel_id", dto.ChannelID,
+		"message_id", dto.ID,
+		"actor_user_id", strings.TrimSpace(input.ActorUserID),
+		"kind", dto.Kind,
+		"body_len", len([]rune(body)),
+		"auto_responder_count", len(s.autoResponders),
+	)
 	s.publishRealtime(ctx, "MessageCreated", dto)
 	s.runAutoResponders(ctx, botauto.MessageInput{
 		ActorUserID: strings.TrimSpace(input.ActorUserID),
@@ -659,12 +678,23 @@ func (s *Service) publishRealtime(ctx context.Context, eventType string, message
 
 func (s *Service) runAutoResponders(ctx context.Context, input botauto.MessageInput) {
 	if len(s.autoResponders) == 0 {
+		slog.Debug("Khong co auto responder nao duoc cau hinh",
+			"workspace_id", input.WorkspaceID,
+			"channel_id", input.ChannelID,
+			"message_id", input.MessageID,
+		)
 		return
 	}
 	for _, responder := range s.autoResponders {
 		if responder == nil {
 			continue
 		}
+		slog.Debug("Bat dau chay auto responder",
+			"workspace_id", input.WorkspaceID,
+			"channel_id", input.ChannelID,
+			"message_id", input.MessageID,
+			"body_len", len([]rune(input.Body)),
+		)
 		messages, err := responder.HandleMessage(ctx, input)
 		if err != nil {
 			slog.Warn("Auto responder xử lý tin nhắn thất bại",
@@ -675,6 +705,20 @@ func (s *Service) runAutoResponders(ctx context.Context, input botauto.MessageIn
 			)
 			continue
 		}
+		if len(messages) == 0 {
+			slog.Debug("Auto responder khong tao phan hoi",
+				"workspace_id", input.WorkspaceID,
+				"channel_id", input.ChannelID,
+				"message_id", input.MessageID,
+			)
+			continue
+		}
+		slog.Info("Auto responder tao phan hoi",
+			"workspace_id", input.WorkspaceID,
+			"channel_id", input.ChannelID,
+			"message_id", input.MessageID,
+			"response_count", len(messages),
+		)
 		for _, message := range messages {
 			s.publishRealtime(ctx, "MessageCreated", autoBotMessageDTO(message))
 		}
