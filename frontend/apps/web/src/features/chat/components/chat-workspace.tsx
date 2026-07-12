@@ -3208,6 +3208,7 @@ function BotsPage({
 
   const orderWalletMutation = useMutation({
     mutationFn: () => api.orderBot.walletBalance(workspaceId as string, buildOrderLookup(orderEmail, orderUserId)),
+    onMutate: () => setFeedback(null),
     onError: (error) => setFeedback({ message: errorMessage(error, "Không tra được ví khách hàng."), tone: "error" }),
     onSuccess: async (result) => {
       setOrderResult({ data: result.data, kind: "wallet" });
@@ -3223,6 +3224,7 @@ function BotsPage({
       amount: parsePositiveInt(orderDepositAmount),
       expires_minutes: 1440
     }),
+    onMutate: () => setFeedback(null),
     onError: (error) => setFeedback({ message: errorMessage(error, "Không tạo được QR nạp ví."), tone: "error" }),
     onSuccess: async (result) => {
       setOrderResult({ data: result.data, kind: "deposit" });
@@ -3239,6 +3241,7 @@ function BotsPage({
       include_expired: false,
       service_type: orderServiceType
     }),
+    onMutate: () => setFeedback(null),
     onError: (error) => setFeedback({ message: errorMessage(error, "Không kiểm tra được dịch vụ sắp hết hạn."), tone: "error" }),
     onSuccess: async (result) => {
       setOrderResult({ data: result.data, kind: "expiring" });

@@ -257,11 +257,61 @@ type ExpiringUserSummary struct {
 }
 
 type ServicesExpiringSummary struct {
-	Total        int            `json:"total,omitempty"`
-	Expired      int            `json:"expired,omitempty"`
-	Expiring     int            `json:"expiring,omitempty"`
-	AutoRenewOff int            `json:"auto_renew_off,omitempty"`
-	ByType       map[string]int `json:"by_type,omitempty"`
+	Total        int               `json:"total,omitempty"`
+	Expired      int               `json:"expired,omitempty"`
+	Expiring     int               `json:"expiring,omitempty"`
+	AutoRenewOff int               `json:"auto_renew_off,omitempty"`
+	ByType       ServiceTypeCounts `json:"by_type,omitempty"`
+}
+
+type ServiceTypeCounts map[string]int
+
+func (counts *ServiceTypeCounts) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*counts = ServiceTypeCounts{}
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "{") {
+		var values map[string]int
+		if err := json.Unmarshal(data, &values); err != nil {
+			return err
+		}
+		*counts = ServiceTypeCounts(values)
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		var rows []struct {
+			ServiceTypeKey string `json:"service_type_key"`
+			ServiceType    string `json:"service_type"`
+			Type           string `json:"type"`
+			Key            string `json:"key"`
+			Count          *int   `json:"count"`
+			Total          *int   `json:"total"`
+			Value          *int   `json:"value"`
+		}
+		if err := json.Unmarshal(data, &rows); err != nil {
+			return err
+		}
+		values := ServiceTypeCounts{}
+		for _, row := range rows {
+			key := strings.ToLower(strings.TrimSpace(firstNonEmpty(row.ServiceTypeKey, row.ServiceType, row.Type, row.Key)))
+			if key == "" {
+				continue
+			}
+			switch {
+			case row.Count != nil:
+				values[key] = *row.Count
+			case row.Total != nil:
+				values[key] = *row.Total
+			case row.Value != nil:
+				values[key] = *row.Value
+			}
+		}
+		*counts = values
+		return nil
+	}
+	return fmt.Errorf("invalid services summary by_type JSON")
 }
 
 type ServiceExpiringItem struct {
