@@ -26,3 +26,24 @@ func TestParseUpstreamErrorReadsJSONMessage(t *testing.T) {
 	}
 }
 
+func TestConfigurationErrorRejectsOverviewKey(t *testing.T) {
+	client := New(Config{
+		BaseURL:        "https://order.vpsttt.com/api",
+		InternalAPIKey: "ovw_example",
+	})
+
+	if err := client.ConfigurationError(); err == nil {
+		t.Fatal("ConfigurationError() = nil, want wrong-key error")
+	}
+}
+
+func TestConfigurationErrorAcceptsInternalKey(t *testing.T) {
+	client := New(Config{
+		BaseURL:        "https://order.vpsttt.com/api",
+		InternalAPIKey: "internal-api-key",
+	})
+
+	if err := client.ConfigurationError(); err != nil {
+		t.Fatalf("ConfigurationError() = %v, want nil", err)
+	}
+}

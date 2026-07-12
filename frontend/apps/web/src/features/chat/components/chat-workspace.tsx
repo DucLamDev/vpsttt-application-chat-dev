@@ -3263,6 +3263,7 @@ function BotsPage({
   const activeBots = bots.filter((bot) => bot.status === "active").length;
   const installations = installationsQuery.data ?? [];
   const orderConfigured = orderStatusQuery.data?.configured ?? false;
+  const orderConfigurationError = orderStatusQuery.data?.configuration_error;
   const orderBusy = orderWalletMutation.isPending || orderDepositMutation.isPending || orderExpiringMutation.isPending;
 
   return (
@@ -3342,12 +3343,14 @@ function BotsPage({
         <section className="order-bot-panel">
           <header>
             <div>
-              <Badge tone={orderConfigured ? "green" : "red"}>{orderConfigured ? "Đã cấu hình" : "Thiếu API key"}</Badge>
+              <Badge tone={orderConfigured ? "blue" : "red"}>{orderConfigured ? "Đã khai báo API" : orderConfigurationError ? "Sai cấu hình API" : "Thiếu API key"}</Badge>
               <h2>VPSTTT Order CSKH</h2>
               <p>Tra ví, tạo QR nạp ví và kiểm tra dịch vụ sắp hết hạn từ hệ thống order.</p>
+              {orderConfigured ? <small>Trạng thái này chỉ xác nhận URL và API key đã được nhập; kết nối thật được kiểm tra khi thực hiện tra cứu.</small> : null}
+              {orderConfigurationError ? <small>{orderConfigurationError}</small> : null}
             </div>
             <Button disabled={orderStatusQuery.isFetching} onClick={() => void orderStatusQuery.refetch()} size="sm" variant="secondary">
-              <Cloud size={15} /> Kiểm tra cấu hình
+              <Cloud size={15} /> Tải lại cấu hình
             </Button>
           </header>
           <div className="order-bot-grid">
