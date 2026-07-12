@@ -65,21 +65,31 @@ ON CONFLICT DO NOTHING
 
 	defaultChannelIDs := make(map[string]string, len(workspacesapp.DefaultWorkspaceChannels()))
 	for _, definition := range workspacesapp.DefaultWorkspaceChannels() {
+		settings := map[string]any{"system_default": true}
+		if definition.PrivateSession {
+			settings["bot_session_mode"] = "private"
+		}
+		settingsJSON, err := json.Marshal(settings)
+		if err != nil {
+			return workspacesdomain.Workspace{}, err
+		}
 		var channelID string
 		if err := tx.QueryRow(ctx, `
 INSERT INTO channels (workspace_id, slug, name, description, type, created_by, settings)
-VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, '{"system_default": true}'::jsonb)
+VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7::jsonb)
 RETURNING id::text
-`, workspace.ID, definition.Slug, definition.Name, definition.Description, definition.Type, params.OwnerID).Scan(&channelID); err != nil {
+`, workspace.ID, definition.Slug, definition.Name, definition.Description, definition.Type, params.OwnerID, string(settingsJSON)).Scan(&channelID); err != nil {
 			return workspacesdomain.Workspace{}, err
 		}
 		defaultChannelIDs[definition.Slug] = channelID
-		if _, err := tx.Exec(ctx, `
+		if !definition.PrivateSession {
+			if _, err := tx.Exec(ctx, `
 INSERT INTO channel_members (channel_id, user_id, status)
 VALUES ($1::uuid, $2::uuid, 'active')
 ON CONFLICT (channel_id, user_id) DO UPDATE SET status = 'active'
 `, channelID, params.OwnerID); err != nil {
-			return workspacesdomain.Workspace{}, err
+				return workspacesdomain.Workspace{}, err
+			}
 		}
 	}
 

@@ -85,6 +85,12 @@ export function createChannelsClient(http: HttpClient) {
         input
       );
     },
+    openPrivateSession(workspaceId: string, channelId: string) {
+      return http.post<Channel>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/private-session`,
+        {}
+      );
+    },
     async directConversations(workspaceId: string) {
       const data = await http.get<unknown>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/direct-conversations`);
       return collectionFrom<DirectConversation>(data, "direct_conversations");

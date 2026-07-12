@@ -30,6 +30,7 @@ type Repository interface {
 	RequestJoin(ctx context.Context, params AddMemberParams) (channelsdomain.Member, error)
 	UpdateMemberStatus(ctx context.Context, params UpdateMemberStatusParams) (channelsdomain.Member, error)
 	UpdateReadState(ctx context.Context, params UpdateReadStateParams) (channelsdomain.Member, error)
+	CreateOrGetPrivateSession(ctx context.Context, params PrivateSessionParams) (channelsdomain.Channel, error)
 	CreateOrGetDirectConversation(ctx context.Context, params CreateDirectParams) (channelsdomain.DirectConversation, error)
 	HasAcceptedContact(ctx context.Context, actorUserID string, participantUserID string) (bool, error)
 	ListDirectConversations(ctx context.Context, workspaceID string, userID string) ([]channelsdomain.DirectConversation, error)
@@ -134,6 +135,12 @@ type CreateDirectParams struct {
 	CreatedBy        string
 }
 
+type PrivateSessionParams struct {
+	WorkspaceID     string
+	SourceChannelID string
+	UserID          string
+}
+
 type AuditEvent struct {
 	ActorUserID string
 	WorkspaceID string
@@ -144,21 +151,22 @@ type AuditEvent struct {
 }
 
 type ChannelDTO struct {
-	ID               string  `json:"id"`
-	WorkspaceID      string  `json:"workspace_id"`
-	DepartmentID     *string `json:"department_id,omitempty"`
-	Slug             *string `json:"slug,omitempty"`
-	Name             string  `json:"name"`
-	Description      *string `json:"description,omitempty"`
-	Type             string  `json:"type"`
-	Status           string  `json:"status"`
-	CreatedBy        *string `json:"created_by,omitempty"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
-	ArchivedAt       *string `json:"archived_at,omitempty"`
-	MembershipStatus string `json:"membership_status"`
-	IsMember         bool    `json:"is_member"`
-	CanManage        bool    `json:"can_manage"`
+	ID                 string  `json:"id"`
+	WorkspaceID        string  `json:"workspace_id"`
+	DepartmentID       *string `json:"department_id,omitempty"`
+	Slug               *string `json:"slug,omitempty"`
+	Name               string  `json:"name"`
+	Description        *string `json:"description,omitempty"`
+	Type               string  `json:"type"`
+	Status             string  `json:"status"`
+	CreatedBy          *string `json:"created_by,omitempty"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
+	ArchivedAt         *string `json:"archived_at,omitempty"`
+	MembershipStatus   string  `json:"membership_status"`
+	IsMember           bool    `json:"is_member"`
+	CanManage          bool    `json:"can_manage"`
+	PrivateSessionMode bool    `json:"private_session_mode"`
 }
 
 type MemberDTO struct {
@@ -266,11 +274,37 @@ func (s *Service) List(ctx context.Context, actorUserID string, workspaceID stri
 		if err != nil {
 			return nil, err
 		}
-		if dto.IsMember {
+		if dto.IsMember || dto.PrivateSessionMode {
 			dtos = append(dtos, dto)
 		}
 	}
 	return dtos, nil
+}
+
+func (s *Service) OpenPrivateSession(ctx context.Context, actorUserID string, workspaceID string, sourceChannelID string) (ChannelDTO, error) {
+	if err := s.ensureWorkspaceAccess(ctx, actorUserID, workspaceID); err != nil {
+		return ChannelDTO{}, err
+	}
+	source, err := s.repo.FindChannel(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(sourceChannelID))
+	if err != nil {
+		return ChannelDTO{}, mapChannelError(err)
+	}
+	if !source.PrivateSessionMode {
+		return ChannelDTO{}, apperrors.BadRequest("CHANNEL_NOT_PRIVATE_SESSION", "Kênh này không sử dụng phiên làm việc riêng tư.")
+	}
+	channel, err := s.repo.CreateOrGetPrivateSession(ctx, PrivateSessionParams{
+		WorkspaceID:     strings.TrimSpace(workspaceID),
+		SourceChannelID: strings.TrimSpace(sourceChannelID),
+		UserID:          strings.TrimSpace(actorUserID),
+	})
+	if err != nil {
+		return ChannelDTO{}, mapChannelError(err)
+	}
+	dto := toChannelDTO(channel)
+	dto.MembershipStatus = "active"
+	dto.IsMember = true
+	dto.CanManage = false
+	return dto, nil
 }
 
 func (s *Service) Update(ctx context.Context, input UpdateChannelInput) (ChannelDTO, error) {
@@ -322,6 +356,13 @@ func (s *Service) AddMember(ctx context.Context, input AddMemberInput) (MemberDT
 	if err := s.ensureCanManageChannel(ctx, input.ActorUserID, input.WorkspaceID, input.ChannelID); err != nil {
 		return MemberDTO{}, err
 	}
+	channel, err := s.repo.FindChannel(ctx, strings.TrimSpace(input.WorkspaceID), strings.TrimSpace(input.ChannelID))
+	if err != nil {
+		return MemberDTO{}, mapChannelError(err)
+	}
+	if channel.PrivateSessionMode {
+		return MemberDTO{}, apperrors.BadRequest("PRIVATE_SESSION_SOURCE", "Kênh này tự tạo phiên riêng cho từng người dùng và không cho thêm thành viên trực tiếp.")
+	}
 	member, err := s.repo.AddMember(ctx, AddMemberParams{
 		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
 		ChannelID:   strings.TrimSpace(input.ChannelID),
@@ -363,6 +404,9 @@ func (s *Service) RequestJoin(ctx context.Context, actorUserID string, workspace
 	}
 	if channel.Type == "direct" {
 		return MemberDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Không thể yêu cầu tham gia hội thoại riêng.")
+	}
+	if channel.PrivateSessionMode {
+		return MemberDTO{}, apperrors.BadRequest("PRIVATE_SESSION_SOURCE", "Hãy mở kênh để hệ thống tạo phiên làm việc riêng tư.")
 	}
 	member, err := s.repo.FindMember(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(channelID), strings.TrimSpace(actorUserID))
 	if err == nil && (member.Status == "active" || member.Status == "muted") {
@@ -516,6 +560,9 @@ func (s *Service) ensureCanManageChannel(ctx context.Context, userID string, wor
 	if err != nil {
 		return mapChannelError(err)
 	}
+	if channel.Type == "direct" {
+		return apperrors.Forbidden("Không thể thêm hoặc thay đổi thành viên của hội thoại riêng.")
+	}
 	if channel.CreatedBy != nil && *channel.CreatedBy == strings.TrimSpace(userID) {
 		return nil
 	}
@@ -532,8 +579,8 @@ func (s *Service) decorateChannelDTO(ctx context.Context, actorUserID string, wo
 	} else if !errors.Is(err, channelsdomain.ErrMemberNotFound) {
 		return ChannelDTO{}, err
 	}
-	dto.CanManage = channel.CreatedBy != nil && *channel.CreatedBy == strings.TrimSpace(actorUserID)
-	if !dto.CanManage {
+	dto.CanManage = channel.Type != "direct" && channel.CreatedBy != nil && *channel.CreatedBy == strings.TrimSpace(actorUserID)
+	if !dto.CanManage && channel.Type != "direct" {
 		allowed, permissionErr := s.checker.HasWorkspacePermission(ctx, strings.TrimSpace(actorUserID), strings.TrimSpace(workspaceID), "channel.manage")
 		if permissionErr != nil {
 			return ChannelDTO{}, permissionErr
@@ -593,18 +640,19 @@ func mapMemberError(err error) error {
 
 func toChannelDTO(channel channelsdomain.Channel) ChannelDTO {
 	return ChannelDTO{
-		ID:           channel.ID,
-		WorkspaceID:  channel.WorkspaceID,
-		DepartmentID: channel.DepartmentID,
-		Slug:         channel.Slug,
-		Name:         channel.Name,
-		Description:  channel.Description,
-		Type:         channel.Type,
-		Status:       channel.Status,
-		CreatedBy:    channel.CreatedBy,
-		CreatedAt:    formatTime(channel.CreatedAt),
-		UpdatedAt:    formatTime(channel.UpdatedAt),
-		ArchivedAt:   formatOptionalTime(channel.ArchivedAt),
+		ID:                 channel.ID,
+		WorkspaceID:        channel.WorkspaceID,
+		DepartmentID:       channel.DepartmentID,
+		Slug:               channel.Slug,
+		Name:               channel.Name,
+		Description:        channel.Description,
+		Type:               channel.Type,
+		Status:             channel.Status,
+		CreatedBy:          channel.CreatedBy,
+		CreatedAt:          formatTime(channel.CreatedAt),
+		UpdatedAt:          formatTime(channel.UpdatedAt),
+		ArchivedAt:         formatOptionalTime(channel.ArchivedAt),
+		PrivateSessionMode: channel.PrivateSessionMode,
 	}
 }
 

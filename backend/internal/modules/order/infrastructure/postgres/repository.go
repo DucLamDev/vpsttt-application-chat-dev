@@ -22,7 +22,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 func (r *Repository) ChannelByID(ctx context.Context, workspaceID string, channelID string) (orderapp.ChannelDTO, error) {
 	row := r.pool.QueryRow(ctx, `
-SELECT id::text, workspace_id::text, slug::text, name
+SELECT id::text, workspace_id::text, COALESCE(settings->>'bot_source_slug', slug::text), name
 FROM channels
 WHERE workspace_id = $1::uuid
   AND id = $2::uuid
@@ -68,7 +68,11 @@ WITH target AS (
           WHERE bi.bot_id = b.id
             AND bi.workspace_id = c.workspace_id
             AND bi.status = 'active'
-            AND (bi.channel_id IS NULL OR bi.channel_id = c.id)
+            AND (
+                bi.channel_id IS NULL
+                OR bi.channel_id = c.id
+                OR bi.channel_id::text = c.settings->>'bot_source_channel_id'
+            )
       )
     LIMIT 1
 ), inserted AS (

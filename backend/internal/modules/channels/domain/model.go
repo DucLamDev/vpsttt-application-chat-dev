@@ -13,18 +13,19 @@ var (
 )
 
 type Channel struct {
-	ID           string
-	WorkspaceID  string
-	DepartmentID *string
-	Slug         *string
-	Name         string
-	Description  *string
-	Type         string
-	Status       string
-	CreatedBy    *string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	ArchivedAt   *time.Time
+	ID                 string
+	WorkspaceID        string
+	DepartmentID       *string
+	Slug               *string
+	Name               string
+	Description        *string
+	Type               string
+	Status             string
+	CreatedBy          *string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	ArchivedAt         *time.Time
+	PrivateSessionMode bool
 }
 
 type Member struct {

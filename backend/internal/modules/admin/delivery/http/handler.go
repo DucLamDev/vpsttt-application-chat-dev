@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	nethttp "net/http"
+	"strconv"
 	"time"
 
 	adminapp "github.com/duclamdev/application-chat/backend/internal/modules/admin/application"
@@ -26,6 +27,27 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.Use(authMiddleware)
 	private.GET("/stats", h.Stats)
 	private.GET("/health", h.Health)
+	private.GET("/channels", h.Channels)
+	private.GET("/messages", h.Messages)
+}
+
+func (h *Handler) Channels(c *gin.Context) {
+	channels, err := h.service.Channels(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, gin.H{"channels": channels})
+}
+
+func (h *Handler) Messages(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	messages, err := h.service.RecentMessages(c.Request.Context(), middleware.CurrentUserID(c), c.Param("workspace_id"), limit)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, gin.H{"messages": messages})
 }
 
 func (h *Handler) Stats(c *gin.Context) {

@@ -8,7 +8,6 @@ import type {
   Channel as ApiChannel,
   CreateDepartmentInput,
   CreateChannelInput,
-  CreateWorkspaceInput,
   DirectConversation as ApiDirectConversation,
   FileObject,
   Message as ApiMessage,
@@ -53,7 +52,6 @@ export type SendMessageResult = {
 };
 
 export type CreateChannelPayload = Pick<CreateChannelInput, "description" | "name" | "slug" | "type">;
-export type CreateWorkspacePayload = Pick<CreateWorkspaceInput, "description" | "name" | "slug">;
 export type CreateDepartmentPayload = Pick<CreateDepartmentInput, "description" | "name" | "parent_id" | "slug">;
 type CreateDirectConversationMutationInput =
   | string
@@ -306,6 +304,19 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     }
   });
 
+  const openPrivateSessionMutation = useMutation({
+    mutationFn: (sourceChannelId: string) => {
+      if (!workspaceId) {
+        throw new Error("Chưa có workspace để mở phiên riêng tư.");
+      }
+      return api.channels.openPrivateSession(workspaceId, sourceChannelId);
+    },
+    onSuccess: async (channel) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) });
+      setSelectedChannelId(channel.id, workspaceId, "channel");
+    }
+  });
+
   const requestChannelJoinMutation = useMutation({
     mutationFn: (channelId: string) => {
       if (!workspaceId) {
@@ -357,14 +368,6 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.departments.all(workspaceId) });
-    }
-  });
-
-  const createWorkspaceMutation = useMutation({
-    mutationFn: (input: CreateWorkspacePayload) => api.workspaces.create(input),
-    onSuccess: async (workspace) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.all });
-      workspaceContext.setWorkspaceId(workspace.id);
     }
   });
 
@@ -591,7 +594,6 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     createChannelMutation,
     createDirectConversationMutation,
     createDepartmentMutation,
-    createWorkspaceMutation,
     directConversations,
     directConversationsQuery,
     downloadAttachment,
@@ -620,6 +622,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     markNotificationReadMutation: notificationPresence.markNotificationReadMutation,
     notifications: notificationPresence.notifications.map(mapNotification),
     notificationsQuery: notificationPresence.notificationsQuery,
+    openPrivateSessionMutation,
     presenceByUserId: notificationPresence.presenceByUserId,
     presenceQuery: notificationPresence.presenceQuery,
     pinnedMessages: messageTimeline.pinnedMessages,
@@ -698,6 +701,7 @@ function mapChannel(channel: ApiChannel, index: number): ChatChannel {
     isFavorite: Boolean(channel.is_favorite),
     isMember: Boolean(channel.is_member),
     membershipStatus: channel.membership_status ?? "none",
+    privateSessionMode: Boolean(channel.private_session_mode),
     memberCount: channel.member_count ?? 0,
     messages: [],
     name: channel.name,

@@ -38,8 +38,9 @@ func (e *UpstreamError) Error() string {
 }
 
 const (
-	PermissionOrderView    = "order.view"
-	PermissionOrderBilling = "order.billing"
+	PermissionOrderView           = "order.view"
+	PermissionOrderBilling        = "order.billing"
+	PermissionOrderPaymentRequest = "order.payment_request"
 
 	defaultSupportBotSlug = "cskh-bot"
 	defaultTicketBotSlug  = "ticket-bot"
@@ -637,7 +638,7 @@ func (s *Service) WalletBalance(ctx context.Context, input WalletBalanceInput) (
 }
 
 func (s *Service) CreateDepositQR(ctx context.Context, input WalletDepositQRInput) (WalletDepositQRResult, error) {
-	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, PermissionOrderBilling); err != nil {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, PermissionOrderPaymentRequest); err != nil {
 		return WalletDepositQRResult{}, err
 	}
 	if err := s.ensureConfigured(); err != nil {
@@ -701,7 +702,7 @@ func (s *Service) CreateDepositQR(ctx context.Context, input WalletDepositQRInpu
 }
 
 func (s *Service) CreateOrderPaymentQR(ctx context.Context, input OrderPaymentQRInput) (OrderPaymentQRResult, error) {
-	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, PermissionOrderBilling); err != nil {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, PermissionOrderPaymentRequest); err != nil {
 		return OrderPaymentQRResult{}, err
 	}
 	if err := s.ensureQuickOrderConfigured(); err != nil {
@@ -959,8 +960,8 @@ func (s *Service) postAutoError(ctx context.Context, input botauto.MessageInput,
 		"bot_name", botName,
 		"error", err,
 	)
-	body := "[" + botName + "] Mình chưa xử lý được yêu cầu này.\n"
-	body += "Lý do: " + strings.TrimSpace(err.Error()) + "\n\n"
+	body := strings.ToUpper(botName) + " · CHƯA THỂ XỬ LÝ\n"
+	body += "Chi tiết: " + strings.TrimSpace(err.Error()) + "\n\n"
 	body += guide
 	return s.postAutoText(ctx, input, botSlug, channelSlug, body, map[string]any{
 		"source":             "vpsttt_order",
@@ -1015,43 +1016,44 @@ func autoBotMessages(message *BotMessageDTO) []botauto.BotMessage {
 }
 
 func renewalBotGuide() string {
-	return strings.TrimSpace(`[Gia Hạn Bot] Mình tự động kiểm tra dịch vụ sắp hết hạn khi bạn gửi theo mẫu:
+	return strings.TrimSpace(`GIA HẠN · CÚ PHÁP HỖ TRỢ
+Kiểm tra dịch vụ sắp hết hạn:
 Email: khach@example.com
 Số ngày: 7
 Loại dịch vụ: Tất cả
 
-Loại dịch vụ hỗ trợ: Tất cả, VPS, Proxy, Hosting, S3, Drive, WAF, Domain, Separate.`)
+Hỗ trợ: Tất cả, VPS, Proxy, Hosting, S3, Drive, WAF, Domain và Separate.`)
 }
 
 func paymentBotGuide() string {
-	return strings.TrimSpace(`[Thanh Toán Bot] Mình hỗ trợ 2 loại QR.
+	return strings.TrimSpace(`THANH TOÁN · CÚ PHÁP HỖ TRỢ
 
-1. QR nạp ví:
+QR nạp ví
 Email: khach@example.com
 Số tiền: 200000
 
-2. QR thanh toán đơn hàng Quick Order:
+QR thanh toán đơn hàng Quick Order
 Tạo QR cho đơn hàng
 Intent code: QOIABCD1234EFGH5678
 
-Số tiền nạp ví tối thiểu là 1.000 VND. QR mặc định hết hạn sau 24 giờ.`)
+Lưu ý: Số tiền nạp tối thiểu là 1.000 VND; mã QR hết hạn sau 24 giờ.`)
 }
 
 func ticketBotGuide() string {
-	return strings.TrimSpace(`[Ticket Bot] Mình tự động phân loại ticket khi bạn gửi nội dung lỗi của khách.
+	return strings.TrimSpace(`TICKET · CÚ PHÁP HỖ TRỢ
+Gửi nội dung sự cố theo mẫu:
 
-Ví dụ:
 Khách: Nguyễn Văn A
 Email: khach@example.com
 Lỗi: VPS không truy cập được SSH
 
-Nếu muốn tra ví khách hàng, gửi: Tra ví email@example.com`)
+Tra cứu ví nhanh: Tra ví email@example.com`)
 }
 
 func alertBotGuide() string {
-	return strings.TrimSpace(`[Server Alert Bot] Mình tự động phân tích cảnh báo vận hành.
+	return strings.TrimSpace(`SERVER ALERT · CÚ PHÁP HỖ TRỢ
+Gửi cảnh báo vận hành theo mẫu:
 
-Ví dụ:
 Server: vps-01
 Lỗi: mất ping 3 phút
 Port: 22 timeout
@@ -1066,16 +1068,16 @@ func formatTicketTriageMessage(body string, command autoBotCommand) string {
 		priority = "P2 - Ưu tiên cao"
 	}
 	customer := firstNonEmpty(command.Email, "chưa rõ")
-	return strings.TrimSpace(fmt.Sprintf(`[Ticket Bot] Đã tự phân loại yêu cầu hỗ trợ
-Khách: %s
+	return strings.TrimSpace(fmt.Sprintf(`TICKET · ĐÃ TIẾP NHẬN
+Khách hàng: %s
 Mức ưu tiên: %s
 Tóm tắt: %s
 
-Checklist gợi ý:
-- Xác nhận dịch vụ/tài khoản khách.
-- Kiểm tra log gần nhất và trạng thái dịch vụ liên quan.
-- Nếu là sự cố server, chuyển tiếp sang #server-alert hoặc #ky-thuat.
-- Cập nhật kết quả xử lý lại trong thread ticket.`, customer, priority, compactSummary(body, 180)))
+Hướng xử lý
+• Xác minh tài khoản và dịch vụ liên quan.
+• Kiểm tra trạng thái dịch vụ cùng log gần nhất.
+• Chuyển #server-alert hoặc #ky-thuat nếu là sự cố hạ tầng.
+• Cập nhật tiến độ trong luồng ticket này.`, customer, priority, compactSummary(body, 180)))
 }
 
 func formatServerAlertMessage(body string) string {
@@ -1097,16 +1099,15 @@ func formatServerAlertMessage(body string) string {
 	if len(signals) == 0 {
 		signals = append(signals, "general")
 	}
-	return strings.TrimSpace(fmt.Sprintf(`[Server Alert Bot] Đã nhận cảnh báo vận hành
-Mức độ: %s
-Dấu hiệu: %s
+	return strings.TrimSpace(fmt.Sprintf(`VẬN HÀNH · CẢNH BÁO %s
+Tín hiệu: %s
 Tóm tắt: %s
 
-Checklist gợi ý:
-- Kiểm tra ping/traceroute và SSH.
-- Kiểm tra tải hệ thống: CPU, RAM, disk, network.
-- Kiểm tra dịch vụ liên quan bằng systemctl/docker logs.
-- Nếu ảnh hưởng khách hàng, báo #ticket và cập nhật tiến độ xử lý.`, severity, strings.Join(signals, ", "), compactSummary(body, 180)))
+Checklist xử lý
+• Kiểm tra ping, traceroute và SSH.
+• Kiểm tra CPU, RAM, ổ đĩa và network.
+• Kiểm tra service bằng systemctl hoặc docker logs.
+• Báo #ticket nếu sự cố đang ảnh hưởng khách hàng.`, strings.ToUpper(severity), strings.Join(signals, ", "), compactSummary(body, 180)))
 }
 
 func normalizeServiceTypeAlias(value string) string {
@@ -1384,98 +1385,94 @@ func mapOrderClientError(err error) error {
 
 func formatWalletBalanceMessage(data WalletBalanceData) string {
 	var builder strings.Builder
-	builder.WriteString("[CSKH Bot] Tra cứu ví khách hàng\n")
-	builder.WriteString("Khách: " + customerLine(data.Name, data.Email, data.UserID) + "\n")
-	builder.WriteString("Số dư ví: " + formatVND(balanceAmount(data.BalanceVND, data.Balance, data.Money)) + "\n")
+	builder.WriteString("CSKH · SỐ DƯ VÍ\n")
+	builder.WriteString("Khách hàng: " + customerLine(data.Name, data.Email, data.UserID) + "\n")
+	builder.WriteString("Số dư khả dụng: " + formatVND(balanceAmount(data.BalanceVND, data.Balance, data.Money)) + "\n")
 	if data.Agency != "" {
-		builder.WriteString("Đại lý: " + data.Agency + "\n")
+		builder.WriteString("Cấp đại lý: " + data.Agency + "\n")
 	}
 	if len(data.Services) > 0 {
-		builder.WriteString("Dịch vụ: " + formatServicesMap(data.Services) + "\n")
+		builder.WriteString("Dịch vụ đang dùng: " + formatServicesMap(data.Services) + "\n")
 	}
 	return strings.TrimSpace(builder.String())
 }
 
 func formatDepositQRMessage(data WalletDepositQRData) string {
 	var builder strings.Builder
-	builder.WriteString("[Thanh Toán Bot] QR nạp ví\n")
-	builder.WriteString("Khách: " + customerLine(data.Name, data.Email, data.UserID) + "\n")
+	builder.WriteString("THANH TOÁN · QR NẠP VÍ\n")
+	builder.WriteString("Khách hàng: " + customerLine(data.Name, data.Email, data.UserID) + "\n")
 	builder.WriteString("Số tiền: " + formatVND(data.Amount) + "\n")
 	if data.Reference != "" {
 		builder.WriteString("Mã tham chiếu: " + data.Reference + "\n")
 	}
 	transferContent := firstNonEmpty(data.TransferContent, data.Bank.TransferContent)
 	if transferContent != "" {
-		builder.WriteString("Nội dung CK: " + transferContent + "\n")
+		builder.WriteString("Nội dung chuyển khoản: " + transferContent + "\n")
 	}
 	if data.Bank.BankCode != "" || data.Bank.AccountNumber != "" {
 		builder.WriteString("Ngân hàng: " + strings.TrimSpace(data.Bank.BankCode+" "+data.Bank.AccountNumber) + "\n")
 	}
 	if data.Bank.AccountName != "" {
-		builder.WriteString("Chủ TK: " + data.Bank.AccountName + "\n")
-	}
-	if data.QRURL != "" {
-		builder.WriteString("QR: " + data.QRURL + "\n")
+		builder.WriteString("Chủ tài khoản: " + data.Bank.AccountName + "\n")
 	}
 	if data.ExpiresAt != "" {
 		builder.WriteString("Hết hạn: " + data.ExpiresAt + "\n")
 	}
+	builder.WriteString("\nVui lòng quét mã QR bên dưới và giữ nguyên nội dung chuyển khoản.")
 	return strings.TrimSpace(builder.String())
 }
 
 func formatOrderPaymentQRMessage(data OrderPaymentQRData) string {
 	var builder strings.Builder
-	builder.WriteString("[Thanh Toán Bot] QR thanh toán đơn hàng\n")
+	builder.WriteString("THANH TOÁN · QR ĐƠN HÀNG\n")
 	if data.ExternalOrderID != "" {
 		builder.WriteString("Đơn hàng: " + data.ExternalOrderID + "\n")
 	} else if data.IntentID > 0 {
 		builder.WriteString("Intent ID: " + strconv.Itoa(data.IntentID) + "\n")
 	}
 	if data.CustomerEmail != "" {
-		builder.WriteString("Khách: " + data.CustomerEmail + "\n")
+		builder.WriteString("Khách hàng: " + data.CustomerEmail + "\n")
 	}
 	builder.WriteString("Số tiền: " + formatVND(data.Amount) + "\n")
 	if data.Reference != "" {
 		builder.WriteString("Mã tham chiếu: " + data.Reference + "\n")
 	}
-	if data.QRURL != "" {
-		builder.WriteString("QR: " + data.QRURL + "\n")
-	}
 	if data.ExpiresAt != "" {
 		builder.WriteString("Hết hạn: " + data.ExpiresAt + "\n")
 	}
+	builder.WriteString("\nVui lòng quét mã QR bên dưới để hoàn tất thanh toán.")
 	return strings.TrimSpace(builder.String())
 }
 
 func formatExpiringServicesMessage(data ServicesExpiringData) string {
 	var builder strings.Builder
-	builder.WriteString("[Gia Hạn Bot] Dịch vụ sắp hết hạn\n")
-	builder.WriteString("Khách: " + customerLine(data.User.Name, data.User.Email, data.User.UserID) + "\n")
+	builder.WriteString("GIA HẠN · DỊCH VỤ SẮP HẾT HẠN\n")
+	builder.WriteString("Khách hàng: " + customerLine(data.User.Name, data.User.Email, data.User.UserID) + "\n")
 	if data.Days > 0 {
 		builder.WriteString("Khoảng kiểm tra: " + strconv.Itoa(data.Days) + " ngày\n")
 	}
 	builder.WriteString(fmt.Sprintf(
-		"Tổng: %d | Hết hạn: %d | Sắp hết hạn: %d | Auto-renew tắt: %d\n",
+		"Tổng quan: %d dịch vụ · %d đã hết hạn · %d sắp hết hạn · %d tắt tự động gia hạn\n",
 		data.Summary.Total,
 		data.Summary.Expired,
 		data.Summary.Expiring,
 		data.Summary.AutoRenewOff,
 	))
 	if len(data.Summary.ByType) > 0 {
-		builder.WriteString("Theo loại: " + formatServicesMap(data.Summary.ByType) + "\n")
+		builder.WriteString("Phân loại: " + formatServicesMap(data.Summary.ByType) + "\n")
 	}
 	if len(data.Items) == 0 {
-		builder.WriteString("Không có dịch vụ phù hợp bộ lọc.")
+		builder.WriteString("\nKhông có dịch vụ cần xử lý trong khoảng thời gian này.")
 		return strings.TrimSpace(builder.String())
 	}
-	builder.WriteString("Danh sách cần chú ý:\n")
+	builder.WriteString("\nDịch vụ cần xử lý\n")
 	limit := len(data.Items)
 	if limit > 10 {
 		limit = 10
 	}
 	for index := 0; index < limit; index++ {
 		item := data.Items[index]
-		builder.WriteString("- " + expiringItemLine(item) + "\n")
+		builder.WriteString("• " + expiringItemLine(item) + "\n")
 	}
 	if len(data.Items) > limit {
 		builder.WriteString("... và " + strconv.Itoa(len(data.Items)-limit) + " dịch vụ khác.\n")

@@ -23,10 +23,11 @@ var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 // VPSTTT workspace. Keeping the catalogue in application code gives the
 // create-workspace transaction a single, testable source of truth.
 type DefaultChannelDefinition struct {
-	Slug        string
-	Name        string
-	Description string
-	Type        string
+	Slug           string
+	Name           string
+	Description    string
+	Type           string
+	PrivateSession bool
 }
 
 type DefaultBotDefinition struct {
@@ -42,10 +43,10 @@ func DefaultWorkspaceChannels() []DefaultChannelDefinition {
 		{Slug: "ban-giam-doc", Name: "Ban giám đốc", Description: "Trao đổi dành cho quản lý cấp cao", Type: "private"},
 		{Slug: "ky-thuat", Name: "Kỹ thuật", Description: "Kỹ thuật và vận hành hệ thống", Type: "public"},
 		{Slug: "sale", Name: "Sale", Description: "Kinh doanh và chăm sóc khách hàng", Type: "public"},
-		{Slug: "ke-toan", Name: "Kế toán", Description: "Hóa đơn và thanh toán", Type: "private"},
-		{Slug: "ticket", Name: "Ticket", Description: "Tiếp nhận ticket khách hàng", Type: "public"},
+		{Slug: "ke-toan", Name: "Kế toán", Description: "Hóa đơn và thanh toán", Type: "private", PrivateSession: true},
+		{Slug: "ticket", Name: "Ticket", Description: "Tiếp nhận ticket khách hàng", Type: "public", PrivateSession: true},
 		{Slug: "server-alert", Name: "Server Alert", Description: "Cảnh báo server và dịch vụ", Type: "public"},
-		{Slug: "gia-han", Name: "Gia hạn", Description: "Theo dõi gia hạn dịch vụ", Type: "public"},
+		{Slug: "gia-han", Name: "Gia hạn", Description: "Theo dõi gia hạn dịch vụ", Type: "public", PrivateSession: true},
 		{Slug: "ban-giao-ca", Name: "Bàn giao ca", Description: "Bàn giao ca trực vận hành", Type: "public"},
 	}
 }
@@ -62,6 +63,7 @@ func DefaultWorkspaceBots() []DefaultBotDefinition {
 
 type PermissionChecker interface {
 	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
+	HasAnyWorkspacePermission(ctx context.Context, userID string, permissionCode string) (bool, error)
 }
 
 type Repository interface {
@@ -243,6 +245,13 @@ func NewService(repo Repository, checker PermissionChecker) *Service {
 
 func (s *Service) Create(ctx context.Context, input CreateWorkspaceInput) (WorkspaceDTO, error) {
 	input.ActorUserID = strings.TrimSpace(input.ActorUserID)
+	allowed, err := s.checker.HasAnyWorkspacePermission(ctx, input.ActorUserID, "workspace.manage")
+	if err != nil {
+		return WorkspaceDTO{}, err
+	}
+	if !allowed {
+		return WorkspaceDTO{}, apperrors.Forbidden("Chỉ quản trị viên workspace mới có thể tạo workspace mới.")
+	}
 	input.Slug = strings.ToLower(strings.TrimSpace(input.Slug))
 	input.Name = strings.TrimSpace(input.Name)
 	input.Description = strings.TrimSpace(input.Description)

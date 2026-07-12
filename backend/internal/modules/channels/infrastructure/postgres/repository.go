@@ -35,7 +35,8 @@ func (r *Repository) CreateChannel(ctx context.Context, params channelsapp.Creat
 	row := tx.QueryRow(ctx, `
 INSERT INTO channels (workspace_id, department_id, slug, name, description, type, created_by)
 VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, ''), $6, $7::uuid)
-RETURNING id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at
+RETURNING id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at,
+          COALESCE(settings->>'bot_session_mode', '') = 'private'
 `, params.WorkspaceID, params.DepartmentID, params.Slug, params.Name, params.Description, params.Type, params.CreatedBy)
 	channel, err := scanChannel(row)
 	if err != nil {
@@ -62,7 +63,8 @@ DO UPDATE SET status = 'active'
 
 func (r *Repository) FindChannel(ctx context.Context, workspaceID string, channelID string) (channelsdomain.Channel, error) {
 	row := r.pool.QueryRow(ctx, `
-SELECT id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at
+SELECT id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at,
+       COALESCE(settings->>'bot_session_mode', '') = 'private'
 FROM channels
 WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
 `, workspaceID, channelID)
@@ -71,7 +73,8 @@ WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
 
 func (r *Repository) ListChannels(ctx context.Context, workspaceID string) ([]channelsdomain.Channel, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at
+SELECT id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at,
+       COALESCE(settings->>'bot_session_mode', '') = 'private'
 FROM channels
 WHERE workspace_id = $1::uuid AND deleted_at IS NULL
 ORDER BY type, name
@@ -99,7 +102,8 @@ SET department_id = CASE WHEN $3::text IS NULL THEN department_id ELSE NULLIF($3
     name = COALESCE($4, name),
     description = COALESCE($5, description)
 WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
-RETURNING id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at
+RETURNING id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at,
+          COALESCE(settings->>'bot_session_mode', '') = 'private'
 `, params.WorkspaceID, params.ChannelID, params.DepartmentID, params.Name, params.Description)
 	return scanChannel(row)
 }
@@ -227,6 +231,81 @@ WHERE c.id = cm.channel_id
 		return channelsdomain.Member{}, channelsdomain.ErrMemberNotFound
 	}
 	return r.member(ctx, params.WorkspaceID, params.ChannelID, params.UserID)
+}
+
+func (r *Repository) CreateOrGetPrivateSession(ctx context.Context, params channelsapp.PrivateSessionParams) (channelsdomain.Channel, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return channelsdomain.Channel{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	lockKey := params.WorkspaceID + ":" + params.SourceChannelID + ":" + params.UserID
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
+		return channelsdomain.Channel{}, err
+	}
+
+	const selectSession = `
+SELECT id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text,
+       created_at, updated_at, archived_at, COALESCE(settings->>'bot_session_mode', '') = 'private'
+FROM channels
+WHERE workspace_id = $1::uuid
+  AND settings->>'bot_source_channel_id' = $2
+  AND settings->>'bot_session_user_id' = $3
+  AND settings @> '{"bot_session":true}'::jsonb
+  AND deleted_at IS NULL
+`
+	existing, err := scanChannel(tx.QueryRow(ctx, selectSession, params.WorkspaceID, params.SourceChannelID, params.UserID))
+	if err == nil {
+		return existing, tx.Commit(ctx)
+	}
+	if !errors.Is(err, channelsdomain.ErrChannelNotFound) {
+		return channelsdomain.Channel{}, err
+	}
+
+	row := tx.QueryRow(ctx, `
+INSERT INTO channels (workspace_id, name, description, type, status, created_by, settings)
+SELECT source.workspace_id,
+       source.name,
+       'Không gian làm việc riêng tư với ' || source.name,
+       'direct',
+       'active',
+       $3::uuid,
+       jsonb_build_object(
+           'bot_session', true,
+           'bot_source_channel_id', source.id::text,
+           'bot_source_slug', source.slug::text,
+           'bot_session_user_id', $3
+       )
+FROM channels source
+JOIN workspace_members wm
+  ON wm.workspace_id = source.workspace_id
+ AND wm.user_id = $3::uuid
+ AND wm.status = 'active'
+WHERE source.workspace_id = $1::uuid
+  AND source.id = $2::uuid
+  AND source.settings->>'bot_session_mode' = 'private'
+  AND source.status = 'active'
+  AND source.deleted_at IS NULL
+RETURNING id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text,
+          created_at, updated_at, archived_at, COALESCE(settings->>'bot_session_mode', '') = 'private'
+`, params.WorkspaceID, params.SourceChannelID, params.UserID)
+	session, err := scanChannel(row)
+	if err != nil {
+		return channelsdomain.Channel{}, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO channel_members (channel_id, user_id, status)
+VALUES ($1::uuid, $2::uuid, 'active')
+ON CONFLICT (channel_id, user_id) DO UPDATE SET status = 'active'
+`, session.ID, params.UserID); err != nil {
+		return channelsdomain.Channel{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return channelsdomain.Channel{}, err
+	}
+	return session, nil
 }
 
 func (r *Repository) CreateOrGetDirectConversation(ctx context.Context, params channelsapp.CreateDirectParams) (channelsdomain.DirectConversation, error) {
@@ -494,6 +573,7 @@ func scanChannel(row rowScanner) (channelsdomain.Channel, error) {
 		&channel.CreatedAt,
 		&channel.UpdatedAt,
 		&archivedAt,
+		&channel.PrivateSessionMode,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return channelsdomain.Channel{}, channelsdomain.ErrChannelNotFound

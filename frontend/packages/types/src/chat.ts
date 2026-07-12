@@ -19,6 +19,7 @@ export type Channel = {
   membership_status?: "none" | "invited" | "active" | "muted" | "left" | "removed" | string;
   is_member?: boolean;
   can_manage?: boolean;
+  private_session_mode?: boolean;
   created_at?: ISODateTime;
   updated_at?: ISODateTime;
 };

@@ -19,14 +19,19 @@ func (c staticPermissionChecker) HasWorkspacePermission(context.Context, string,
 }
 
 type directConversationRepo struct {
-	params CreateDirectParams
+	params         CreateDirectParams
+	privateSource  channelsdomain.Channel
+	privateSession channelsdomain.Channel
 }
 
 func (r *directConversationRepo) CreateChannel(context.Context, CreateChannelParams) (channelsdomain.Channel, error) {
 	panic("không được gọi")
 }
 
-func (r *directConversationRepo) FindChannel(context.Context, string, string) (channelsdomain.Channel, error) {
+func (r *directConversationRepo) FindChannel(_ context.Context, _ string, channelID string) (channelsdomain.Channel, error) {
+	if r.privateSource.ID == channelID {
+		return r.privateSource, nil
+	}
 	panic("không được gọi")
 }
 
@@ -64,6 +69,10 @@ func (r *directConversationRepo) UpdateMemberStatus(context.Context, UpdateMembe
 
 func (r *directConversationRepo) UpdateReadState(context.Context, UpdateReadStateParams) (channelsdomain.Member, error) {
 	panic("không được gọi")
+}
+
+func (r *directConversationRepo) CreateOrGetPrivateSession(context.Context, PrivateSessionParams) (channelsdomain.Channel, error) {
+	return r.privateSession, nil
 }
 
 func (r *directConversationRepo) CreateOrGetDirectConversation(_ context.Context, params CreateDirectParams) (channelsdomain.DirectConversation, error) {
@@ -118,6 +127,23 @@ func TestCreateDirectNormalizesParticipants(t *testing.T) {
 	}
 	if dto.ParticipantKey != repo.params.ParticipantKey {
 		t.Fatalf("DTO ParticipantKey = %q", dto.ParticipantKey)
+	}
+}
+
+func TestOpenPrivateSessionReturnsUserOnlyChannel(t *testing.T) {
+	now := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	repo := &directConversationRepo{
+		privateSource:  channelsdomain.Channel{ID: "source-1", WorkspaceID: "workspace-1", Name: "Kế toán", PrivateSessionMode: true},
+		privateSession: channelsdomain.Channel{ID: "session-1", WorkspaceID: "workspace-1", Name: "Kế toán", Type: "direct", CreatedAt: now, UpdatedAt: now},
+	}
+	service := NewService(repo, staticPermissionChecker{allowed: true})
+
+	dto, err := service.OpenPrivateSession(context.Background(), "user-1", "workspace-1", "source-1")
+	if err != nil {
+		t.Fatalf("OpenPrivateSession() error = %v", err)
+	}
+	if dto.ID != "session-1" || dto.Type != "direct" || !dto.IsMember {
+		t.Fatalf("OpenPrivateSession() = %#v", dto)
 	}
 }
 

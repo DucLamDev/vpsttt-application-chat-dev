@@ -19,7 +19,6 @@ import {
 } from "@webtui/ui";
 import {
   Activity,
-  Bell,
   Bot,
   CalendarClock,
   Database,
@@ -225,11 +224,6 @@ export function AdminDashboard() {
               placeholder="Tìm kiếm người dùng, email..."
               value={searchQuery}
             />
-            <Tooltip label="Thông báo">
-              <Button aria-label="Thông báo" variant="icon">
-                <Bell size={19} />
-              </Button>
-            </Tooltip>
             <Tooltip label={theme === "dark" ? "Chuyển sang chế độ sáng" : "Chuyển sang chế độ tối"}>
               <Button
                 aria-label={theme === "dark" ? "Chuyển sang chế độ sáng" : "Chuyển sang chế độ tối"}
@@ -359,6 +353,14 @@ function DashboardSection({
     );
   }
 
+  if (activeNavItem === "messages") {
+    return <AdminMessagesSection data={data} searchQuery={searchQuery} />;
+  }
+
+  if (activeNavItem === "channels") {
+    return <AdminChannelsSection data={data} searchQuery={searchQuery} />;
+  }
+
   if (activeNavItem === "users") {
     return (
       <UsersSection
@@ -429,7 +431,7 @@ function DashboardSection({
   }
 
   if (activeNavItem === "settings") {
-    return <SystemSettingsSection data={data} healthChecks={healthChecks} />;
+    return <SystemSettingsSection data={data} healthChecks={healthChecks} showToast={showToast} />;
   }
 
   return (
@@ -438,6 +440,46 @@ function DashboardSection({
         description="Màn này thuộc phase vận hành tiếp theo. Hiện dashboard chưa dựng dữ liệu giả cho khu vực này."
         title="Chưa triển khai trong phase hiện tại"
       />
+    </section>
+  );
+}
+
+function AdminMessagesSection({ data, searchQuery }: { data: DashboardData; searchQuery: string }) {
+  const query = searchQuery.trim().toLowerCase();
+  const messages = data.adminMessages.filter((message) =>
+    !query || `${message.sender_name} ${message.channel_name} ${message.body}`.toLowerCase().includes(query)
+  );
+
+  return (
+    <section className="admin-panel">
+      <header><div><h2>Tin nhắn gần đây</h2><p>Dữ liệu trực tiếp từ API admin, tối đa 100 bản ghi mới nhất.</p></div><Badge tone="blue">{messages.length}</Badge></header>
+      {data.adminMessagesQuery.isLoading ? <TableSkeleton /> : data.adminMessagesQuery.isError ? (
+        <ErrorState description="API admin/messages không trả được dữ liệu." title="Không tải được tin nhắn" />
+      ) : messages.length ? (
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Thời gian</th><th>Kênh</th><th>Người gửi</th><th>Loại</th><th>Nội dung</th></tr></thead><tbody>
+          {messages.map((message) => <tr key={message.id}><td>{formatDateTime(message.created_at)}</td><td>{message.channel_name}</td><td>{message.sender_name}</td><td><Badge tone={statusTone(message.kind)}>{message.kind}</Badge></td><td>{message.body}</td></tr>)}
+        </tbody></table></div>
+      ) : <EmptyState description="API không trả về tin nhắn phù hợp bộ lọc." title="Không có tin nhắn" />}
+    </section>
+  );
+}
+
+function AdminChannelsSection({ data, searchQuery }: { data: DashboardData; searchQuery: string }) {
+  const query = searchQuery.trim().toLowerCase();
+  const channels = data.adminChannels.filter((channel) =>
+    !query || `${channel.name} ${channel.slug ?? ""} ${channel.type}`.toLowerCase().includes(query)
+  );
+
+  return (
+    <section className="admin-panel">
+      <header><div><h2>Toàn bộ kênh</h2><p>Bao gồm kênh nhóm, kênh riêng và các phiên bot riêng tư.</p></div><Badge tone="blue">{channels.length}</Badge></header>
+      {data.adminChannelsQuery.isLoading ? <TableSkeleton /> : data.adminChannelsQuery.isError ? (
+        <ErrorState description="API admin/channels không trả được dữ liệu." title="Không tải được kênh" />
+      ) : channels.length ? (
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Kênh</th><th>Loại</th><th>Trạng thái</th><th>Thành viên</th><th>Tin nhắn</th><th>Cập nhật</th></tr></thead><tbody>
+          {channels.map((channel) => <tr key={channel.id}><td><strong>{channel.name}</strong><small>{channel.slug ? `#${channel.slug}` : shortId(channel.id)}</small></td><td>{channel.private_session_mode ? "Cổng phiên riêng" : channel.type}</td><td><Badge tone={statusTone(channel.status)}>{channel.status}</Badge></td><td>{formatNumber(channel.member_count)}</td><td>{formatNumber(channel.message_count)}</td><td>{formatDateTime(channel.updated_at)}</td></tr>)}
+        </tbody></table></div>
+      ) : <EmptyState description="API không trả về kênh phù hợp bộ lọc." title="Không có kênh" />}
     </section>
   );
 }
@@ -1056,6 +1098,42 @@ function IntegrationsSection({
     }
   }
 
+  async function deleteIncoming(webhookId: string) {
+    try {
+      await data.deleteIncomingWebhookMutation.mutateAsync(webhookId);
+      showToast("Đã xóa incoming webhook.");
+    } catch (error) { showToast(errorMessage(error), "danger"); }
+  }
+
+  async function toggleIncoming(webhook: IncomingWebhook) {
+    try {
+      await data.updateIncomingWebhookMutation.mutateAsync({ input: { status: webhook.status === "active" ? "disabled" : "active" }, webhookId: webhook.id });
+      showToast("Đã cập nhật incoming webhook.");
+    } catch (error) { showToast(errorMessage(error), "danger"); }
+  }
+
+  async function deleteOutgoing(webhookId: string) {
+    try {
+      await data.deleteOutgoingWebhookMutation.mutateAsync(webhookId);
+      showToast("Đã xóa outgoing webhook.");
+    } catch (error) { showToast(errorMessage(error), "danger"); }
+  }
+
+  async function toggleOutgoing(webhook: OutgoingWebhook) {
+    try {
+      await data.updateOutgoingWebhookMutation.mutateAsync({ input: { status: webhook.status === "active" ? "disabled" : "active" }, webhookId: webhook.id });
+      showToast("Đã cập nhật outgoing webhook.");
+    } catch (error) { showToast(errorMessage(error), "danger"); }
+  }
+
+  async function testOutgoing() {
+    if (!selectedOutgoingWebhookId) return;
+    try {
+      await data.testOutgoingWebhookMutation.mutateAsync(selectedOutgoingWebhookId);
+      showToast("Webhook test đã được gửi qua API.");
+    } catch (error) { showToast(errorMessage(error), "danger"); }
+  }
+
   return (
     <section className="admin-content-stack">
       <section className="admin-split-grid">
@@ -1129,7 +1207,7 @@ function IntegrationsSection({
           {data.createIncomingWebhookMutation.data?.url ? (
             <SecretBox label="URL incoming webhook" value={data.createIncomingWebhookMutation.data.url} />
           ) : null}
-          <WebhookList incomingWebhooks={data.incomingWebhooks} />
+          <WebhookList incomingWebhooks={data.incomingWebhooks} onDelete={(id) => void deleteIncoming(id)} onToggle={(webhook) => void toggleIncoming(webhook)} />
         </article>
 
         <article className="admin-panel">
@@ -1163,14 +1241,16 @@ function IntegrationsSection({
             <SecretBox label="Secret outgoing webhook" value={data.createOutgoingWebhookMutation.data.secret} />
           ) : null}
           <OutgoingWebhookList
+            onDelete={(id) => void deleteOutgoing(id)}
             onSelect={setSelectedOutgoingWebhookId}
+            onToggle={(webhook) => void toggleOutgoing(webhook)}
             selectedId={selectedOutgoingWebhookId}
             webhooks={data.outgoingWebhooks}
           />
         </article>
       </section>
 
-      <DeliveryPanel deliveries={data.webhookDeliveries} isLoading={data.webhookDeliveriesQuery.isLoading} />
+      <DeliveryPanel deliveries={data.webhookDeliveries} isLoading={data.webhookDeliveriesQuery.isLoading} onTest={() => void testOutgoing()} testDisabled={!selectedOutgoingWebhookId || data.testOutgoingWebhookMutation.isPending} />
     </section>
   );
 }
@@ -2024,11 +2104,39 @@ function SettingsPanel({
 
 function SystemSettingsSection({
   data,
-  healthChecks
+  healthChecks,
+  showToast
 }: {
   data: DashboardData;
   healthChecks: Array<{ name: string; value: string }>;
+  showToast: (message: string, tone?: ToastTone) => void;
 }) {
+  async function handleUpsertSetting(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const key = formValue(form, "key").trim();
+    const rawValue = formValue(form, "value").trim();
+    if (!key || !rawValue) {
+      showToast("Key và JSON value là bắt buộc.", "danger");
+      return;
+    }
+    try {
+      const value = JSON.parse(rawValue) as unknown;
+      await data.upsertWorkspaceSettingMutation.mutateAsync({
+        input: {
+          description: formValue(form, "description") || undefined,
+          value,
+          value_type: formValue(form, "value_type") || "json"
+        },
+        key
+      });
+      event.currentTarget.reset();
+      showToast(`Đã lưu setting ${key}.`);
+    } catch (error) {
+      showToast(error instanceof SyntaxError ? "Value phải là JSON hợp lệ." : errorMessage(error), "danger");
+    }
+  }
+
   return (
     <section className="admin-content-stack">
       <article className="admin-panel">
@@ -2048,6 +2156,13 @@ function SystemSettingsSection({
             <p>Danh sách setting hiện có từ backend.</p>
           </div>
         </header>
+        <form className="admin-form admin-form--inline" onSubmit={(event) => void handleUpsertSetting(event)}>
+          <label>Key<input name="key" placeholder="chat.retention_days" required /></label>
+          <label>JSON value<input name="value" placeholder="30 hoặc true hoặc {&quot;enabled&quot;:true}" required /></label>
+          <label>Kiểu<select defaultValue="json" name="value_type"><option value="json">JSON</option><option value="string">String</option><option value="number">Number</option><option value="boolean">Boolean</option></select></label>
+          <label>Mô tả<input name="description" placeholder="Mô tả cấu hình" /></label>
+          <Button disabled={!data.canManageWorkspace || data.upsertWorkspaceSettingMutation.isPending} type="submit">Lưu setting</Button>
+        </form>
         <WorkspaceSettingsList settings={data.settings} isLoading={data.settingsQuery.isLoading} />
       </article>
     </section>
@@ -2110,7 +2225,7 @@ function TokenTable({ onRevoke, tokens }: { onRevoke: (tokenId: string) => void;
   );
 }
 
-function WebhookList({ incomingWebhooks }: { incomingWebhooks: IncomingWebhook[] }) {
+function WebhookList({ incomingWebhooks, onDelete, onToggle }: { incomingWebhooks: IncomingWebhook[]; onDelete: (id: string) => void; onToggle: (webhook: IncomingWebhook) => void }) {
   if (!incomingWebhooks.length) {
     return <EmptyState description="Chưa có incoming webhook nào." title="Danh sách trống" />;
   }
@@ -2122,6 +2237,8 @@ function WebhookList({ incomingWebhooks }: { incomingWebhooks: IncomingWebhook[]
         <div key={webhook.id}>
           <span>{webhook.name}</span>
           <Badge tone={webhook.status === "active" ? "green" : "slate"}>{webhook.status}</Badge>
+          <Button onClick={() => onToggle(webhook)} size="sm" variant="ghost">{webhook.status === "active" ? "Tắt" : "Bật"}</Button>
+          <Button onClick={() => onDelete(webhook.id)} size="sm" variant="ghost"><Trash2 size={14} /> Xóa</Button>
         </div>
       ))}
     </div>
@@ -2129,11 +2246,15 @@ function WebhookList({ incomingWebhooks }: { incomingWebhooks: IncomingWebhook[]
 }
 
 function OutgoingWebhookList({
+  onDelete,
   onSelect,
+  onToggle,
   selectedId,
   webhooks
 }: {
+  onDelete: (id: string) => void;
   onSelect: (value: string) => void;
+  onToggle: (webhook: OutgoingWebhook) => void;
   selectedId: string;
   webhooks: OutgoingWebhook[];
 }) {
@@ -2145,24 +2266,23 @@ function OutgoingWebhookList({
     <div className="mini-list">
       <strong>Outgoing webhook</strong>
       {webhooks.map((webhook) => (
-        <button
-          className={webhook.id === selectedId ? "mini-list__button mini-list__button--active" : "mini-list__button"}
-          key={webhook.id}
-          onClick={() => onSelect(webhook.id)}
-          type="button"
-        >
+        <div className={webhook.id === selectedId ? "mini-list__button mini-list__button--active" : "mini-list__button"} key={webhook.id}>
+          <button onClick={() => onSelect(webhook.id)} type="button">
           <span>
             <strong>{webhook.name}</strong>
             <small>{webhook.target_url}</small>
           </span>
           <Badge tone={webhook.status === "active" ? "green" : "slate"}>{webhook.status}</Badge>
-        </button>
+          </button>
+          <Button onClick={() => onToggle(webhook)} size="sm" variant="ghost">{webhook.status === "active" ? "Tắt" : "Bật"}</Button>
+          <Button onClick={() => onDelete(webhook.id)} size="sm" variant="ghost"><Trash2 size={14} /> Xóa</Button>
+        </div>
       ))}
     </div>
   );
 }
 
-function DeliveryPanel({ deliveries, isLoading }: { deliveries: WebhookDelivery[]; isLoading: boolean }) {
+function DeliveryPanel({ deliveries, isLoading, onTest, testDisabled }: { deliveries: WebhookDelivery[]; isLoading: boolean; onTest: () => void; testDisabled: boolean }) {
   return (
     <article className="admin-panel">
       <header>
@@ -2170,6 +2290,7 @@ function DeliveryPanel({ deliveries, isLoading }: { deliveries: WebhookDelivery[
           <h2>Delivery logs</h2>
           <p>Theo dõi trạng thái gửi event của outgoing webhook đã chọn.</p>
         </div>
+        <Button disabled={testDisabled} onClick={onTest} size="sm" variant="secondary"><Zap size={15} /> Gửi test</Button>
       </header>
       {isLoading ? (
         <TableSkeleton />

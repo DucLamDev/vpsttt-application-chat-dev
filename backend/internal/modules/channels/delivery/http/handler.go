@@ -63,8 +63,23 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.POST("/channels/:channel_id/join-requests/:user_id/approve", h.ApproveJoinRequest)
 	private.DELETE("/channels/:channel_id/join-requests/:user_id", h.RejectJoinRequest)
 	private.PUT("/channels/:channel_id/read-state", h.UpdateReadState)
+	private.POST("/channels/:channel_id/private-session", h.OpenPrivateSession)
 	private.GET("/direct-conversations", h.ListDirects)
 	private.POST("/direct-conversations", h.CreateDirect)
+}
+
+func (h *Handler) OpenPrivateSession(c *gin.Context) {
+	channel, err := h.service.OpenPrivateSession(
+		c.Request.Context(),
+		middleware.CurrentUserID(c),
+		c.Param("workspace_id"),
+		c.Param("channel_id"),
+	)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, channel)
 }
 
 func (h *Handler) Create(c *gin.Context) {

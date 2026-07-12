@@ -16,6 +16,8 @@ type PermissionChecker interface {
 
 type Repository interface {
 	DashboardStats(ctx context.Context, workspaceID string) (DashboardStats, error)
+	ListChannels(ctx context.Context, workspaceID string) ([]ChannelOverview, error)
+	ListRecentMessages(ctx context.Context, workspaceID string, limit int) ([]MessageOverview, error)
 }
 
 type Service struct {
@@ -35,20 +37,60 @@ type DashboardStats struct {
 	OutgoingWebhooks int64
 	AuditLogs        int64
 	BackupJobs       int64
+	StorageBytes     int64
+	Activity         []ActivityPoint
+	ChannelRanks     []ChannelRank
+}
+
+type ActivityPoint struct {
+	Date     string `json:"date"`
+	Messages int64  `json:"messages"`
+	Users    int64  `json:"users"`
+}
+
+type ChannelRank struct {
+	ChannelID     string `json:"channel_id"`
+	Name          string `json:"name"`
+	MessagesCount int64  `json:"messages_count"`
+}
+
+type ChannelOverview struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Slug               string `json:"slug,omitempty"`
+	Type               string `json:"type"`
+	Status             string `json:"status"`
+	MemberCount        int64  `json:"member_count"`
+	MessageCount       int64  `json:"message_count"`
+	PrivateSessionMode bool   `json:"private_session_mode"`
+	UpdatedAt          string `json:"updated_at"`
+}
+
+type MessageOverview struct {
+	ID          string `json:"id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	SenderName  string `json:"sender_name"`
+	Kind        string `json:"kind"`
+	Body        string `json:"body"`
+	CreatedAt   string `json:"created_at"`
 }
 
 type DashboardStatsDTO struct {
-	WorkspaceID      string `json:"workspace_id"`
-	ActiveMembers    int64  `json:"active_members"`
-	Channels         int64  `json:"channels"`
-	Messages         int64  `json:"messages"`
-	Files            int64  `json:"files"`
-	Bots             int64  `json:"bots"`
-	IncomingWebhooks int64  `json:"incoming_webhooks"`
-	OutgoingWebhooks int64  `json:"outgoing_webhooks"`
-	AuditLogs        int64  `json:"audit_logs"`
-	BackupJobs       int64  `json:"backup_jobs"`
-	GeneratedAt      string `json:"generated_at"`
+	WorkspaceID      string          `json:"workspace_id"`
+	ActiveMembers    int64           `json:"active_members"`
+	Channels         int64           `json:"channels"`
+	Messages         int64           `json:"messages"`
+	Files            int64           `json:"files"`
+	Bots             int64           `json:"bots"`
+	IncomingWebhooks int64           `json:"incoming_webhooks"`
+	OutgoingWebhooks int64           `json:"outgoing_webhooks"`
+	AuditLogs        int64           `json:"audit_logs"`
+	BackupJobs       int64           `json:"backup_jobs"`
+	StorageBytes     int64           `json:"storage_bytes"`
+	Activity         []ActivityPoint `json:"activity"`
+	ChannelRanks     []ChannelRank   `json:"channel_ranks"`
+	GeneratedAt      string          `json:"generated_at"`
 }
 
 func NewService(repo Repository, checker PermissionChecker) *Service {
@@ -74,8 +116,28 @@ func (s *Service) Dashboard(ctx context.Context, actorUserID string, workspaceID
 		OutgoingWebhooks: stats.OutgoingWebhooks,
 		AuditLogs:        stats.AuditLogs,
 		BackupJobs:       stats.BackupJobs,
+		StorageBytes:     stats.StorageBytes,
+		Activity:         stats.Activity,
+		ChannelRanks:     stats.ChannelRanks,
 		GeneratedAt:      s.now().Format(time.RFC3339),
 	}, nil
+}
+
+func (s *Service) Channels(ctx context.Context, actorUserID string, workspaceID string) ([]ChannelOverview, error) {
+	if err := s.EnsureAdminPermission(ctx, actorUserID, workspaceID); err != nil {
+		return nil, err
+	}
+	return s.repo.ListChannels(ctx, strings.TrimSpace(workspaceID))
+}
+
+func (s *Service) RecentMessages(ctx context.Context, actorUserID string, workspaceID string, limit int) ([]MessageOverview, error) {
+	if err := s.EnsureAdminPermission(ctx, actorUserID, workspaceID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	return s.repo.ListRecentMessages(ctx, strings.TrimSpace(workspaceID), limit)
 }
 
 func (s *Service) EnsureAdminPermission(ctx context.Context, userID string, workspaceID string) error {

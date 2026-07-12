@@ -50,6 +50,28 @@ export type AdminHealth = {
   [key: string]: unknown;
 };
 
+export type AdminChannelOverview = {
+  id: Id;
+  name: string;
+  slug?: string;
+  type: string;
+  status: string;
+  member_count: number;
+  message_count: number;
+  private_session_mode: boolean;
+  updated_at: ISODateTime;
+};
+
+export type AdminMessageOverview = {
+  id: Id;
+  channel_id: Id;
+  channel_name: string;
+  sender_name: string;
+  kind: string;
+  body: string;
+  created_at: ISODateTime;
+};
+
 export type AuditLog = {
   id: Id;
   workspace_id?: Id;

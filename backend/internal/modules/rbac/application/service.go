@@ -18,6 +18,7 @@ type Repository interface {
 	RevokeWorkspaceRole(ctx context.Context, params RevokeWorkspaceRoleParams) error
 	ListUserWorkspacePermissions(ctx context.Context, userID string, workspaceID string) ([]rbacdomain.Permission, error)
 	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
+	HasAnyWorkspacePermission(ctx context.Context, userID string, permissionCode string) (bool, error)
 	RecordAudit(ctx context.Context, event AuditEvent) error
 }
 
@@ -255,6 +256,21 @@ func (s *Service) HasWorkspacePermission(ctx context.Context, userID string, wor
 		return false, apperrors.BadRequest("PERMISSION_REQUIRED", "Thiếu permission để kiểm tra quyền.")
 	}
 	return s.repo.HasWorkspacePermission(ctx, userID, workspaceID, permissionCode)
+}
+
+// HasAnyWorkspacePermission is reserved for operations that do not yet have a
+// target workspace (for example creating another workspace). A brand-new user
+// therefore cannot bootstrap themselves into workspace_owner.
+func (s *Service) HasAnyWorkspacePermission(ctx context.Context, userID string, permissionCode string) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	permissionCode = strings.TrimSpace(permissionCode)
+	if userID == "" {
+		return false, apperrors.Unauthorized("Phiên đăng nhập không hợp lệ.")
+	}
+	if permissionCode == "" {
+		return false, apperrors.BadRequest("PERMISSION_REQUIRED", "Thiếu permission để kiểm tra quyền.")
+	}
+	return s.repo.HasAnyWorkspacePermission(ctx, userID, permissionCode)
 }
 
 func toDTOs(permissions []rbacdomain.Permission) []PermissionDTO {

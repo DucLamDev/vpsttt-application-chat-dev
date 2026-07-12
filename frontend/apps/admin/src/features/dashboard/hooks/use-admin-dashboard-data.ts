@@ -18,7 +18,8 @@ import type {
   PermissionCode,
   SaveCronJobInput,
   SendBotMessageInput,
-  UpdateMemberStatusInput
+  UpdateMemberStatusInput,
+  UpsertWorkspaceSettingInput
 } from "@webtui/types";
 import { api } from "@/lib/api";
 
@@ -102,6 +103,20 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     enabled: adminQueryEnabled,
     queryFn: () => api.admin.health(workspaceId),
     queryKey: queryKeys.admin.health(workspaceId),
+    retry: false
+  });
+
+  const adminChannelsQuery = useQuery({
+    enabled: adminQueryEnabled,
+    queryFn: () => api.admin.channels(workspaceId),
+    queryKey: ["admin", workspaceId, "channels"],
+    retry: false
+  });
+
+  const adminMessagesQuery = useQuery({
+    enabled: adminQueryEnabled,
+    queryFn: () => api.admin.messages(workspaceId, { limit: 100 }),
+    queryKey: ["admin", workspaceId, "messages"],
     retry: false
   });
 
@@ -298,6 +313,14 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     }
   });
 
+  const upsertWorkspaceSettingMutation = useMutation({
+    mutationFn: ({ input, key }: { input: UpsertWorkspaceSettingInput; key: string }) =>
+      api.workspaces.upsertSetting(requireWorkspaceId(workspaceId), key, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.settings(workspaceId) });
+    }
+  });
+
   const createRoleMutation = useMutation({
     mutationFn: (input: CreateRoleMutationInput) =>
       api.rbac.createRole({
@@ -384,6 +407,38 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     }
   });
 
+  const updateIncomingWebhookMutation = useMutation({
+    mutationFn: ({ input, webhookId }: { input: { name?: string; status?: string }; webhookId: string }) =>
+      api.webhooks.updateIncoming(requireWorkspaceId(workspaceId), webhookId, input),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.integrations.incomingWebhooks(workspaceId) })
+  });
+
+  const deleteIncomingWebhookMutation = useMutation({
+    mutationFn: (webhookId: string) => api.webhooks.deleteIncoming(requireWorkspaceId(workspaceId), webhookId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.integrations.incomingWebhooks(workspaceId) })
+  });
+
+  const updateOutgoingWebhookMutation = useMutation({
+    mutationFn: ({ input, webhookId }: { input: { event_types?: string[]; name?: string; status?: string; target_url?: string }; webhookId: string }) =>
+      api.webhooks.updateOutgoing(requireWorkspaceId(workspaceId), webhookId, input),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.integrations.outgoingWebhooks(workspaceId) })
+  });
+
+  const deleteOutgoingWebhookMutation = useMutation({
+    mutationFn: (webhookId: string) => api.webhooks.deleteOutgoing(requireWorkspaceId(workspaceId), webhookId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.integrations.outgoingWebhooks(workspaceId) })
+  });
+
+  const testOutgoingWebhookMutation = useMutation({
+    mutationFn: (webhookId: string) => api.webhooks.testOutgoing(requireWorkspaceId(workspaceId), webhookId, {
+      event_type: "admin.webhook.test",
+      payload: { source: "admin-panel" }
+    }),
+    onSuccess: (_delivery, webhookId) => void queryClient.invalidateQueries({
+      queryKey: queryKeys.integrations.webhookDeliveries(workspaceId, webhookId)
+    })
+  });
+
   const createCronjobMutation = useMutation({
     mutationFn: (input: SaveCronJobInput) => api.cronjobs.create(requireWorkspaceId(workspaceId), input),
     onSuccess: invalidateCronjobs
@@ -439,6 +494,10 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
 
   return {
     addMemberMutation,
+    adminChannels: adminChannelsQuery.data ?? [],
+    adminChannelsQuery,
+    adminMessages: adminMessagesQuery.data ?? [],
+    adminMessagesQuery,
     apiScopes: apiScopesQuery.data ?? [],
     apiScopesQuery,
     apiTokens: apiTokensQuery.data ?? [],
@@ -479,6 +538,8 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     cronjobs: cronjobsQuery.data ?? [],
     cronjobsQuery,
     deleteCronjobMutation,
+    deleteIncomingWebhookMutation,
+    deleteOutgoingWebhookMutation,
     healthQuery,
     incomingWebhooks: incomingWebhooksQuery.data ?? [],
     incomingWebhooksQuery,
@@ -508,12 +569,16 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     statsQuery,
     operationsQueryEnabled,
     updateMemberStatusMutation,
+    updateIncomingWebhookMutation,
+    updateOutgoingWebhookMutation,
     updateCronjobMutation,
     updateUserMutation,
+    upsertWorkspaceSettingMutation,
     users: usersQuery.data ?? [],
     usersQuery,
     webhookDeliveries: webhookDeliveriesQuery.data ?? [],
     webhookDeliveriesQuery,
+    testOutgoingWebhookMutation,
     workspaceQuery,
     workspaceId,
     workspaces,

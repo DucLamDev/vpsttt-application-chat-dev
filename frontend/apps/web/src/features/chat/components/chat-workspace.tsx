@@ -67,7 +67,6 @@ import {
   mapAuthUser,
   type CreateChannelPayload,
   type CreateDepartmentPayload,
-  type CreateWorkspacePayload,
   useChatWorkspaceData
 } from "../hooks/use-chat-workspace-data";
 import type {
@@ -268,7 +267,6 @@ export function ChatWorkspace() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const autoWorkspaceStartedRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingStreamRef = useRef<MediaStream | null>(null);
@@ -291,7 +289,16 @@ export function ChatWorkspace() {
     threadMessageId: threadMessageId ?? undefined
   });
 
+  const visibleRailItems = railItems.filter((item) => canAccessRailItem(item.id, data.can));
+
   useEffect(() => setActiveRailItem(routedRailItem), [routedRailItem]);
+  useEffect(() => {
+    if (data.permissionsQuery.isLoading || canAccessRailItem(routedRailItem, data.can)) {
+      return;
+    }
+    setActiveRailItem("messages");
+    data.setWorkspaceSection();
+  }, [data.can, data.permissionsQuery.isLoading, data.setWorkspaceSection, routedRailItem]);
   const selectedChannelMembersQuery = useQuery({
     enabled: Boolean(data.workspaceId && data.selectedChannelId && data.canAccessSelectedChannel),
     queryFn: () => api.channels.members(data.workspaceId, data.selectedChannelId),
@@ -560,6 +567,13 @@ export function ChatWorkspace() {
   }
 
   function handleChannelSelect(channelId: string) {
+    const channel = data.channels.find((item) => item.id === channelId);
+    if (channel?.privateSessionMode) {
+      data.openPrivateSessionMutation.mutate(channelId, {
+        onError: (error) => setToast(error instanceof Error ? error.message : "Không mở được phiên làm việc riêng tư.")
+      });
+      return;
+    }
     setMessageSidebarTab(data.directConversations.some((conversation) => conversation.id === channelId) ? "conversations" : "channels");
     data.setSelectedChannelId(channelId);
     setLocallyReadChatIds((current) => new Set(current).add(channelId));
@@ -587,6 +601,10 @@ export function ChatWorkspace() {
   }
 
   function handleRailSelect(itemId: RailItemId) {
+    if (!canAccessRailItem(itemId, data.can)) {
+      setToast("Tài khoản của bạn chỉ được sử dụng các chức năng trao đổi trong workspace.");
+      return;
+    }
     setActiveRailItem(itemId);
     data.setWorkspaceSection(itemId === "messages" ? undefined : itemId);
   }
@@ -745,46 +763,6 @@ export function ChatWorkspace() {
     }
   }
 
-  function buildDefaultWorkspacePayload(): CreateWorkspacePayload {
-    const baseName =
-      currentUser?.name && currentUser.name !== "Bạn"
-        ? `Dữ liệu trò chuyện của ${currentUser.name}`
-        : "Dữ liệu trò chuyện";
-    const baseSlug = slugify(
-      user?.username || user?.email || currentUser?.id || `workspace-${Date.now().toString(36)}`
-    );
-
-    return {
-      description: "Dữ liệu nền để đồng bộ hội thoại và kênh.",
-      name: baseName,
-      slug: `${baseSlug || "workspace"}-${Date.now().toString(36).slice(-5)}`
-    };
-  }
-
-  function handleCreateDefaultWorkspace(options: { silent?: boolean } = {}) {
-    data.createWorkspaceMutation.mutate(buildDefaultWorkspacePayload(), {
-      onError: (error) => setToast(error instanceof Error ? error.message : "Không chuẩn bị được dữ liệu."),
-      onSuccess: () => {
-        if (!options.silent) {
-          setToast("Đã chuẩn bị không gian làm việc.");
-        }
-      }
-    });
-  }
-
-  useEffect(() => {
-    if (
-      autoWorkspaceStartedRef.current ||
-      data.workspaceId ||
-      data.workspacesQuery.isLoading ||
-      data.createWorkspaceMutation.isPending
-    ) {
-      return;
-    }
-    autoWorkspaceStartedRef.current = true;
-    handleCreateDefaultWorkspace({ silent: true });
-  }, [data.createWorkspaceMutation.isPending, data.workspaceId, data.workspacesQuery.isLoading]);
-
   function handleContactPrimaryAction(contact: ContactResult) {
     if (contact.contactStatus === "none" || contact.contactStatus === "rejected") {
       data.sendContactRequestMutation.mutate(contact.userId, {
@@ -834,12 +812,7 @@ export function ChatWorkspace() {
 
   async function openAcceptedContact(contact: ContactResult) {
     if (!data.workspaceId) {
-      try {
-        const workspace = await data.createWorkspaceMutation.mutateAsync(buildDefaultWorkspacePayload());
-        handleStartDirectConversation(contact.userId, workspace.id);
-      } catch (error) {
-        setToast(error instanceof Error ? error.message : "Không chuẩn bị được dữ liệu để mở hội thoại.");
-      }
+      setToast("Tài khoản chưa được quản trị viên thêm vào workspace.");
       return;
     }
 
@@ -1133,7 +1106,7 @@ export function ChatWorkspace() {
       <NavigationRail
         activeId={activeRailItem}
         ariaLabel="Điều hướng chính"
-        items={[...railItems]}
+        items={visibleRailItems}
         onSelect={(itemId) => handleRailSelect(itemId as RailItemId)}
         profile={currentUser}
       />
@@ -1267,7 +1240,7 @@ export function ChatWorkspace() {
               <div className="message-sidebar-tab-content" id="message-sidebar-conversations" role="tabpanel">
                 <div className="list-section conversations">
                   <span className="section-label">Hội thoại gần đây</span>
-                  {data.directConversationsQuery.isLoading || data.createWorkspaceMutation.isPending ? (
+                  {data.directConversationsQuery.isLoading ? (
                     <PanelSkeleton />
                   ) : filteredConversations.length ? (
                     filteredConversations.map((item) => {
@@ -1385,12 +1358,12 @@ export function ChatWorkspace() {
                   )}
                 </div>
 
-                {channelFilter === "all" ? (
+                {channelFilter === "all" && data.can("bot.manage") ? (
                   <div className="list-section sidebar-bots-section">
                     <span className="section-label">Bot workspace</span>
                     {sidebarBotsQuery.isLoading ? (
                       <PanelSkeleton />
-                    ) : data.can("bot.manage") && sidebarBots.length ? (
+                    ) : sidebarBots.length ? (
                       sidebarBots.map((bot) => (
                         <button className="sidebar-bot-row" key={bot.id} onClick={() => handleRailSelect("bots")} type="button">
                           <span className="sidebar-bot-row__avatar">
@@ -1409,7 +1382,7 @@ export function ChatWorkspace() {
                         <span className="sidebar-bot-row__avatar"><Bot size={20} /></span>
                         <span className="sidebar-bot-row__body">
                           <strong>Quản lý bot</strong>
-                          <small>{data.can("bot.manage") ? "Tạo bot đầu tiên cho workspace" : "Xem module bot workspace"}</small>
+                          <small>Tạo bot đầu tiên cho workspace</small>
                         </span>
                         <span className="sidebar-bot-row__arrow">›</span>
                       </button>
@@ -3152,6 +3125,18 @@ function BotsPage({
   const bots: BotRecord[] = botsQuery.data ?? [];
   const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0];
 
+  async function privateOrderChannel(slug: "ticket" | "gia-han" | "ke-toan") {
+    const source = channels.find((channel) => channel.slug === slug);
+    if (!source) {
+      throw new Error(`Không tìm thấy kênh #${slug}.`);
+    }
+    if (!source.privateSessionMode) {
+      return source.id;
+    }
+    const session = await api.channels.openPrivateSession(workspaceId as string, source.id);
+    return session.id;
+  }
+
   useEffect(() => {
     if (bots.length && !bots.some((bot) => bot.id === selectedBotId)) {
       setSelectedBotId(bots[0].id);
@@ -3210,7 +3195,10 @@ function BotsPage({
   });
 
   const orderWalletMutation = useMutation({
-    mutationFn: () => api.orderBot.walletBalance(workspaceId as string, buildOrderLookup(orderEmail, orderUserId)),
+    mutationFn: async () => api.orderBot.walletBalance(workspaceId as string, {
+      ...buildOrderLookup(orderEmail, orderUserId),
+      channel_id: await privateOrderChannel("ticket")
+    }),
     onMutate: () => setFeedback(null),
     onError: (error) => setFeedback({ message: errorMessage(error, "Không tra được ví khách hàng."), tone: "error" }),
     onSuccess: async (result) => {
@@ -3222,10 +3210,11 @@ function BotsPage({
     }
   });
   const orderDepositMutation = useMutation({
-    mutationFn: () => api.orderBot.depositQr(workspaceId as string, {
+    mutationFn: async () => api.orderBot.depositQr(workspaceId as string, {
       ...buildOrderEmail(orderEmail),
       amount: parsePositiveInt(orderDepositAmount),
-      expires_minutes: 1440
+      expires_minutes: 1440,
+      channel_id: await privateOrderChannel("ke-toan")
     }),
     onMutate: () => setFeedback(null),
     onError: (error) => setFeedback({ message: errorMessage(error, "Không tạo được QR nạp ví."), tone: "error" }),
@@ -3238,8 +3227,9 @@ function BotsPage({
     }
   });
   const orderPaymentMutation = useMutation({
-    mutationFn: () => api.orderBot.orderPaymentQr(workspaceId as string, {
-      intent_code: orderIntentCode.trim()
+    mutationFn: async () => api.orderBot.orderPaymentQr(workspaceId as string, {
+      intent_code: orderIntentCode.trim(),
+      channel_id: await privateOrderChannel("ke-toan")
     }),
     onMutate: () => setFeedback(null),
     onError: (error) => setFeedback({ message: errorMessage(error, "Không tạo được QR thanh toán đơn hàng."), tone: "error" }),
@@ -3252,11 +3242,12 @@ function BotsPage({
     }
   });
   const orderExpiringMutation = useMutation({
-    mutationFn: () => api.orderBot.expiringServices(workspaceId as string, {
+    mutationFn: async () => api.orderBot.expiringServices(workspaceId as string, {
       ...buildOrderLookup(orderEmail, orderUserId),
       days: parsePositiveInt(orderExpiringDays),
       include_expired: false,
-      service_type: orderServiceType
+      service_type: orderServiceType,
+      channel_id: await privateOrderChannel("gia-han")
     }),
     onMutate: () => setFeedback(null),
     onError: (error) => setFeedback({ message: errorMessage(error, "Không kiểm tra được dịch vụ sắp hết hạn."), tone: "error" }),
@@ -3507,7 +3498,7 @@ function OrderBotResultView({ result }: { result: OrderBotResult }) {
         <b>{formatOrderMoney(result.data.amount ?? 0)}</b>
         <small>{result.data.reference ? `Mã: ${result.data.reference}` : "Đã tạo yêu cầu nạp ví."}</small>
         <small>{bank.transfer_content || result.data.transfer_content ? `Nội dung CK: ${bank.transfer_content || result.data.transfer_content}` : null}</small>
-        {result.data.qr_url ? <img alt="Mã QR nạp ví" className="order-bot-result__qr" src={result.data.qr_url} /> : null}
+        {result.data.qr_url ? <BrandedQRCode alt="Mã QR nạp ví" className="order-bot-result__qr" src={result.data.qr_url} /> : null}
         {result.data.qr_url ? <a href={result.data.qr_url} rel="noreferrer" target="_blank">Mở QR kích thước đầy đủ</a> : null}
       </div>
     );
@@ -3519,7 +3510,7 @@ function OrderBotResultView({ result }: { result: OrderBotResult }) {
         <span>{result.data.external_order_id || `Intent #${result.data.intent_id ?? "—"}`}</span>
         <b>{formatOrderMoney(result.data.amount ?? 0)}</b>
         <small>{result.data.reference ? `Mã: ${result.data.reference}` : "QR theo số tiền được chốt từ Order."}</small>
-        {result.data.qr_url ? <img alt="Mã QR thanh toán đơn hàng" className="order-bot-result__qr" src={result.data.qr_url} /> : null}
+        {result.data.qr_url ? <BrandedQRCode alt="Mã QR thanh toán đơn hàng" className="order-bot-result__qr" src={result.data.qr_url} /> : null}
         {result.data.qr_url ? <a href={result.data.qr_url} rel="noreferrer" target="_blank">Mở QR kích thước đầy đủ</a> : null}
       </div>
     );
@@ -4301,7 +4292,7 @@ function MessageTimeline({
                 </Button>
               </form>
             ) : shouldRenderMessageBody(message) ? (
-              <MessageBody body={message.body} />
+              <MessageBody body={message.qrImageUrl ? stripDisplayedQRURL(message.body) : message.body} />
             ) : null}
             {message.qrImageUrl ? (
               <a
@@ -4311,7 +4302,10 @@ function MessageTimeline({
                 rel="noreferrer"
                 target="_blank"
               >
-                <img alt={`Mã QR thanh toán${message.qrReference ? ` ${message.qrReference}` : ""}`} src={message.qrImageUrl} />
+                <BrandedQRCode
+                  alt={`Mã QR thanh toán${message.qrReference ? ` ${message.qrReference}` : ""}`}
+                  src={message.qrImageUrl}
+                />
                 <span>
                   <strong>Quét mã QR để thanh toán</strong>
                   <small>{message.qrReference ? `Mã tham chiếu: ${message.qrReference}` : "Nhấn để mở ảnh QR kích thước đầy đủ"}</small>
@@ -4947,4 +4941,39 @@ function slugify(value: string): string {
 function railItemFromRoute(pathname: string): RailItemId {
   const section = parseChatRoute(pathname)?.sectionRef;
   return railItems.some((item) => item.id === section) ? section as RailItemId : "messages";
+}
+
+function BrandedQRCode({ alt, className = "", src }: { alt: string; className?: string; src: string }) {
+  return (
+    <span className={`branded-qr${className ? ` ${className}` : ""}`}>
+      <img alt={alt} className="branded-qr__image" src={src} />
+      <span className="branded-qr__logo" aria-hidden="true">
+        <img alt="" src="/brand/vpsttt-logo.png" />
+      </span>
+    </span>
+  );
+}
+
+function stripDisplayedQRURL(body: string) {
+  return body
+    .split("\n")
+    .filter((line) => !/^\s*QR\s*:\s*https?:\/\/\S+\s*$/i.test(line))
+    .join("\n")
+    .trim();
+}
+
+function canAccessRailItem(itemId: RailItemId, can: (permission: string) => boolean) {
+  switch (itemId) {
+    case "departments":
+      return can("workspace.manage");
+    case "tickets":
+    case "files":
+      return can("admin.view");
+    case "bots":
+      return can("bot.manage");
+    case "automation":
+      return can("webhook.manage") || can("cronjob.manage") || can("module.manage");
+    default:
+      return true;
+  }
 }

@@ -70,6 +70,7 @@ export type ChatChannel = {
   isFavorite: boolean;
   isMember?: boolean;
   membershipStatus?: string;
+  privateSessionMode?: boolean;
   memberCount: number;
   messages: ChatMessage[];
   relativeTime: string;
