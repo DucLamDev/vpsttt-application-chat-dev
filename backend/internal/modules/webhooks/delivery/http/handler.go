@@ -112,7 +112,7 @@ func (h *Handler) ListIncoming(c *gin.Context) {
 func (h *Handler) UpdateIncoming(c *gin.Context) {
 	var req updateIncomingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khÃ´ng há»£p lá»‡.", nil)
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON không hợp lệ.", nil)
 		return
 	}
 	webhook, err := h.service.UpdateIncoming(c.Request.Context(), webhooksapp.UpdateIncomingInput{
@@ -170,7 +170,7 @@ func (h *Handler) ListOutgoing(c *gin.Context) {
 func (h *Handler) UpdateOutgoing(c *gin.Context) {
 	var req updateOutgoingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khÃ´ng há»£p lá»‡.", nil)
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON không hợp lệ.", nil)
 		return
 	}
 	webhook, err := h.service.UpdateOutgoing(c.Request.Context(), webhooksapp.UpdateOutgoingInput{
@@ -209,7 +209,7 @@ func (h *Handler) ListDeliveries(c *gin.Context) {
 func (h *Handler) TestOutgoing(c *gin.Context) {
 	var req testOutgoingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khÃ´ng há»£p lá»‡.", nil)
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON không hợp lệ.", nil)
 		return
 	}
 	delivery, err := h.service.TestOutgoing(c.Request.Context(), webhooksapp.TestOutgoingInput{
