@@ -14,8 +14,9 @@ INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.code IN ('order.view', 'order.billing')
-WHERE r.scope = 'workspace'
+WHERE r.workspace_id IS NULL
   AND r.code IN ('workspace_owner', 'workspace_admin')
+  AND r.deleted_at IS NULL
 ON CONFLICT DO NOTHING;
 
 INSERT INTO bots (workspace_id, slug, name, description, created_by, settings)
