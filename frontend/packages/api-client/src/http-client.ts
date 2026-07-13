@@ -266,6 +266,11 @@ export class HttpClient {
       typeof payload === "object" && payload && "message" in payload
         ? String((payload as { message?: unknown }).message)
         : "Yêu cầu không thành công.";
+    const requestId = envelope?.request_id;
+    const responseMessage = envelope?.error?.message ?? fallbackMessage;
+    const message = response.status >= 500 && requestId
+      ? `${responseMessage} (Mã yêu cầu: ${requestId})`
+      : responseMessage;
 
     if (response.status === 401) {
       this.onUnauthorized?.();
@@ -274,8 +279,8 @@ export class HttpClient {
     return new ApiClientError({
       code: envelope?.error?.code ?? `HTTP_${response.status}`,
       details: envelope?.error?.details,
-      message: envelope?.error?.message ?? fallbackMessage,
-      requestId: envelope?.request_id,
+      message,
+      requestId,
       status: response.status
     });
   }

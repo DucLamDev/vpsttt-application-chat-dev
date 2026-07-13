@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadIncludesLocalFrontendCORSOrigins(t *testing.T) {
 	t.Setenv("APP_ENV", "dev")
@@ -54,6 +57,35 @@ func TestValidateRejectsWeakProductionSecrets(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate() expected weak secret error")
+	}
+}
+
+func TestLoadReadsRegistrationDefaultWorkspaceID(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("REGISTRATION_DEFAULT_WORKSPACE_ID", "3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Registration.DefaultWorkspaceID != "3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c" {
+		t.Fatalf("Registration.DefaultWorkspaceID = %q", cfg.Registration.DefaultWorkspaceID)
+	}
+}
+
+func TestValidateRejectsInvalidRegistrationDefaultWorkspaceID(t *testing.T) {
+	cfg := &Config{
+		App:          AppConfig{Name: "webtui-chat", Env: "dev"},
+		HTTP:         HTTPConfig{Host: "0.0.0.0", Port: 8080},
+		Worker:       WorkerConfig{Concurrency: 1},
+		Backup:       BackupConfig{PGDumpPath: "pg_dump", Timeout: time.Minute},
+		Database:     DatabaseConfig{Enabled: true, URL: "postgres://user:pass@localhost:5432/app?sslmode=disable"},
+		Order:        OrderConfig{Timeout: time.Second},
+		Registration: RegistrationConfig{DefaultWorkspaceID: "not-a-uuid"},
+	}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() expected invalid default workspace UUID error")
 	}
 }
 

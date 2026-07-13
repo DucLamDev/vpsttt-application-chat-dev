@@ -11,6 +11,7 @@ import (
 	messagesdomain "github.com/duclamdev/application-chat/backend/internal/modules/messages/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -122,6 +123,7 @@ WHERE dc.workspace_id = $1::uuid
       WHERE sender_member.direct_conversation_id = dc.id
         AND sender_member.user_id = $3::uuid
   )
+ORDER BY dcm.user_id
 ON CONFLICT (channel_id, user_id)
 DO UPDATE SET status = 'active'
 WHERE channel_members.status IN ('left', 'removed', 'invited')
@@ -702,14 +704,93 @@ ON CONFLICT DO NOTHING
 }
 
 func (r *Repository) hydrateMessages(ctx context.Context, messages []messagesdomain.Message, actorUserID string) ([]messagesdomain.Message, error) {
-	for index := range messages {
-		message, err := r.hydrateMessage(ctx, messages[index], actorUserID)
-		if err != nil {
+	if len(messages) == 0 {
+		return messages, nil
+	}
+
+	messageIDs := make([]pgtype.UUID, 0, len(messages))
+	for _, message := range messages {
+		var messageID pgtype.UUID
+		if err := messageID.Scan(message.ID); err != nil {
 			return nil, err
 		}
-		messages[index] = message
+		messageIDs = append(messageIDs, messageID)
+	}
+
+	mentionsByMessageID, err := r.messageMentionsBatch(ctx, messages[0].WorkspaceID, messageIDs)
+	if err != nil {
+		return nil, err
+	}
+	reactionsByMessageID, err := r.messageReactionsBatch(ctx, messages[0].WorkspaceID, messageIDs, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	for index := range messages {
+		messages[index].Mentions = mentionsByMessageID[messages[index].ID]
+		if messages[index].Mentions == nil {
+			messages[index].Mentions = []string{}
+		}
+		messages[index].Reactions = reactionsByMessageID[messages[index].ID]
+		if messages[index].Reactions == nil {
+			messages[index].Reactions = []messagesdomain.ReactionSummary{}
+		}
 	}
 	return messages, nil
+}
+
+func (r *Repository) messageMentionsBatch(ctx context.Context, workspaceID string, messageIDs []pgtype.UUID) (map[string][]string, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT message_id::text, mentioned_user_id::text
+FROM message_mentions
+WHERE workspace_id = $1::uuid
+  AND message_id = ANY($2::uuid[])
+ORDER BY message_id, mentioned_user_id
+`, workspaceID, messageIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string][]string, len(messageIDs))
+	for rows.Next() {
+		var messageID string
+		var userID string
+		if err := rows.Scan(&messageID, &userID); err != nil {
+			return nil, err
+		}
+		result[messageID] = append(result[messageID], userID)
+	}
+	return result, rows.Err()
+}
+
+func (r *Repository) messageReactionsBatch(ctx context.Context, workspaceID string, messageIDs []pgtype.UUID, actorUserID string) (map[string][]messagesdomain.ReactionSummary, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT message_id::text,
+       emoji,
+       count(*)::int,
+       COALESCE(bool_or(user_id = NULLIF($3, '')::uuid), false)
+FROM message_reactions
+WHERE workspace_id = $1::uuid
+  AND message_id = ANY($2::uuid[])
+GROUP BY message_id, emoji
+ORDER BY message_id, emoji
+`, workspaceID, messageIDs, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string][]messagesdomain.ReactionSummary, len(messageIDs))
+	for rows.Next() {
+		var messageID string
+		var reaction messagesdomain.ReactionSummary
+		if err := rows.Scan(&messageID, &reaction.Emoji, &reaction.Count, &reaction.ReactedByMe); err != nil {
+			return nil, err
+		}
+		result[messageID] = append(result[messageID], reaction)
+	}
+	return result, rows.Err()
 }
 
 func (r *Repository) hydrateMessage(ctx context.Context, message messagesdomain.Message, actorUserID string) (messagesdomain.Message, error) {

@@ -39,7 +39,9 @@ import { useUploadStore, type UploadQueueItem } from "../stores/upload-store";
 import { buildChatRoute, buildWorkspaceSectionRoute, directIdPrefix, directRouteRef, parseChatRoute } from "@/lib/chat-route";
 
 const channelTones: ChannelTone[] = ["purple", "green", "orange", "red", "violet", "slate"];
-const contactRefetchMs = 5_000;
+// WebSocket events invalidate these queries immediately. This interval is only
+// a fallback for clients that temporarily lose realtime connectivity.
+const contactRefetchMs = 30_000;
 
 export type SendMessagePayload = {
   body: string;
@@ -384,7 +386,14 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
       const sentMessage = await api.messages.send(workspaceId, selectedChannelId, {
         body: messageBody,
         kind: isVoiceMessage ? "file" : "text",
-        ...(isVoiceMessage ? { metadata: { message_type: "voice" } } : {})
+        ...(uploads.length
+          ? {
+              metadata: {
+                has_attachments: true,
+                ...(isVoiceMessage ? { message_type: "voice" } : {})
+              }
+            }
+          : {})
       });
 
       const attachedFiles: NonNullable<ApiMessage["attachments"]> = [];

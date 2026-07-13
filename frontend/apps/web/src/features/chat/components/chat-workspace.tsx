@@ -821,7 +821,11 @@ export function ChatWorkspace() {
 
   async function openAcceptedContact(contact: ContactResult) {
     if (!data.workspaceId) {
-      setToast("Tài khoản chưa được quản trị viên thêm vào workspace.");
+      setToast(
+        data.workspacesQuery.isLoading || data.workspacesQuery.isFetching
+          ? "Đang khởi tạo workspace cho tài khoản, vui lòng chờ trong giây lát."
+          : "Workspace mặc định chưa sẵn sàng. Vui lòng tải lại trang để hệ thống tự đồng bộ."
+      );
       return;
     }
 

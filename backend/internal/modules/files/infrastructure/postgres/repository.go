@@ -16,6 +16,43 @@ type Repository struct {
 	pool *pgxpool.Pool
 }
 
+const attachFileQuery = `
+WITH target_message AS (
+    SELECT m.workspace_id, m.id AS message_id, f.id AS file_id
+    FROM messages m
+    JOIN channel_members cm
+      ON cm.channel_id = m.channel_id
+     AND cm.user_id = $5::uuid
+     AND cm.status IN ('active', 'muted')
+    JOIN files f
+      ON f.id = $4::uuid
+     AND f.workspace_id = m.workspace_id
+     AND f.deleted_at IS NULL
+    WHERE m.workspace_id = $1::uuid
+      AND m.channel_id = $2::uuid
+      AND m.id = $3::uuid
+      AND m.deleted_at IS NULL
+), attached AS (
+    INSERT INTO message_attachments (workspace_id, message_id, file_id, sort_order)
+    SELECT workspace_id, message_id, file_id, $6
+    FROM target_message
+    ON CONFLICT (workspace_id, message_id, file_id)
+    DO UPDATE SET sort_order = EXCLUDED.sort_order
+    RETURNING workspace_id, message_id
+)
+UPDATE messages AS m
+SET metadata = jsonb_set(
+        COALESCE(m.metadata, '{}'::jsonb),
+        '{has_attachments}',
+        'true'::jsonb,
+        true
+    ),
+    updated_at = now()
+FROM attached
+WHERE m.workspace_id = attached.workspace_id
+  AND m.id = attached.message_id
+`
+
 func (r *Repository) RecordAudit(ctx context.Context, event filesapp.AuditEvent) error {
 	metadata := event.Metadata
 	if metadata == nil {
@@ -219,25 +256,17 @@ ORDER BY fv.version_number DESC
 }
 
 func (r *Repository) AttachFile(ctx context.Context, params filesapp.AttachFileParams) (filesdomain.Attachment, error) {
-	command, err := r.pool.Exec(ctx, `
-INSERT INTO message_attachments (workspace_id, message_id, file_id, sort_order)
-SELECT m.workspace_id, m.id, f.id, $6
-FROM messages m
-JOIN channel_members cm
-  ON cm.channel_id = m.channel_id
- AND cm.user_id = $5::uuid
- AND cm.status IN ('active', 'muted')
-JOIN files f
-  ON f.id = $4::uuid
- AND f.workspace_id = m.workspace_id
- AND f.deleted_at IS NULL
-WHERE m.workspace_id = $1::uuid
-  AND m.channel_id = $2::uuid
-  AND m.id = $3::uuid
-  AND m.deleted_at IS NULL
-ON CONFLICT (workspace_id, message_id, file_id)
-DO UPDATE SET sort_order = EXCLUDED.sort_order
-`, params.WorkspaceID, params.ChannelID, params.MessageID, params.FileID, params.ActorUserID, params.SortOrder)
+	// Keep the attachment row and its discoverability marker in one PostgreSQL
+	// statement. jsonb_set changes only has_attachments, preserving metadata such
+	// as message_type=voice and leaving the message kind untouched.
+	command, err := r.pool.Exec(ctx, attachFileQuery,
+		params.WorkspaceID,
+		params.ChannelID,
+		params.MessageID,
+		params.FileID,
+		params.ActorUserID,
+		params.SortOrder,
+	)
 	if err != nil {
 		return filesdomain.Attachment{}, err
 	}

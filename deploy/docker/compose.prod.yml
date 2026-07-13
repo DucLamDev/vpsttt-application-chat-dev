@@ -54,6 +54,8 @@ services:
       - path: ../../.env
         required: true
         format: raw
+    environment:
+      REGISTRATION_DEFAULT_WORKSPACE_ID: ${REGISTRATION_DEFAULT_WORKSPACE_ID:-3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c}
     expose:
       - "8080"
     networks:

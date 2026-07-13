@@ -4,8 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/duclamdev/application-chat/backend/internal/config"
+	sharedauth "github.com/duclamdev/application-chat/backend/internal/shared/auth"
 	"github.com/duclamdev/application-chat/backend/internal/shared/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -15,6 +17,7 @@ type API struct {
 	resources *Resources
 	engine    *gin.Engine
 	server    *http.Server
+	tokens    *sharedauth.Manager
 }
 
 func NewAPI(cfg *config.Config) (*API, error) {
@@ -25,6 +28,12 @@ func NewAPI(cfg *config.Config) (*API, error) {
 	if err != nil {
 		return nil, err
 	}
+	tokenManager := sharedauth.NewManager(
+		cfg.Security.JWTAccessSecret,
+		cfg.Security.JWTRefreshSecret,
+		15*time.Minute,
+		30*24*time.Hour,
+	)
 
 	engine := gin.New()
 	if err := engine.SetTrustedProxies(cfg.HTTP.TrustedProxies); err != nil {
@@ -48,13 +57,14 @@ func NewAPI(cfg *config.Config) (*API, error) {
 		engine.GET(cfg.Metrics.Path, httpMetrics.Handler())
 	}
 	if cfg.HTTP.RateLimitEnabled {
-		engine.Use(middleware.RateLimit(cfg.HTTP.RateLimitPerMinute, cfg.HTTP.RateLimitBurst))
+		engine.Use(middleware.RateLimit(cfg.HTTP.RateLimitPerMinute, cfg.HTTP.RateLimitBurst, tokenManager))
 	}
 
 	api := &API{
 		cfg:       cfg,
 		resources: resources,
 		engine:    engine,
+		tokens:    tokenManager,
 	}
 	api.registerRoutes()
 

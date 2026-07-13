@@ -124,9 +124,13 @@ export function useMessageTimeline({
   const attachmentQueries = useQueries({
     queries: attachmentMessageIds.map((messageId) => {
       const message = apiMessages.find((item) => item.id === messageId);
-      const expectsAttachment = /đã gửi(?: \d+)? (?:ảnh|file|tin nhắn thoại)/i.test(message?.body ?? "");
+      const expectsAttachment =
+        message?.kind === "file" ||
+        message?.metadata?.has_attachments === true ||
+        /đã gửi(?: \d+)? (?:ảnh|file|tin nhắn thoại)/i.test(message?.body ?? "");
+      const attachmentWaitDeadline = Date.parse(message?.created_at ?? "") + 30_000;
       return {
-        enabled: Boolean(enabled && workspaceId && channelId),
+        enabled: Boolean(enabled && workspaceId && channelId && expectsAttachment),
         gcTime: 30 * 60_000,
         queryFn: async () => {
           try {
@@ -138,7 +142,7 @@ export function useMessageTimeline({
         },
         queryKey: queryKeys.files.attachments(workspaceId, channelId, messageId),
         refetchInterval: (query: { state: { data?: MessageAttachment[] } }) =>
-          expectsAttachment && !query.state.data?.length ? 2_000 : false,
+          expectsAttachment && !query.state.data?.length && Date.now() < attachmentWaitDeadline ? 2_000 : false,
         staleTime: expectsAttachment ? 2_000 : Infinity
       };
     })

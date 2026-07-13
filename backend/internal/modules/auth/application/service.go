@@ -21,6 +21,7 @@ var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{2,39}$`)
 
 type Repository interface {
 	CreateUser(ctx context.Context, params CreateUserParams) (authdomain.User, error)
+	EnsureDefaultWorkspaceMembership(ctx context.Context, userID string) error
 	FindUserByID(ctx context.Context, id string) (authdomain.User, error)
 	FindUserByIdentifier(ctx context.Context, identifier string) (authdomain.User, error)
 	UpdateLastLoginInfo(ctx context.Context, params UpdateLastLoginInfoParams) error
@@ -247,6 +248,10 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (AuthResult, erro
 		return AuthResult{}, apperrors.Unauthorized("Email, username hoặc mật khẩu không đúng.")
 	}
 
+	if err := s.repo.EnsureDefaultWorkspaceMembership(ctx, user.ID); err != nil {
+		return AuthResult{}, err
+	}
+
 	result, err := s.issueTokens(ctx, user, input.DeviceName, input.IPAddress, input.UserAgent)
 	if err != nil {
 		return AuthResult{}, err
@@ -281,7 +286,7 @@ func (s *Service) recordFailedLogin(ctx context.Context, userID string, input Lo
 		IPAddress:   input.IPAddress,
 		UserAgent:   input.UserAgent,
 		Metadata: map[string]any{
-			"reason":             reason,
+			"reason":            reason,
 			"identifier_sha256": hex.EncodeToString(fingerprint[:]),
 		},
 	})
@@ -335,6 +340,9 @@ func (s *Service) LoginWithGoogle(ctx context.Context, input GoogleLoginInput) (
 	if user.Status != "active" {
 		return AuthResult{}, apperrors.Forbidden("Tài khoản chưa sẵn sàng hoặc đã bị khóa.")
 	}
+	if err := s.repo.EnsureDefaultWorkspaceMembership(ctx, user.ID); err != nil {
+		return AuthResult{}, err
+	}
 
 	result, err := s.issueTokens(ctx, user, input.DeviceName, input.IPAddress, input.UserAgent)
 	if err != nil {
@@ -385,6 +393,9 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (RefreshResul
 	}
 	if user.Status != "active" {
 		return RefreshResult{}, apperrors.Forbidden("Tài khoản chưa sẵn sàng hoặc đã bị khóa.")
+	}
+	if err := s.repo.EnsureDefaultWorkspaceMembership(ctx, user.ID); err != nil {
+		return RefreshResult{}, err
 	}
 
 	accessToken, accessExpiresAt, err := s.tokens.CreateAccessToken(user.ID, user.Email, user.Username)
@@ -452,6 +463,9 @@ func (s *Service) Me(ctx context.Context, userID string) (UserDTO, error) {
 		if errors.Is(err, authdomain.ErrUserNotFound) {
 			return UserDTO{}, apperrors.NotFound("USER_NOT_FOUND", "Không tìm thấy người dùng.")
 		}
+		return UserDTO{}, err
+	}
+	if err := s.repo.EnsureDefaultWorkspaceMembership(ctx, user.ID); err != nil {
 		return UserDTO{}, err
 	}
 	return toUserDTO(user), nil

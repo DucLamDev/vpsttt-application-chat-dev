@@ -69,7 +69,6 @@ import (
 	workspaceshttp "github.com/duclamdev/application-chat/backend/internal/modules/workspaces/delivery/http"
 	workspacespostgres "github.com/duclamdev/application-chat/backend/internal/modules/workspaces/infrastructure/postgres"
 	wshttp "github.com/duclamdev/application-chat/backend/internal/platform/websocket/delivery/http"
-	sharedauth "github.com/duclamdev/application-chat/backend/internal/shared/auth"
 	"github.com/duclamdev/application-chat/backend/internal/shared/middleware"
 	"github.com/duclamdev/application-chat/backend/internal/shared/response"
 	"github.com/gin-gonic/gin"
@@ -107,16 +106,11 @@ func (a *API) registerAPIV1() {
 		return
 	}
 
-	tokenManager := sharedauth.NewManager(
-		a.cfg.Security.JWTAccessSecret,
-		a.cfg.Security.JWTRefreshSecret,
-		15*time.Minute,
-		30*24*time.Hour,
-	)
+	tokenManager := a.tokens
 	authMiddleware := middleware.Auth(tokenManager)
 	pool := a.resources.Database.Pool()
 
-	authRepo := authpostgres.NewRepository(pool)
+	authRepo := authpostgres.NewRepository(pool, a.cfg.Registration.DefaultWorkspaceID)
 	authService := authapp.NewService(authRepo, tokenManager)
 	authHandler := authhttp.NewHandler(authService, a.cfg.Security.GoogleClientID)
 	authHandler.RegisterRoutes(v1.Group("/auth"), authMiddleware)

@@ -38,3 +38,13 @@ NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 ```
 
 Backend xác minh Google ID token trước khi tạo hoặc liên kết tài khoản. Khi build image web bằng GitHub Actions, khai báo repository variable `GOOGLE_CLIENT_ID` để giá trị public này được nhúng vào frontend.
+
+## Tự động vào workspace sau đăng ký
+
+Tài khoản mới được cấp role hệ thống `workspace_member` và tham gia các kênh public thông thường ngay sau khi đăng ký. Với production có nhiều workspace active, phải cấu hình rõ workspace nhận người dùng mới:
+
+```env
+REGISTRATION_DEFAULT_WORKSPACE_ID=3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c
+```
+
+Nếu hệ thống chỉ có đúng một workspace active, backend tự nhận diện workspace đó. Luồng này không tự cấp `workspace_admin`, `workspace_owner` hoặc quyền truy cập phiên bot riêng tư. Tài khoản đã bị quản trị viên vô hiệu hóa membership cũng không được tự kích hoạt lại khi đăng nhập.

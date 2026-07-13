@@ -35,7 +35,11 @@ func (r *Repository) CreateRequest(ctx context.Context, actorUserID string, rece
 	if actorUserID == receiverID {
 		return contactsdomain.ContactRequest{}, contactsdomain.ErrCannotContactSelf
 	}
-	if !r.userExists(ctx, receiverID) {
+	userExists, err := r.userExists(ctx, receiverID)
+	if err != nil {
+		return contactsdomain.ContactRequest{}, err
+	}
+	if !userExists {
 		return contactsdomain.ContactRequest{}, contactsdomain.ErrUserNotFound
 	}
 
@@ -201,9 +205,9 @@ WHERE cr.id = $1::uuid
 	return scanContactRequest(row)
 }
 
-func (r *Repository) userExists(ctx context.Context, userID string) bool {
+func (r *Repository) userExists(ctx context.Context, userID string) (bool, error) {
 	var exists bool
-	_ = r.pool.QueryRow(ctx, `
+	err := r.pool.QueryRow(ctx, `
 SELECT EXISTS (
     SELECT 1
     FROM users
@@ -212,7 +216,7 @@ SELECT EXISTS (
       AND status = 'active'
 )
 `, userID).Scan(&exists)
-	return exists
+	return exists, err
 }
 
 type rowScanner interface {

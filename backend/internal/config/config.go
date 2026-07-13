@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,8 @@ var defaultCORSAllowedOrigins = []string{
 	"http://localhost:5173",
 	"https://chat.vpsttt.com",
 }
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type Config struct {
 	App          AppConfig
@@ -30,6 +33,7 @@ type Config struct {
 	RabbitMQ     RabbitMQConfig
 	Storage      StorageConfig
 	Security     SecurityConfig
+	Registration RegistrationConfig
 	Order        OrderConfig
 }
 
@@ -110,6 +114,10 @@ type SecurityConfig struct {
 	GoogleClientID       string
 }
 
+type RegistrationConfig struct {
+	DefaultWorkspaceID string
+}
+
 type OrderConfig struct {
 	BaseURL        string
 	InternalAPIKey string
@@ -130,12 +138,12 @@ func Load() (*Config, error) {
 			ServiceName: getEnv("SERVICE_NAME", "api"),
 		},
 		HTTP: HTTPConfig{
-			Host:            getEnv("API_HTTP_HOST", "0.0.0.0"),
-			Port:            getEnvInt("API_HTTP_PORT", 8080),
-			ReadTimeout:     getEnvDuration("API_READ_TIMEOUT", 10*time.Second),
-			WriteTimeout:    getEnvDuration("API_WRITE_TIMEOUT", 30*time.Second),
-			IdleTimeout:     getEnvDuration("API_IDLE_TIMEOUT", 60*time.Second),
-			ShutdownTimeout: getEnvDuration("API_SHUTDOWN_TIMEOUT", 10*time.Second),
+			Host:                 getEnv("API_HTTP_HOST", "0.0.0.0"),
+			Port:                 getEnvInt("API_HTTP_PORT", 8080),
+			ReadTimeout:          getEnvDuration("API_READ_TIMEOUT", 10*time.Second),
+			WriteTimeout:         getEnvDuration("API_WRITE_TIMEOUT", 30*time.Second),
+			IdleTimeout:          getEnvDuration("API_IDLE_TIMEOUT", 60*time.Second),
+			ShutdownTimeout:      getEnvDuration("API_SHUTDOWN_TIMEOUT", 10*time.Second),
 			TrustedProxies:       getEnvCSV("TRUSTED_PROXIES", []string{}),
 			CORSAllowedOrigins:   getEnvCSVWithDefaults("CORS_ALLOWED_ORIGINS", defaultCORSAllowedOrigins),
 			SecureHeadersEnabled: getEnvBool("SECURE_HEADERS_ENABLED", true),
@@ -184,6 +192,9 @@ func Load() (*Config, error) {
 			JWTRefreshSecret:     getEnv("JWT_REFRESH_SECRET", "dev_refresh_secret_local_only_do_not_use_in_production"),
 			WebhookSigningSecret: getEnv("WEBHOOK_SIGNING_SECRET", ""),
 			GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
+		},
+		Registration: RegistrationConfig{
+			DefaultWorkspaceID: getEnv("REGISTRATION_DEFAULT_WORKSPACE_ID", ""),
 		},
 		Order: OrderConfig{
 			BaseURL:        getEnv("ORDER_API_BASE_URL", "https://order.vpsttt.com/api"),
@@ -237,6 +248,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Order.Timeout <= 0 {
 		problems = append(problems, "ORDER_API_TIMEOUT must be greater than 0")
+	}
+	if c.Registration.DefaultWorkspaceID != "" && !uuidPattern.MatchString(c.Registration.DefaultWorkspaceID) {
+		problems = append(problems, "REGISTRATION_DEFAULT_WORKSPACE_ID must be a valid UUID")
 	}
 	if strings.TrimSpace(c.Order.BaseURL) != "" {
 		parsed, err := url.Parse(strings.TrimSpace(c.Order.BaseURL))
