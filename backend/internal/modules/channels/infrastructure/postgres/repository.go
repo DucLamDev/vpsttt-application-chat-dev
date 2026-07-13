@@ -74,7 +74,8 @@ WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
 func (r *Repository) ListChannels(ctx context.Context, workspaceID string) ([]channelsdomain.Channel, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT id::text, workspace_id::text, department_id::text, slug::text, name, description, type, status, created_by::text, created_at, updated_at, archived_at,
-       COALESCE(settings->>'bot_session_mode', '') = 'private'
+       COALESCE(settings->>'bot_session_mode', '') = 'private',
+       (SELECT count(*)::int FROM channel_members cm JOIN users u ON u.id = cm.user_id AND u.deleted_at IS NULL WHERE cm.channel_id = channels.id AND cm.status IN ('active', 'muted'))
 FROM channels
 WHERE workspace_id = $1::uuid AND deleted_at IS NULL
 ORDER BY type, name
@@ -86,13 +87,49 @@ ORDER BY type, name
 
 	var channels []channelsdomain.Channel
 	for rows.Next() {
-		channel, err := scanChannel(rows)
+		channel, err := scanChannelWithMemberCount(rows)
 		if err != nil {
 			return nil, err
 		}
 		channels = append(channels, channel)
 	}
 	return channels, rows.Err()
+}
+
+func scanChannelWithMemberCount(row rowScanner) (channelsdomain.Channel, error) {
+	var channel channelsdomain.Channel
+	var departmentID sql.NullString
+	var slug sql.NullString
+	var description sql.NullString
+	var createdBy sql.NullString
+	var archivedAt sql.NullTime
+	if err := row.Scan(
+		&channel.ID,
+		&channel.WorkspaceID,
+		&departmentID,
+		&slug,
+		&channel.Name,
+		&description,
+		&channel.Type,
+		&channel.Status,
+		&createdBy,
+		&channel.CreatedAt,
+		&channel.UpdatedAt,
+		&archivedAt,
+		&channel.PrivateSessionMode,
+		&channel.MemberCount,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return channelsdomain.Channel{}, channelsdomain.ErrChannelNotFound
+		}
+		return channelsdomain.Channel{}, err
+	}
+	channel.DepartmentID = nullStringPtr(departmentID)
+	channel.Slug = nullStringPtr(slug)
+	channel.Description = nullStringPtr(description)
+	channel.CreatedBy = nullStringPtr(createdBy)
+	channel.ArchivedAt = nullTimePtr(archivedAt)
+	return channel, nil
 }
 
 func (r *Repository) UpdateChannel(ctx context.Context, params channelsapp.UpdateChannelParams) (channelsdomain.Channel, error) {
@@ -121,6 +158,20 @@ WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
 		return channelsdomain.ErrChannelNotFound
 	}
 	return nil
+}
+
+func (r *Repository) CountMembers(ctx context.Context, workspaceID string, channelID string) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx, `
+SELECT count(*)::int
+FROM channel_members cm
+JOIN channels c ON c.id = cm.channel_id AND c.deleted_at IS NULL
+JOIN users u ON u.id = cm.user_id AND u.deleted_at IS NULL
+WHERE c.workspace_id = $1::uuid
+  AND c.id = $2::uuid
+  AND cm.status IN ('active', 'muted')
+`, workspaceID, channelID).Scan(&count)
+	return count, err
 }
 
 func (r *Repository) ListMembers(ctx context.Context, workspaceID string, channelID string) ([]channelsdomain.Member, error) {

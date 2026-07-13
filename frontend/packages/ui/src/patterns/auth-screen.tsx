@@ -9,6 +9,8 @@ export type RegisterFormValues = { displayName: string; email: string; password:
 export type AuthMode = "login" | "register";
 
 export type AuthScreenProps = {
+  brandLogoAlt?: string;
+  brandLogoSrc?: string;
   error?: string | null;
   isPending?: boolean;
   googleClientId?: string;
@@ -17,11 +19,15 @@ export type AuthScreenProps = {
   onLogin: (values: LoginFormValues) => void;
   onModeChange: (mode: AuthMode) => void;
   onRegister: (values: RegisterFormValues) => void;
+  panelLogoAlt?: string;
+  panelLogoSrc?: string;
   subtitle?: string;
   title?: string;
 };
 
 export function AuthScreen({
+  brandLogoAlt = "",
+  brandLogoSrc,
   error,
   googleClientId,
   isPending = false,
@@ -30,6 +36,8 @@ export function AuthScreen({
   onLogin,
   onModeChange,
   onRegister,
+  panelLogoAlt = "",
+  panelLogoSrc,
   subtitle = "Kết nối – Trò chuyện – Hiệu quả",
   title = "WEBTUI CHAT"
 }: AuthScreenProps) {
@@ -113,7 +121,9 @@ export function AuthScreen({
     <main className={`auth-screen auth-screen--${mode}`} aria-label="Xác thực WebTui Chat">
       <section className="auth-hero">
         <div className="auth-header-brand">
-          <span className="auth-header-brand__logo">W</span>
+          <span className={brandLogoSrc ? "auth-header-brand__logo auth-header-brand__logo--image" : "auth-header-brand__logo"}>
+            {brandLogoSrc ? <img alt={brandLogoAlt} src={brandLogoSrc} /> : "W"}
+          </span>
           <span><strong>{title}</strong><small>{subtitle}</small></span>
         </div>
         <div className="auth-hero__copy">
@@ -153,7 +163,13 @@ export function AuthScreen({
       </section>
 
       <section className="auth-panel" aria-label={mode === "login" ? "Đăng nhập" : "Đăng ký"}>
-        <span className="auth-panel__icon" aria-hidden="true">{mode === "login" ? "⌑" : "+"}</span>
+        {panelLogoSrc ? (
+          <div className="auth-panel__product-logo">
+            <img alt={panelLogoAlt} src={panelLogoSrc} />
+          </div>
+        ) : (
+          <span className="auth-panel__icon" aria-hidden="true">{mode === "login" ? "⌑" : "+"}</span>
+        )}
         <div className="auth-panel__header">
           <h2>{mode === "login" ? "Đăng nhập" : "Tạo tài khoản mới"}</h2>
           <p>{mode === "login" ? "Chào mừng bạn trở lại 👋" : "Tham gia cùng chúng tôi ngay hôm nay 🚀"}</p>

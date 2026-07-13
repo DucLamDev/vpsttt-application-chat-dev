@@ -30,3 +30,17 @@ func TestMapOrderClientErrorPreservesForbiddenReason(t *testing.T) {
 	}
 }
 
+func TestMapRenewalClientErrorExplainsMissingUpstreamContract(t *testing.T) {
+	err := mapRenewalClientError(&UpstreamError{StatusCode: http.StatusNotFound, Message: "Not Found"})
+
+	var appErr *apperrors.AppError
+	if !errors.As(err, &appErr) {
+		t.Fatalf("error type = %T, want *errors.AppError", err)
+	}
+	if appErr.Code != "ORDER_RENEWAL_NOT_SUPPORTED" {
+		t.Fatalf("code = %q", appErr.Code)
+	}
+	if !strings.Contains(appErr.Message, "Không có số dư nào bị trừ") {
+		t.Fatalf("message = %q", appErr.Message)
+	}
+}

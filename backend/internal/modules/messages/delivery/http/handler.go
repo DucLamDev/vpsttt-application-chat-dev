@@ -216,9 +216,22 @@ func (h *Handler) Delete(c *gin.Context) {
 		ChannelID:   c.Param("channel_id"),
 		MessageID:   c.Param("message_id"),
 	}); err != nil {
+		slog.Warn("Xoa tin nhan that bai",
+			"workspace_id", c.Param("workspace_id"),
+			"channel_id", c.Param("channel_id"),
+			"message_id", c.Param("message_id"),
+			"actor_user_id", middleware.CurrentUserID(c),
+			"error", err,
+		)
 		response.Error(c, err)
 		return
 	}
+	slog.Info("Xoa tin nhan thanh cong",
+		"workspace_id", c.Param("workspace_id"),
+		"channel_id", c.Param("channel_id"),
+		"message_id", c.Param("message_id"),
+		"actor_user_id", middleware.CurrentUserID(c),
+	)
 	response.NoContent(c)
 }
 

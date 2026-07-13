@@ -38,6 +38,8 @@ export {
 const timelineLimit = 50;
 type MessageTimelineQueryKey = ReturnType<typeof messageTimelineKey>;
 
+const uuidLikePattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 export type MessageTimelineOptions = {
   canManageMessages: boolean;
   channelId: string;
@@ -371,6 +373,8 @@ export function mapMessage(
   const isOwner = !botAuthor && (senderId === fallbackAuthor.id || author.id === fallbackAuthor.id);
   const attachments = mapMessageAttachments(message.attachments);
   const qrImageUrl = botAuthor ? messageQRImageURL(message) : undefined;
+  const isLocal = message.id.startsWith("local-");
+  const canTargetMessageAPI = uuidLikePattern.test(message.id);
   const isVoice = message.metadata?.message_type === "voice"
     || (message.kind === "file" && /^Đã gửi(?: \d+)? tin nhắn thoại$/i.test(message.body));
 
@@ -379,7 +383,7 @@ export function mapMessage(
     attachments,
     author,
     body: message.deleted_at ? "Tin nhắn đã bị xóa." : message.body,
-    canDelete: isOwner || canManageMessages,
+    canDelete: !message.deleted_at && !isLocal && canTargetMessageAPI && (isOwner || canManageMessages),
     canEdit: !message.deleted_at && isOwner,
     editedAt: message.edited_at ? formatTime(message.edited_at) : undefined,
     id: message.id,
@@ -387,8 +391,8 @@ export function mapMessage(
     isForwarded: Boolean(message.metadata && typeof message.metadata === "object" && message.metadata.forwarded_from),
     isBot: Boolean(botAuthor),
     isMine: isOwner,
-    isLocal: message.id.startsWith("local-"),
-    isPending: message.id.startsWith("local-"),
+    isLocal,
+    isPending: isLocal,
     isVoice,
     rawChannelId: message.channel_id,
     rawCreatedAt: message.created_at ?? message.sent_at,

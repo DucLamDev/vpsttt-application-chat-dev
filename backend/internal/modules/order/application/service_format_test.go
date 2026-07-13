@@ -36,3 +36,43 @@ func TestFormatOrderPaymentQRMessageDoesNotExposeImageURL(t *testing.T) {
 		t.Fatalf("expected professional response heading, got %q", body)
 	}
 }
+
+func TestFormatRenewServiceMessageShowsShortageAndSupportRoute(t *testing.T) {
+	body := formatRenewServiceMessage(RenewServiceData{
+		Outcome:        "insufficient_balance",
+		ServiceType:    "VPS",
+		ServiceID:      1234,
+		ServiceName:    "vps-hanoi-01",
+		Months:         1,
+		Amount:         500000,
+		BalanceBefore:  350000,
+		ShortageAmount: 150000,
+	})
+
+	for _, expected := range []string{"SỐ DƯ KHÔNG ĐỦ", "150.000 VND", "Zalo OA VPSTTT", "#ke-toan"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("body = %q, want %q", body, expected)
+		}
+	}
+}
+
+func TestFormatRenewServiceMessageShowsSuccessfulRenewal(t *testing.T) {
+	body := formatRenewServiceMessage(RenewServiceData{
+		Outcome:        "renewed",
+		TransactionID:  "REN-123",
+		ServiceType:    "VPS",
+		ServiceID:      1234,
+		ServiceName:    "vps-hanoi-01",
+		Months:         1,
+		Amount:         500000,
+		BalanceBefore:  900000,
+		BalanceAfter:   400000,
+		ExpiresAtAfter: "2026-08-20",
+	})
+
+	for _, expected := range []string{"ĐÃ HOÀN TẤT", "REN-123", "400.000 VND", "2026-08-20"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("body = %q, want %q", body, expected)
+		}
+	}
+}

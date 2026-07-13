@@ -70,6 +70,12 @@ func (c *Client) ServicesExpiring(ctx context.Context, input orderapp.ServicesEx
 	return output, err
 }
 
+func (c *Client) RenewService(ctx context.Context, input orderapp.RenewServiceRequest) (orderapp.RenewServiceEnvelope, error) {
+	var output orderapp.RenewServiceEnvelope
+	err := c.post(ctx, "/internal/services/renew", input, &output)
+	return output, err
+}
+
 func (c *Client) CreateOrderPaymentQR(ctx context.Context, input orderapp.OrderPaymentQRRequest) (orderapp.OrderPaymentQREnvelope, error) {
 	var output orderapp.OrderPaymentQREnvelope
 	err := c.postWithKey(ctx, "/quick-order/payment/qr", "X-Quick-Order-Key", c.quickOrderKey, input, &output)

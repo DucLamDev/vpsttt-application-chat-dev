@@ -16,7 +16,10 @@ import (
 	"github.com/duclamdev/application-chat/backend/internal/shared/pagination"
 )
 
-var mentionPattern = regexp.MustCompile(`<@([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>`)
+var (
+	mentionPattern = regexp.MustCompile(`<@([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>`)
+	uuidPattern    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+)
 
 type PermissionChecker interface {
 	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
@@ -526,6 +529,9 @@ func (s *Service) Delete(ctx context.Context, input DeleteInput) error {
 		MessageID:   input.MessageID,
 		ActorUserID: input.ActorUserID,
 	})
+	if !isUUID(ref.WorkspaceID) || !isUUID(ref.ChannelID) || !isUUID(ref.MessageID) || !isUUID(ref.ActorUserID) {
+		return apperrors.BadRequest("VALIDATION_ERROR", "Ma dinh danh tin nhan khong hop le.")
+	}
 	message, err := s.repo.Get(ctx, ref)
 	if err != nil {
 		return mapMessageError(err)
@@ -800,6 +806,10 @@ func cleanMessageRef(input MessageRef) MessageRef {
 
 func messageOwnedBy(message messagesdomain.Message, userID string) bool {
 	return message.SenderID != nil && *message.SenderID == strings.TrimSpace(userID)
+}
+
+func isUUID(value string) bool {
+	return uuidPattern.MatchString(strings.TrimSpace(value))
 }
 
 func mapMessageError(err error) error {

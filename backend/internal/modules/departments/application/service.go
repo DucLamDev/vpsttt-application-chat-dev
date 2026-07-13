@@ -97,15 +97,18 @@ type AuditEvent struct {
 }
 
 type DepartmentDTO struct {
-	ID          string  `json:"id"`
-	WorkspaceID string  `json:"workspace_id"`
-	ParentID    *string `json:"parent_id,omitempty"`
-	Slug        string  `json:"slug"`
-	Name        string  `json:"name"`
-	Description *string `json:"description,omitempty"`
-	CreatedBy   *string `json:"created_by,omitempty"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	ID           string  `json:"id"`
+	WorkspaceID  string  `json:"workspace_id"`
+	ParentID     *string `json:"parent_id,omitempty"`
+	Slug         string  `json:"slug"`
+	Name         string  `json:"name"`
+	Description  *string `json:"description,omitempty"`
+	CreatedBy    *string `json:"created_by,omitempty"`
+	MemberCount  int     `json:"member_count"`
+	LeadCount    int     `json:"lead_count"`
+	ChannelCount int     `json:"channel_count"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 
 type MemberDTO struct {
@@ -342,15 +345,18 @@ func cleanOptional(value *string) *string {
 
 func toDepartmentDTO(department departmentsdomain.Department) DepartmentDTO {
 	return DepartmentDTO{
-		ID:          department.ID,
-		WorkspaceID: department.WorkspaceID,
-		ParentID:    department.ParentID,
-		Slug:        department.Slug,
-		Name:        department.Name,
-		Description: department.Description,
-		CreatedBy:   department.CreatedBy,
-		CreatedAt:   formatTime(department.CreatedAt),
-		UpdatedAt:   formatTime(department.UpdatedAt),
+		ID:           department.ID,
+		WorkspaceID:  department.WorkspaceID,
+		ParentID:     department.ParentID,
+		Slug:         department.Slug,
+		Name:         department.Name,
+		Description:  department.Description,
+		CreatedBy:    department.CreatedBy,
+		MemberCount:  department.MemberCount,
+		LeadCount:    department.LeadCount,
+		ChannelCount: department.ChannelCount,
+		CreatedAt:    formatTime(department.CreatedAt),
+		UpdatedAt:    formatTime(department.UpdatedAt),
 	}
 }
 

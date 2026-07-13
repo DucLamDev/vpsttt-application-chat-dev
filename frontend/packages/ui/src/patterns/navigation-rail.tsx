@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { Avatar, type AvatarProps } from "../components/avatar";
 import { Button } from "../components/button";
 import { Tooltip } from "../components/tooltip";
@@ -20,17 +20,26 @@ export type NavigationRailItem = {
 export type NavigationRailProps = {
   activeId: string;
   ariaLabel: string;
-  brandLabel?: string;
+  brandLabel?: ReactNode;
+  brandLogoAlt?: string;
+  brandLogoSrc?: string;
+  brandTitle?: string;
   className?: string;
   items: NavigationRailItem[];
   onSelect?: (id: string) => void;
-  profile?: Pick<AvatarProps, "name" | "src" | "status">;
+  profile?: Pick<AvatarProps, "name" | "src" | "status"> & {
+    description?: string;
+    label?: string;
+  };
 };
 
 export function NavigationRail({
   activeId,
   ariaLabel,
   brandLabel = "W",
+  brandLogoAlt = "",
+  brandLogoSrc,
+  brandTitle,
   className,
   items,
   onSelect,
@@ -38,7 +47,12 @@ export function NavigationRail({
 }: NavigationRailProps) {
   return (
     <aside aria-label={ariaLabel} className={cn("ui-navigation-rail", className)}>
-      <div className="ui-navigation-rail__brand">{brandLabel}</div>
+      <div className="ui-navigation-rail__brand-wrap">
+        <div className={cn("ui-navigation-rail__brand", brandLogoSrc && "ui-navigation-rail__brand--image")}>
+          {brandLogoSrc ? <img alt={brandLogoAlt} src={brandLogoSrc} /> : brandLabel}
+        </div>
+        {brandTitle ? <strong>{brandTitle}</strong> : null}
+      </div>
       <nav className="ui-navigation-rail__nav">
         {items.map((item) => {
           const Icon = item.icon;
@@ -65,6 +79,12 @@ export function NavigationRail({
       {profile ? (
         <div className="ui-navigation-rail__profile">
           <Avatar name={profile.name} src={profile.src} status={profile.status} />
+          {profile.label || profile.description ? (
+            <span>
+              {profile.label ? <strong>{profile.label}</strong> : null}
+              {profile.description ? <small>{profile.description}</small> : null}
+            </span>
+          ) : null}
         </div>
       ) : null}
     </aside>

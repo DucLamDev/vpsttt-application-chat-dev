@@ -111,6 +111,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (!accessToken) {
     return (
       <AuthScreen
+        brandLogoAlt="WebTui Chat"
+        brandLogoSrc="/brand/logo_webtui.png"
         error={formError}
         googleClientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}
         isPending={loginMutation.isPending || registerMutation.isPending || googleMutation.isPending}
@@ -136,6 +138,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             username: values.username
           })
         }
+        panelLogoAlt="WebTui Chat"
+        panelLogoSrc="/brand/logo_webtui_bottom_text.png"
       />
     );
   }

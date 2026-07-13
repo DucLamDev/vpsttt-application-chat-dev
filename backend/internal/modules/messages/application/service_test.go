@@ -161,6 +161,28 @@ func TestUpdateRejectsEditingOtherUsersMessage(t *testing.T) {
 	}
 }
 
+func TestDeleteRejectsInvalidMessageIDBeforeRepository(t *testing.T) {
+	service := NewService(emptyMessageRepo{}, testPermissionChecker{allowed: true})
+
+	err := service.Delete(context.Background(), DeleteInput{
+		ActorUserID: "11111111-1111-1111-1111-111111111111",
+		WorkspaceID: "22222222-2222-2222-2222-222222222222",
+		ChannelID:   "33333333-3333-3333-3333-333333333333",
+		MessageID:   "local-voice-message",
+	})
+	if err == nil {
+		t.Fatal("Delete() phai tra loi khi message id khong hop le")
+	}
+
+	appErr, ok := err.(*apperrors.AppError)
+	if !ok {
+		t.Fatalf("loi = %T, muon AppError", err)
+	}
+	if appErr.Code != "VALIDATION_ERROR" {
+		t.Fatalf("ma loi = %q, muon VALIDATION_ERROR", appErr.Code)
+	}
+}
+
 func TestSendRejectsEmptyTextMessage(t *testing.T) {
 	service := NewService(emptyMessageRepo{}, testPermissionChecker{allowed: true})
 

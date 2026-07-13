@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   Avatar,
   Badge,
@@ -19,6 +19,7 @@ import {
 } from "@webtui/ui";
 import {
   Activity,
+  Bell,
   Bot,
   CalendarClock,
   Database,
@@ -83,6 +84,49 @@ const navItems = [
 
 type AdminNavId = (typeof navItems)[number]["id"];
 
+const pageMeta: Record<AdminNavId, { description: string; title: string }> = {
+  overview: {
+    description: "Theo dõi sức khỏe, hoạt động và các chỉ số quan trọng của workspace.",
+    title: "Tổng quan hệ thống"
+  },
+  messages: {
+    description: "Quản lý và giám sát tất cả tin nhắn trong hệ thống.",
+    title: "Quản trị tin nhắn"
+  },
+  channels: {
+    description: "Quản lý kênh nhóm, kênh riêng và các phiên bot riêng tư.",
+    title: "Quản trị kênh"
+  },
+  users: {
+    description: "Quản lý tài khoản, thành viên và trạng thái truy cập workspace.",
+    title: "Quản trị người dùng"
+  },
+  roles: {
+    description: "Thiết lập vai trò và quyền hạn theo nguyên tắc tối thiểu.",
+    title: "Vai trò và phân quyền"
+  },
+  integrations: {
+    description: "Quản lý API token, webhook và các kết nối dịch vụ bên ngoài.",
+    title: "Tích hợp hệ thống"
+  },
+  bots: {
+    description: "Quản lý bot, cài đặt vào workspace và theo dõi hoạt động.",
+    title: "Quản trị bot"
+  },
+  cronjobs: {
+    description: "Lập lịch, theo dõi và vận hành các tác vụ tự động.",
+    title: "Tác vụ định kỳ"
+  },
+  backups: {
+    description: "Quản lý lịch sao lưu và lịch sử khôi phục dữ liệu.",
+    title: "Sao lưu dữ liệu"
+  },
+  settings: {
+    description: "Cấu hình workspace và kiểm tra trạng thái các dịch vụ nền.",
+    title: "Cài đặt hệ thống"
+  }
+};
+
 const userFilters: Array<{ label: string; value: AdminUserFilter }> = [
   { label: "Tất cả", value: "all" },
   { label: "Đang hoạt động", value: "active" },
@@ -140,8 +184,9 @@ export function AdminDashboard() {
   const activityBars = useMemo(() => mapActivityBars(data.statsQuery.data), [data.statsQuery.data]);
   const channelRanks = useMemo(() => mapChannelRanks(data.statsQuery.data), [data.statsQuery.data]);
   const healthChecks = useMemo(() => mapHealthChecks(data.healthQuery.data), [data.healthQuery.data]);
-  const activeTitle = navItems.find((item) => item.id === activeNavItem)?.label ?? "Tổng quan";
+  const activePage = pageMeta[activeNavItem];
   const showSystemPanel = activeNavItem === "overview";
+  const profile = useMemo(() => mapProfile(user), [user]);
 
   const filteredUsers = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -184,24 +229,21 @@ export function AdminDashboard() {
   const showToast = (message: string, tone: ToastTone = "success") => setToastState({ message, tone });
 
   return (
-    <main className={`admin-shell${showSystemPanel ? "" : " admin-shell--wide"}`} aria-label="Bảng quản trị WebTui">
+    <main className="admin-shell admin-shell--wide" aria-label="Bảng quản trị WebTui">
       <NavigationRail
         activeId={activeNavItem}
         ariaLabel="Điều hướng quản trị"
+        brandTitle="Quản trị hệ thống"
         items={[...navItems]}
         onSelect={(id) => setActiveNavItem(id as AdminNavId)}
-        profile={mapProfile(user)}
+        profile={{ ...profile, description: "Quản trị viên", label: profile.name }}
       />
 
       <section className="admin-main">
         <header className="admin-header">
-          <div>
-            <span className="eyebrow">Quản trị hệ thống</span>
-            <h1>{activeTitle}</h1>
-            <div className={`api-status-pill api-status-pill--${apiStatus.status}`}>
-              <span />
-              <strong>{apiStatus.label}</strong>
-            </div>
+          <div className="admin-header__context">
+            <strong>Admin workspace</strong>
+            <span>Trung tâm điều hành VPSTTT</span>
           </div>
           <div className="admin-actions">
             <select
@@ -218,13 +260,27 @@ export function AdminDashboard() {
               ))}
             </select>
             <Input
-              aria-label="Tìm kiếm người dùng"
+              aria-label="Tìm kiếm trong trang quản trị"
               className="admin-search-control"
               leftAddon={<Search size={18} />}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Tìm kiếm người dùng, email..."
+              placeholder="Tìm kiếm dữ liệu..."
               value={searchQuery}
             />
+            <Tooltip label="Thông báo hệ thống">
+              <Button
+                aria-label="Thông báo hệ thống"
+                className="admin-notification-button"
+                onClick={() => {
+                  setActiveNavItem("overview");
+                  showToast(apiStatus.status === "online" ? "Hệ thống đang hoạt động ổn định." : apiStatus.label, "info");
+                }}
+                variant="icon"
+              >
+                <Bell size={19} />
+                {apiStatus.status === "offline" ? <i aria-hidden="true" /> : null}
+              </Button>
+            </Tooltip>
             <Tooltip label={theme === "dark" ? "Chuyển sang chế độ sáng" : "Chuyển sang chế độ tối"}>
               <Button
                 aria-label={theme === "dark" ? "Chuyển sang chế độ sáng" : "Chuyển sang chế độ tối"}
@@ -239,9 +295,21 @@ export function AdminDashboard() {
                 <LogOut size={19} />
               </Button>
             </Tooltip>
-            <Avatar name={mapProfile(user).name} src={mapProfile(user).src} status={mapProfile(user).status} />
+            <Avatar name={profile.name} src={profile.src} status={profile.status} />
           </div>
         </header>
+
+        <div className="admin-page-heading">
+          <div>
+            <span className="eyebrow">Quản trị hệ thống</span>
+            <h1>{activePage.title}</h1>
+            <p>{activePage.description}</p>
+          </div>
+          <div className={`api-status-pill api-status-pill--${apiStatus.status}`}>
+            <span />
+            <strong>{apiStatus.label}</strong>
+          </div>
+        </div>
 
         {!data.workspaceId && !data.workspacesQuery.isLoading ? (
           <ErrorState description="Tài khoản hiện tại chưa có workspace để quản trị." title="Chưa có workspace" />
@@ -278,15 +346,14 @@ export function AdminDashboard() {
             userFilter={userFilter}
           />
         )}
+        {showSystemPanel ? (
+          <SettingsPanel
+            data={data}
+            healthChecks={healthChecks}
+            onOpenSettings={() => setActiveNavItem("settings")}
+          />
+        ) : null}
       </section>
-
-      {showSystemPanel ? (
-        <SettingsPanel
-          data={data}
-          healthChecks={healthChecks}
-          onOpenSettings={() => setActiveNavItem("settings")}
-        />
-      ) : null}
 
       {toast ? (
         <div className="toast-stack">
@@ -361,11 +428,11 @@ function DashboardSection({
   }
 
   if (activeNavItem === "messages") {
-    return <AdminMessagesSection data={data} searchQuery={searchQuery} />;
+    return <AdminMessagesSection data={data} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />;
   }
 
   if (activeNavItem === "channels") {
-    return <AdminChannelsSection data={data} searchQuery={searchQuery} />;
+    return <AdminChannelsSection data={data} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />;
   }
 
   if (activeNavItem === "users") {
@@ -451,51 +518,208 @@ function DashboardSection({
   );
 }
 
-function AdminMessagesSection({ data, searchQuery }: { data: DashboardData; searchQuery: string }) {
+function AdminMessagesSection({ data, searchQuery, setSearchQuery }: { data: DashboardData; searchQuery: string; setSearchQuery: (value: string) => void }) {
+  const [kindFilter, setKindFilter] = useState("all");
+  const [senderFilter, setSenderFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const query = searchQuery.trim().toLowerCase();
-  const messages = data.adminMessages.filter((message) =>
-    !query || `${message.sender_name} ${message.channel_name} ${message.body}`.toLowerCase().includes(query)
+  const senders = useMemo(
+    () => Array.from(new Set(data.adminMessages.map((message) => message.sender_name).filter(Boolean))).sort(),
+    [data.adminMessages]
   );
+  const kinds = useMemo(
+    () => Array.from(new Set(data.adminMessages.map((message) => message.kind).filter(Boolean))).sort(),
+    [data.adminMessages]
+  );
+  const messages = data.adminMessages.filter((message) => {
+    const matchesQuery = !query
+      || `${message.sender_name} ${message.channel_name} ${message.body}`.toLowerCase().includes(query);
+    const matchesKind = kindFilter === "all" || message.kind === kindFilter;
+    const matchesSender = senderFilter === "all" || message.sender_name === senderFilter;
+    return matchesQuery && matchesKind && matchesSender;
+  });
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(messages.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const paginatedMessages = messages.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const todayKey = new Date().toDateString();
+  const todayCount = data.adminMessages.filter((message) => {
+    const date = new Date(message.created_at);
+    return !Number.isNaN(date.getTime()) && date.toDateString() === todayKey;
+  }).length;
+  const botCount = data.adminMessages.filter((message) =>
+    message.kind.toLowerCase() === "bot" || message.sender_name.toLowerCase().includes("bot")
+  ).length;
+
+  useEffect(() => setPage(1), [kindFilter, query, senderFilter]);
 
   return (
-    <section className="admin-panel">
-      <header><div><h2>Tin nhắn gần đây</h2><p>Dữ liệu trực tiếp từ API admin, tối đa 100 bản ghi mới nhất.</p></div><Badge tone="blue">{messages.length}</Badge></header>
+    <section className="admin-content-stack admin-resource-page">
+      <div className="admin-summary-grid" aria-label="Thống kê tin nhắn">
+        <AdminSummaryCard hint="Dữ liệu API" icon={<MessageCircle size={20} />} label="Tổng tin nhắn" tone="blue" value={data.adminMessages.length} />
+        <AdminSummaryCard hint="Trong ngày" icon={<CalendarClock size={20} />} label="Tin nhắn hôm nay" tone="green" value={todayCount} />
+        <AdminSummaryCard hint="Người dùng duy nhất" icon={<Users size={20} />} label="Người gửi" tone="purple" value={senders.length} />
+        <AdminSummaryCard hint={`${data.adminMessages.length ? ((botCount / data.adminMessages.length) * 100).toFixed(1) : "0"}% tổng số`} icon={<Bot size={20} />} label="Bot messages" tone="orange" value={botCount} />
+      </div>
+
+      <div className="admin-filter-bar">
+        <label className="admin-filter-control admin-filter-control--search">
+          <span>Tìm nội dung</span>
+          <span className="admin-inline-search"><Search size={16} /><input aria-label="Tìm nội dung tin nhắn" onChange={(event) => setSearchQuery(event.target.value)} placeholder="Nội dung, kênh hoặc người gửi" value={searchQuery} /></span>
+        </label>
+        <label className="admin-filter-control">
+          <span>Loại tin nhắn</span>
+          <select onChange={(event) => setKindFilter(event.target.value)} value={kindFilter}>
+            <option value="all">Tất cả loại</option>
+            {kinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+          </select>
+        </label>
+        <label className="admin-filter-control">
+          <span>Người gửi</span>
+          <select onChange={(event) => setSenderFilter(event.target.value)} value={senderFilter}>
+            <option value="all">Tất cả người gửi</option>
+            {senders.map((sender) => <option key={sender} value={sender}>{sender}</option>)}
+          </select>
+        </label>
+        <div className="admin-filter-bar__spacer" />
+        <Button
+          disabled={!messages.length}
+          onClick={() => downloadCsv("tin-nhan", [
+            ["Thời gian", "Kênh", "Người gửi", "Loại", "Nội dung"],
+            ...messages.map((message) => [message.created_at, message.channel_name, message.sender_name, message.kind, message.body])
+          ])}
+          variant="secondary"
+        >
+          Xuất dữ liệu
+        </Button>
+      </div>
+
+      <section className="admin-panel admin-table-panel">
+        <header><div><h2>Danh sách tin nhắn <small>{messages.length} tin nhắn</small></h2><p>Dữ liệu trực tiếp từ API quản trị, tối đa 100 bản ghi mới nhất.</p></div></header>
       {data.adminMessagesQuery.isLoading ? <TableSkeleton /> : data.adminMessagesQuery.isError ? (
         <ErrorState
           action={<Button onClick={() => void data.adminMessagesQuery.refetch()} size="sm" variant="secondary">Tải lại</Button>}
           description={errorMessage(data.adminMessagesQuery.error)}
           title="Không tải được tin nhắn"
         />
-      ) : messages.length ? (
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Thời gian</th><th>Kênh</th><th>Người gửi</th><th>Loại</th><th>Nội dung</th></tr></thead><tbody>
-          {messages.map((message) => <tr key={message.id}><td>{formatDateTime(message.created_at)}</td><td>{message.channel_name}</td><td>{message.sender_name}</td><td><Badge tone={statusTone(message.kind)}>{message.kind}</Badge></td><td>{message.body}</td></tr>)}
+      ) : paginatedMessages.length ? (
+        <><div className="admin-table-wrap"><table className="admin-table admin-table--messages"><thead><tr><th>Thời gian</th><th>Kênh</th><th>Người gửi</th><th>Loại</th><th>Nội dung</th></tr></thead><tbody>
+          {paginatedMessages.map((message) => <tr key={message.id}><td>{formatDateTime(message.created_at)}</td><td><span className="admin-channel-cell"><i />{message.channel_name}</span></td><td><strong>{message.sender_name}</strong></td><td><Badge tone={statusTone(message.kind)}>{message.kind}</Badge></td><td><span className="admin-message-preview" title={message.body}>{message.body}</span></td></tr>)}
         </tbody></table></div>
+        <PaginationFooter count={messages.length} onPageChange={setPage} page={safePage} pageCount={pageCount} pageSize={pageSize} /></>
       ) : <EmptyState description="API không trả về tin nhắn phù hợp bộ lọc." title="Không có tin nhắn" />}
+      </section>
     </section>
   );
 }
 
-function AdminChannelsSection({ data, searchQuery }: { data: DashboardData; searchQuery: string }) {
+function AdminChannelsSection({ data, searchQuery, setSearchQuery }: { data: DashboardData; searchQuery: string; setSearchQuery: (value: string) => void }) {
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const query = searchQuery.trim().toLowerCase();
-  const channels = data.adminChannels.filter((channel) =>
-    !query || `${channel.name} ${channel.slug ?? ""} ${channel.type}`.toLowerCase().includes(query)
+  const types = useMemo(
+    () => Array.from(new Set(data.adminChannels.map((channel) => channel.type).filter(Boolean))).sort(),
+    [data.adminChannels]
   );
+  const statuses = useMemo(
+    () => Array.from(new Set(data.adminChannels.map((channel) => channel.status).filter(Boolean))).sort(),
+    [data.adminChannels]
+  );
+  const channels = data.adminChannels.filter((channel) => {
+    const matchesQuery = !query
+      || `${channel.name} ${channel.slug ?? ""} ${channel.type}`.toLowerCase().includes(query);
+    const matchesType = typeFilter === "all" || channel.type === typeFilter;
+    const matchesStatus = statusFilter === "all" || channel.status === statusFilter;
+    return matchesQuery && matchesType && matchesStatus;
+  });
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(channels.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const paginatedChannels = channels.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const publicCount = data.adminChannels.filter((channel) => channel.type === "public").length;
+  const privateCount = data.adminChannels.filter((channel) => channel.type === "private").length;
+  const sessionCount = data.adminChannels.filter((channel) => channel.private_session_mode).length;
+
+  useEffect(() => setPage(1), [query, statusFilter, typeFilter]);
 
   return (
-    <section className="admin-panel">
-      <header><div><h2>Toàn bộ kênh</h2><p>Bao gồm kênh nhóm, kênh riêng và các phiên bot riêng tư.</p></div><Badge tone="blue">{channels.length}</Badge></header>
+    <section className="admin-content-stack admin-resource-page">
+      <div className="admin-summary-grid" aria-label="Thống kê kênh">
+        <AdminSummaryCard hint="Kênh" icon={<Hash size={20} />} label="Tổng kênh" tone="blue" value={data.adminChannels.length} />
+        <AdminSummaryCard hint={`${percentage(publicCount, data.adminChannels.length)}% tổng số`} icon={<MessageCircle size={20} />} label="Kênh công khai" tone="green" value={publicCount} />
+        <AdminSummaryCard hint={`${percentage(privateCount, data.adminChannels.length)}% tổng số`} icon={<ShieldCheck size={20} />} label="Kênh riêng tư" tone="purple" value={privateCount} />
+        <AdminSummaryCard hint={`${percentage(sessionCount, data.adminChannels.length)}% tổng số`} icon={<Bot size={20} />} label="Phiên bot riêng tư" tone="orange" value={sessionCount} />
+      </div>
+
+      <div className="admin-filter-bar">
+        <label className="admin-filter-control admin-filter-control--search">
+          <span>Tìm kênh</span>
+          <span className="admin-inline-search"><Search size={16} /><input aria-label="Tìm kiếm kênh" onChange={(event) => setSearchQuery(event.target.value)} placeholder="Tên hoặc slug của kênh" value={searchQuery} /></span>
+        </label>
+        <label className="admin-filter-control">
+          <span>Loại kênh</span>
+          <select onChange={(event) => setTypeFilter(event.target.value)} value={typeFilter}>
+            <option value="all">Tất cả loại</option>
+            {types.map((type) => <option key={type} value={type}>{type}</option>)}
+          </select>
+        </label>
+        <label className="admin-filter-control">
+          <span>Trạng thái</span>
+          <select onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>
+            <option value="all">Tất cả trạng thái</option>
+            {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <section className="admin-panel admin-table-panel">
+        <header><div><h2>Danh sách kênh <small>{channels.length} kênh</small></h2><p>Bao gồm kênh nhóm, kênh riêng và các phiên bot riêng tư từ API.</p></div></header>
       {data.adminChannelsQuery.isLoading ? <TableSkeleton /> : data.adminChannelsQuery.isError ? (
         <ErrorState
           action={<Button onClick={() => void data.adminChannelsQuery.refetch()} size="sm" variant="secondary">Tải lại</Button>}
           description={errorMessage(data.adminChannelsQuery.error)}
           title="Không tải được kênh"
         />
-      ) : channels.length ? (
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Kênh</th><th>Loại</th><th>Trạng thái</th><th>Thành viên</th><th>Tin nhắn</th><th>Cập nhật</th></tr></thead><tbody>
-          {channels.map((channel) => <tr key={channel.id}><td><strong>{channel.name}</strong><small>{channel.slug ? `#${channel.slug}` : shortId(channel.id)}</small></td><td>{channel.private_session_mode ? "Cổng phiên riêng" : channel.type}</td><td><Badge tone={statusTone(channel.status)}>{channel.status}</Badge></td><td>{formatNumber(channel.member_count)}</td><td>{formatNumber(channel.message_count)}</td><td>{formatDateTime(channel.updated_at)}</td></tr>)}
+      ) : paginatedChannels.length ? (
+        <><div className="admin-table-wrap"><table className="admin-table admin-table--channels"><thead><tr><th>Kênh</th><th>Loại</th><th>Trạng thái</th><th>Thành viên</th><th>Tin nhắn</th><th>Cập nhật</th></tr></thead><tbody>
+          {paginatedChannels.map((channel) => <tr key={channel.id}><td><span className={`admin-channel-identity admin-channel-identity--${channel.type}`}><i><Hash size={15} /></i><span><strong>{channel.name}</strong><small>{channel.slug ? `#${channel.slug}` : shortId(channel.id)}</small></span></span></td><td>{channel.private_session_mode ? "Cổng phiên riêng" : channel.type}</td><td><Badge tone={statusTone(channel.status)}>{channel.status}</Badge></td><td>{formatNumber(channel.member_count)}</td><td>{formatNumber(channel.message_count)}</td><td>{formatDateTime(channel.updated_at)}</td></tr>)}
         </tbody></table></div>
+        <PaginationFooter count={channels.length} onPageChange={setPage} page={safePage} pageCount={pageCount} pageSize={pageSize} /></>
       ) : <EmptyState description="API không trả về kênh phù hợp bộ lọc." title="Không có kênh" />}
+      </section>
     </section>
+  );
+}
+
+function AdminSummaryCard({ hint, icon, label, tone, value }: { hint?: string; icon: ReactNode; label: string; tone: "blue" | "green" | "orange" | "purple"; value: number }) {
+  return (
+    <article className={`admin-summary-card admin-summary-card--${tone}`}>
+      <span>{icon}</span>
+      <div><small>{label}</small><strong>{formatNumber(value)}</strong>{hint ? <em>{hint}</em> : null}</div>
+    </article>
+  );
+}
+
+function PaginationFooter({ count, onPageChange, page, pageCount, pageSize }: { count: number; onPageChange: (page: number) => void; page: number; pageCount: number; pageSize: number }) {
+  const start = count ? (page - 1) * pageSize + 1 : 0;
+  const end = Math.min(page * pageSize, count);
+  const visiblePages = Array.from({ length: Math.min(pageCount, 5) }, (_, index) => {
+    const firstPage = Math.max(1, Math.min(page - 2, pageCount - 4));
+    return firstPage + index;
+  });
+
+  return (
+    <footer className="admin-pagination">
+      <span>Hiển thị <strong>{start}-{end}</strong> trong tổng số <strong>{count}</strong></span>
+      <nav aria-label="Phân trang">
+        <Button disabled={page <= 1} onClick={() => onPageChange(page - 1)} size="sm" variant="secondary">‹</Button>
+        {visiblePages.map((item) => (
+          <Button key={item} onClick={() => onPageChange(item)} size="sm" variant={item === page ? "primary" : "secondary"}>{item}</Button>
+        ))}
+        <Button disabled={page >= pageCount} onClick={() => onPageChange(page + 1)} size="sm" variant="secondary">›</Button>
+      </nav>
+    </footer>
   );
 }
 
@@ -2700,6 +2924,21 @@ function stringValue(value: unknown, fallback: string): string {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("vi-VN").format(value);
+}
+
+function percentage(value: number, total: number): string {
+  return total ? ((value / total) * 100).toFixed(1) : "0";
+}
+
+function downloadCsv(filename: string, rows: Array<Array<number | string>>): void {
+  const escapeCell = (value: number | string) => `"${String(value).replaceAll('"', '""')}"`;
+  const content = `\uFEFF${rows.map((row) => row.map(escapeCell).join(",")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatDateTime(value?: string | null): string {

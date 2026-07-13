@@ -22,6 +22,8 @@ import type {
   OrderBotStatus,
   OrderPaymentQRInput,
   OrderPaymentQRResult,
+  OrderRenewServiceInput,
+  OrderRenewServiceResult,
   OrderServicesExpiringInput,
   OrderServicesExpiringResult,
   OrderWalletBalanceInput,
@@ -211,6 +213,12 @@ export function createOrderBotClient(http: HttpClient) {
     expiringServices(workspaceId: string, input: OrderServicesExpiringInput) {
       return http.post<OrderServicesExpiringResult>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/order-bot/services/expiring`,
+        input
+      );
+    },
+    renewService(workspaceId: string, input: OrderRenewServiceInput) {
+      return http.post<OrderRenewServiceResult>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/order-bot/services/renew`,
         input
       );
     }

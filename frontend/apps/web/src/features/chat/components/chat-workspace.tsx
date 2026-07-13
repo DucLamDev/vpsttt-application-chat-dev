@@ -117,6 +117,7 @@ const railItems = [
 
 type RailItemId = (typeof railItems)[number]["id"];
 type MessageSidebarTab = "conversations" | "channels";
+type ContactsTab = "employees" | "friends" | "discover";
 type ChatWorkspaceData = ReturnType<typeof useChatWorkspaceData>;
 
 type ChannelHashStyle = CSSProperties & {
@@ -305,6 +306,10 @@ export function ChatWorkspace() {
     queryFn: () => api.channels.members(data.workspaceId, data.selectedChannelId),
     queryKey: queryKeys.channels.members(data.workspaceId, data.selectedChannelId)
   });
+  const selectedChannelMembers = useMemo(
+    () => (selectedChannelMembersQuery.data ?? []).filter((member) => member.status === "active" || member.status === "muted"),
+    [selectedChannelMembersQuery.data]
+  );
   const sidebarBotsQuery = useQuery({
     enabled: Boolean(data.workspaceId && data.can("bot.manage") && activeRailItem === "messages"),
     queryFn: () => api.bots.list(data.workspaceId),
@@ -520,7 +525,10 @@ export function ChatWorkspace() {
       (conversation) => conversation.id === data.selectedChannelWithMessages?.id
     );
     if (!directConversation) {
-      return data.selectedChannelWithMessages;
+      return {
+        ...data.selectedChannelWithMessages,
+        memberCount: selectedChannelMembersQuery.data ? selectedChannelMembers.length : data.selectedChannelWithMessages.memberCount
+      };
     }
     return {
       ...data.selectedChannelWithMessages,
@@ -528,7 +536,7 @@ export function ChatWorkspace() {
       memberCount: 2,
       name: directConversation.user.name
     };
-  }, [data.directConversations, data.selectedChannelWithMessages]);
+  }, [data.directConversations, data.selectedChannelWithMessages, selectedChannelMembers, selectedChannelMembersQuery.data]);
   const composerPlaceholder = botComposerPlaceholder(selectedChatChannel);
 
   const selectedRailLabel = railItems.find((item) => item.id === activeRailItem)?.label ?? "Tin nhắn";
@@ -1142,6 +1150,8 @@ export function ChatWorkspace() {
       <NavigationRail
         activeId={activeRailItem}
         ariaLabel="Điều hướng chính"
+        brandLogoAlt="WebTui Chat"
+        brandLogoSrc="/brand/logo_webtui.png"
         items={visibleRailItems}
         onSelect={(itemId) => handleRailSelect(itemId as RailItemId)}
         profile={currentUser}
@@ -1562,7 +1572,7 @@ export function ChatWorkspace() {
               isFavorite={isFavoriteChat(selectedChatChannel.id, selectedChatChannel.isFavorite)}
               isMembersLoading={selectedChannelMembersQuery.isLoading}
               isSearchOpen={isMessageSearchOpen}
-              members={selectedChannelMembersQuery.data ?? []}
+              members={selectedChannelMembers}
               onMarkUnread={() => handleMarkUnread(selectedChatChannel.id)}
               onToggleDetailPanel={() => setIsDetailPanelOpen((current) => !current)}
               onToggleFavorite={() => handleToggleFavorite(selectedChatChannel.id)}
@@ -2082,26 +2092,57 @@ function ContactsPage({
   workspaceId?: string;
 }) {
   const isSearching = query.trim().length >= 2;
+  const [activeTab, setActiveTab] = useState<ContactsTab>("employees");
+  const employeeContacts = contacts.filter((contact) => contact.isWorkspaceMember);
+  const friendContacts = contacts.filter((contact) => contact.contactStatus === "accepted");
+  const discoverContacts = contacts.filter(
+    (contact) => !contact.isWorkspaceMember && contact.contactStatus !== "accepted"
+  );
+  const visibleContacts = activeTab === "employees"
+    ? employeeContacts
+    : activeTab === "friends"
+      ? friendContacts
+      : discoverContacts;
+  const tabItems: Array<{ count: number; label: string; value: ContactsTab }> = [
+    { count: employeeContacts.length, label: "Nhân viên hệ thống", value: "employees" },
+    { count: friendContacts.length, label: "Bạn bè", value: "friends" },
+    { count: discoverContacts.length, label: "Người lạ", value: "discover" }
+  ];
 
   return (
     <div className="workspace-page contacts-page">
       <header className="workspace-page__header">
         <div>
           <span className="workspace-page__eyebrow">Danh bạ</span>
-          <h1>Bạn bè</h1>
-          <p>Tìm người dùng bằng email, tên đăng nhập hoặc số điện thoại, gửi lời mời kết bạn rồi nhắn tin riêng.</p>
+          <h1>Danh bạ & kết nối</h1>
+          <p>Quản lý đồng nghiệp trong workspace, bạn bè và các kết nối mới ở ba khu vực riêng biệt.</p>
         </div>
         <Badge tone="blue">{contacts.length} liên hệ</Badge>
       </header>
+
+      <nav aria-label="Phân loại danh bạ" className="contacts-tabs">
+        {tabItems.map((tab) => (
+          <button
+            aria-current={activeTab === tab.value ? "page" : undefined}
+            className={activeTab === tab.value ? "contacts-tabs__item contacts-tabs__item--active" : "contacts-tabs__item"}
+            key={tab.value}
+            onClick={() => setActiveTab(tab.value)}
+            type="button"
+          >
+            <span>{tab.label}</span>
+            <strong>{tab.count}</strong>
+          </button>
+        ))}
+      </nav>
 
       <section className="zalo-search-panel">
         <div className="zalo-search-panel__icon">
           <Search size={22} />
         </div>
         <div>
-          <strong>Tìm bạn bè</strong>
+          <strong>{activeTab === "employees" ? "Tìm nhân viên" : activeTab === "friends" ? "Tìm trong bạn bè" : "Tìm người để kết bạn"}</strong>
           <Input
-            aria-label="Tìm bạn bè bằng số điện thoại hoặc email"
+            aria-label="Tìm người dùng bằng tên, số điện thoại hoặc email"
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Nhập email, số điện thoại hoặc tên"
             value={query}
@@ -2111,9 +2152,9 @@ function ContactsPage({
 
       {isLoading ? (
         <PanelSkeleton />
-      ) : contacts.length ? (
+      ) : visibleContacts.length ? (
         <div className="contact-list">
-          {contacts.map((contact) => {
+          {visibleContacts.map((contact) => {
             return (
               <article className="contact-card" key={contact.userId}>
                 <Avatar name={contact.name} size="lg" src={contact.avatarUrl ?? undefined} />
@@ -2123,6 +2164,7 @@ function ContactsPage({
                     <span>{contact.email ?? contact.username ?? "Chưa có email"}</span>
                   </div>
                   <div className="contact-card__meta">
+                    {contact.isWorkspaceMember ? <Badge tone="blue">Nhân viên hệ thống</Badge> : null}
                     <Badge tone={contact.contactStatus === "accepted" ? "green" : contact.contactStatus === "pending" ? "orange" : "blue"}>
                       {contactBadgeLabel(contact)}
                     </Badge>
@@ -2162,11 +2204,15 @@ function ContactsPage({
           description={
             !workspaceId
               ? "Đang chuẩn bị dữ liệu để mở hội thoại riêng."
-              : isSearching
-                ? "Không tìm thấy người dùng phù hợp với từ khóa này."
-                : "Nhập email, tên đăng nhập hoặc số điện thoại để tìm bạn bè."
+              : activeTab === "discover" && !isSearching
+                ? "Nhập ít nhất 2 ký tự để tìm người dùng ngoài workspace và gửi lời mời kết bạn."
+                : isSearching
+                  ? "Không tìm thấy người dùng phù hợp với từ khóa này trong nhóm đang chọn."
+                  : activeTab === "friends"
+                    ? "Bạn chưa có bạn bè trong danh bạ."
+                    : "Workspace chưa có nhân viên nào khác."
           }
-          title={!workspaceId ? "Đang chuẩn bị" : isSearching ? "Không có kết quả" : "Tìm bạn bè để bắt đầu"}
+          title={!workspaceId ? "Đang chuẩn bị" : activeTab === "discover" && !isSearching ? "Tìm người lạ để kết bạn" : isSearching ? "Không có kết quả" : "Chưa có liên hệ"}
         />
       )}
     </div>
@@ -2355,6 +2401,7 @@ function DepartmentsPage({
   const [description, setDescription] = useState("");
   const [parentId, setParentId] = useState("");
   const [query, setQuery] = useState("");
+  const [coverageFilter, setCoverageFilter] = useState<"all" | "missing-lead" | "empty" | "no-channel">("all");
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [editName, setEditName] = useState("");
   const [editSlug, setEditSlug] = useState("");
@@ -2369,11 +2416,15 @@ function DepartmentsPage({
   const selectedDepartment = departments.find((department) => department.id === selectedDepartmentId) ?? null;
   const departmentRows = useMemo(() => buildDepartmentRows(departments), [departments]);
   const normalizedQuery = query.trim().toLocaleLowerCase("vi");
-  const visibleRows = normalizedQuery
-    ? departmentRows.filter(({ department }) =>
-        `${department.name} ${department.slug} ${department.description ?? ""}`.toLocaleLowerCase("vi").includes(normalizedQuery)
-      )
-    : departmentRows;
+  const visibleRows = departmentRows.filter(({ department }) => {
+    const matchesQuery = !normalizedQuery ||
+      `${department.name} ${department.slug} ${department.description ?? ""}`.toLocaleLowerCase("vi").includes(normalizedQuery);
+    const matchesCoverage = coverageFilter === "all" ||
+      (coverageFilter === "missing-lead" && !department.lead_count) ||
+      (coverageFilter === "empty" && !department.member_count) ||
+      (coverageFilter === "no-channel" && !department.channel_count);
+    return matchesQuery && matchesCoverage;
+  });
   const invalidParentIds = useMemo(
     () => selectedDepartment ? departmentDescendantIds(departments, selectedDepartment.id) : new Set<string>(),
     [departments, selectedDepartment]
@@ -2430,7 +2481,10 @@ function DepartmentsPage({
     onSuccess: async (_member, input) => {
       setMemberUserId("");
       setFeedback({ message: "Đã cập nhật thành viên phòng ban.", tone: "success" });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.departments.members(workspaceId ?? "", input.departmentId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.departments.members(workspaceId ?? "", input.departmentId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.departments.all(workspaceId ?? "") })
+      ]);
     }
   });
   const removeMemberMutation = useMutation({
@@ -2439,7 +2493,10 @@ function DepartmentsPage({
     onError: (error) => setFeedback({ message: errorMessage(error, "Không xóa được thành viên khỏi phòng ban."), tone: "error" }),
     onSuccess: async (_result, input) => {
       setFeedback({ message: "Đã xóa thành viên khỏi phòng ban.", tone: "success" });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.departments.members(workspaceId ?? "", input.departmentId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.departments.members(workspaceId ?? "", input.departmentId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.departments.all(workspaceId ?? "") })
+      ]);
     }
   });
   const assignChannelMutation = useMutation({
@@ -2449,13 +2506,16 @@ function DepartmentsPage({
     onSuccess: async () => {
       setChannelId("");
       setFeedback({ message: "Đã cập nhật kênh của phòng ban.", tone: "success" });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId ?? "") });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId ?? "") }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.departments.all(workspaceId ?? "") })
+      ]);
     }
   });
 
   const isMutating = updateMutation.isPending || deleteMutation.isPending || upsertMemberMutation.isPending || removeMemberMutation.isPending || assignChannelMutation.isPending;
   const assignedChannelCount = channels.filter((channel) => channel.departmentId).length;
-  const rootDepartmentCount = departments.filter((department) => !department.parent_id).length;
+  const missingLeadCount = departments.filter((department) => !department.lead_count).length;
   const selectedLeadCount = departmentMembers.filter((member) => member.role === "lead").length;
 
   function openDepartment(department: Department) {
@@ -2493,7 +2553,7 @@ function DepartmentsPage({
         <div>
           <span className="workspace-page__eyebrow">Tổ chức</span>
           <h1>Phòng ban</h1>
-          <p>Tạo nhóm phòng ban và cấu trúc phòng ban con cho workspace.</p>
+          <p>Quản lý cơ cấu, trưởng phòng, nhân sự và kênh phụ trách từ một nơi.</p>
         </div>
         <Button disabled={!canManage} onClick={() => setIsFormOpen((current) => !current)} size="sm">
           <Plus size={16} /> Tạo phòng ban
@@ -2506,8 +2566,8 @@ function DepartmentsPage({
           <div><strong>{departments.length}</strong><small>Tổng phòng ban</small></div>
         </article>
         <article>
-          <span><Archive size={18} /></span>
-          <div><strong>{rootDepartmentCount}</strong><small>Phòng ban cấp gốc</small></div>
+          <span><ShieldCheck size={18} /></span>
+          <div><strong>{missingLeadCount}</strong><small>Chưa có trưởng phòng</small></div>
         </article>
         <article>
           <span><Hash size={18} /></span>
@@ -2538,6 +2598,17 @@ function DepartmentsPage({
             placeholder="Tìm theo tên, slug hoặc mô tả..."
             value={query}
           />
+          <select
+            aria-label="Lọc trạng thái phân công phòng ban"
+            className="department-coverage-filter"
+            onChange={(event) => setCoverageFilter(event.target.value as typeof coverageFilter)}
+            value={coverageFilter}
+          >
+            <option value="all">Tất cả trạng thái</option>
+            <option value="missing-lead">Chưa có trưởng phòng</option>
+            <option value="empty">Chưa có nhân sự</option>
+            <option value="no-channel">Chưa có kênh</option>
+          </select>
           <Badge tone="blue">{departments.length} phòng ban</Badge>
         </div>
       ) : null}
@@ -2562,6 +2633,13 @@ function DepartmentsPage({
                 <strong>{department.name}</strong>
                 <small>#{department.slug}{department.parent_id ? ` · thuộc ${departmentName(departments, department.parent_id)}` : " · cấp gốc"}</small>
                 <p>{department.description || "Chưa có mô tả"}</p>
+                <div className="department-card__coverage">
+                  <Badge tone={department.lead_count ? "green" : "orange"}>
+                    {department.lead_count ? `${department.lead_count} trưởng phòng` : "Chưa có trưởng phòng"}
+                  </Badge>
+                  <span>{department.member_count ?? 0} nhân sự</span>
+                  <span>{department.channel_count ?? 0} kênh</span>
+                </div>
               </div>
               <aside>
                 {department.parent_id ? <Badge tone="slate">Cấp {depth + 1}</Badge> : <Badge tone="blue">Phòng ban</Badge>}
@@ -2570,8 +2648,8 @@ function DepartmentsPage({
             </article>
           ))}
         </div>
-      ) : query.trim() ? (
-        <EmptyState description="Thử tên hoặc slug phòng ban khác." title="Không tìm thấy phòng ban" />
+      ) : query.trim() || coverageFilter !== "all" ? (
+        <EmptyState description="Thử từ khóa hoặc trạng thái phân công khác." title="Không tìm thấy phòng ban phù hợp" />
       ) : (
         <EmptyState description="Tạo phòng ban đầu tiên để tổ chức thành viên theo đội nhóm." title="Chưa có phòng ban" />
       )}
@@ -4546,7 +4624,7 @@ function AttachmentMedia({
   );
 }
 
-const voiceWaveformHeights = [10, 18, 12, 24, 16, 30, 20, 13, 27, 17, 34, 22, 12, 25, 16, 31, 19, 11, 23, 15, 29, 20, 13, 26, 17, 32, 21, 12, 24, 16, 28, 19];
+const voiceWaveformHeights = [8, 14, 10, 20, 13, 24, 16, 10, 21, 14, 26, 18, 10, 20, 13, 24, 16, 9, 18, 12, 23, 16, 10, 21, 14, 25, 17, 10, 20, 13, 22, 15];
 
 function VoiceMessagePlayer({ id, source }: { id: string; source: string }) {
   const audioRef = useRef<HTMLAudioElement>(null);

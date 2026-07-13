@@ -26,6 +26,7 @@ type Channel struct {
 	UpdatedAt          time.Time
 	ArchivedAt         *time.Time
 	PrivateSessionMode bool
+	MemberCount        int
 }
 
 type Member struct {

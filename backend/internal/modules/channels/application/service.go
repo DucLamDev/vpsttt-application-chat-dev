@@ -24,6 +24,7 @@ type Repository interface {
 	ListChannels(ctx context.Context, workspaceID string) ([]channelsdomain.Channel, error)
 	UpdateChannel(ctx context.Context, params UpdateChannelParams) (channelsdomain.Channel, error)
 	ArchiveChannel(ctx context.Context, workspaceID string, channelID string) error
+	CountMembers(ctx context.Context, workspaceID string, channelID string) (int, error)
 	ListMembers(ctx context.Context, workspaceID string, channelID string) ([]channelsdomain.Member, error)
 	FindMember(ctx context.Context, workspaceID string, channelID string, userID string) (channelsdomain.Member, error)
 	AddMember(ctx context.Context, params AddMemberParams) (channelsdomain.Member, error)
@@ -166,6 +167,7 @@ type ChannelDTO struct {
 	MembershipStatus   string  `json:"membership_status"`
 	IsMember           bool    `json:"is_member"`
 	CanManage          bool    `json:"can_manage"`
+	MemberCount        int     `json:"member_count"`
 	PrivateSessionMode bool    `json:"private_session_mode"`
 }
 
@@ -239,6 +241,7 @@ func (s *Service) Create(ctx context.Context, input CreateChannelInput) (Channel
 	dto.MembershipStatus = "active"
 	dto.IsMember = true
 	dto.CanManage = true
+	dto.MemberCount = 1
 	return dto, nil
 }
 
@@ -254,6 +257,11 @@ func (s *Service) Get(ctx context.Context, actorUserID string, workspaceID strin
 	if err != nil {
 		return ChannelDTO{}, err
 	}
+	memberCount, countErr := s.repo.CountMembers(ctx, strings.TrimSpace(workspaceID), channel.ID)
+	if countErr != nil {
+		return ChannelDTO{}, countErr
+	}
+	dto.MemberCount = memberCount
 	if !dto.IsMember {
 		return ChannelDTO{}, apperrors.Forbidden("Bạn chưa phải là thành viên của kênh này.")
 	}
@@ -304,6 +312,7 @@ func (s *Service) OpenPrivateSession(ctx context.Context, actorUserID string, wo
 	dto.MembershipStatus = "active"
 	dto.IsMember = true
 	dto.CanManage = false
+	dto.MemberCount = 1
 	return dto, nil
 }
 
@@ -652,6 +661,7 @@ func toChannelDTO(channel channelsdomain.Channel) ChannelDTO {
 		CreatedAt:          formatTime(channel.CreatedAt),
 		UpdatedAt:          formatTime(channel.UpdatedAt),
 		ArchivedAt:         formatOptionalTime(channel.ArchivedAt),
+		MemberCount:        channel.MemberCount,
 		PrivateSessionMode: channel.PrivateSessionMode,
 	}
 }

@@ -65,6 +65,9 @@ var (
 	intentCodePattern  = regexp.MustCompile(`(?i)(?:intent[_\s-]*code|mã đơn|ma don|đơn hàng|don hang)\s*[:=#]?\s*([A-Z0-9][A-Z0-9_-]{5,})`)
 	quickIntentPattern = regexp.MustCompile(`(?i)\bQOI[A-Z0-9_-]{6,}\b`)
 	orderRefPattern    = regexp.MustCompile(`(?i)(?:reference|mã tham chiếu|ma tham chieu)\s*[:=#]?\s*([A-Z0-9][A-Z0-9_-]{5,})`)
+	serviceIDPattern   = regexp.MustCompile(`(?i)(?:dịch vụ|dich vu|service|vps|proxy|hosting|s3|drive|waf|domain|separate)(?:\s+[a-z0-9._-]+)?\s*#\s*([0-9]+)`)
+	serviceNamePattern = regexp.MustCompile(`(?i)(?:gia hạn|gia han|renew|extend)(?:\s+(?:dịch vụ|dich vu|service))?\s+(.+?)\s+(?:của|cua)\s+(?:tài khoản|tai khoan|email)\b`)
+	monthsPattern      = regexp.MustCompile(`(?i)\b([0-9]{1,2})\s*(tháng|thang|months?)\b`)
 )
 
 type PermissionChecker interface {
@@ -77,12 +80,14 @@ type Client interface {
 	WalletBalance(ctx context.Context, input UserLookupRequest) (WalletBalanceEnvelope, error)
 	CreateDepositQR(ctx context.Context, input WalletDepositQRRequest) (WalletDepositQREnvelope, error)
 	ServicesExpiring(ctx context.Context, input ServicesExpiringRequest) (ServicesExpiringEnvelope, error)
+	RenewService(ctx context.Context, input RenewServiceRequest) (RenewServiceEnvelope, error)
 	CreateOrderPaymentQR(ctx context.Context, input OrderPaymentQRRequest) (OrderPaymentQREnvelope, error)
 }
 
 type Repository interface {
 	ChannelByID(ctx context.Context, workspaceID string, channelID string) (ChannelDTO, error)
 	SendBotMessage(ctx context.Context, params SendBotMessageParams) (BotMessageDTO, error)
+	UserEmailByID(ctx context.Context, userID string) (string, error)
 }
 
 type Service struct {
@@ -131,6 +136,20 @@ type ServicesExpiringInput struct {
 	PostToChannel    *bool  `json:"post_to_channel,omitempty"`
 }
 
+type RenewServiceInput struct {
+	ActorUserID      string
+	WorkspaceID      string
+	TriggerMessageID string `json:"-"`
+	Email            string `json:"email,omitempty"`
+	UserID           int    `json:"user_id,omitempty"`
+	ServiceType      string `json:"service_type,omitempty"`
+	ServiceID        int    `json:"service_id,omitempty"`
+	ServiceName      string `json:"service_name,omitempty"`
+	Months           int    `json:"months,omitempty"`
+	ChannelID        string `json:"channel_id,omitempty"`
+	PostToChannel    *bool  `json:"post_to_channel,omitempty"`
+}
+
 type WalletDepositQRRequest struct {
 	Email          string `json:"email"`
 	Amount         int    `json:"amount"`
@@ -160,6 +179,16 @@ type ServicesExpiringRequest struct {
 	Days           int    `json:"days,omitempty"`
 	IncludeExpired bool   `json:"include_expired"`
 	ServiceType    string `json:"service_type,omitempty"`
+}
+
+type RenewServiceRequest struct {
+	Email          string `json:"email,omitempty"`
+	UserID         int    `json:"user_id,omitempty"`
+	ServiceType    string `json:"service_type,omitempty"`
+	ServiceID      int    `json:"service_id,omitempty"`
+	ServiceName    string `json:"service_name,omitempty"`
+	Months         int    `json:"months"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 type SendBotMessageParams struct {
@@ -213,6 +242,11 @@ type OrderPaymentQRResult struct {
 type ServicesExpiringResult struct {
 	Data       ServicesExpiringData `json:"data"`
 	BotMessage *BotMessageDTO       `json:"bot_message,omitempty"`
+}
+
+type RenewServiceResult struct {
+	Data       RenewServiceData `json:"data"`
+	BotMessage *BotMessageDTO   `json:"bot_message,omitempty"`
 }
 
 type WalletBalanceEnvelope struct {
@@ -292,6 +326,29 @@ type ServicesExpiringEnvelope struct {
 	Status  string               `json:"status,omitempty"`
 	Message string               `json:"message,omitempty"`
 	Data    ServicesExpiringData `json:"data"`
+}
+
+type RenewServiceEnvelope struct {
+	OK      bool             `json:"ok"`
+	Status  string           `json:"status,omitempty"`
+	Message string           `json:"message,omitempty"`
+	Data    RenewServiceData `json:"data"`
+}
+
+type RenewServiceData struct {
+	Outcome         string              `json:"outcome,omitempty"`
+	TransactionID   string              `json:"transaction_id,omitempty"`
+	User            ExpiringUserSummary `json:"user,omitempty"`
+	ServiceType     string              `json:"service_type,omitempty"`
+	ServiceID       int                 `json:"service_id,omitempty"`
+	ServiceName     string              `json:"service_name,omitempty"`
+	Months          int                 `json:"months,omitempty"`
+	Amount          int                 `json:"amount,omitempty"`
+	BalanceBefore   int                 `json:"balance_before,omitempty"`
+	BalanceAfter    int                 `json:"balance_after,omitempty"`
+	ShortageAmount  int                 `json:"shortage_amount,omitempty"`
+	ExpiresAtBefore string              `json:"expires_at_before,omitempty"`
+	ExpiresAtAfter  string              `json:"expires_at_after,omitempty"`
 }
 
 type ServicesExpiringData struct {
@@ -485,6 +542,33 @@ func (s *Service) handleRenewalAutoMessage(ctx context.Context, input botauto.Me
 		}, autoBotCommandLogFields(command)...)
 		slog.Info("Gia Han Bot gui huong dan vi thieu lookup hoac nguoi dung hoi help", fields...)
 		return s.postAutoGuide(ctx, input, defaultRenewalBotSlug, defaultRenewalChannelSlug, "auto_help_gia_han", renewalBotGuide())
+	}
+	if command.RenewalIntent {
+		if command.ServiceID <= 0 && strings.TrimSpace(command.ServiceName) == "" {
+			return s.postAutoGuide(ctx, input, defaultRenewalBotSlug, defaultRenewalChannelSlug, "auto_help_gia_han", renewalBotGuide())
+		}
+		fields := append([]any{
+			"workspace_id", input.WorkspaceID,
+			"channel_id", input.ChannelID,
+			"message_id", input.MessageID,
+		}, autoBotCommandLogFields(command)...)
+		slog.Info("Gia Han Bot bat dau yeu cau gia han dich vu", fields...)
+		result, err := s.RenewService(ctx, RenewServiceInput{
+			ActorUserID:      input.ActorUserID,
+			WorkspaceID:      input.WorkspaceID,
+			TriggerMessageID: input.MessageID,
+			Email:            command.Email,
+			UserID:           command.UserID,
+			ServiceType:      command.ServiceType,
+			ServiceID:        command.ServiceID,
+			ServiceName:      command.ServiceName,
+			Months:           command.Months,
+			ChannelID:        input.ChannelID,
+		})
+		if err != nil {
+			return s.postAutoError(ctx, input, defaultRenewalBotSlug, defaultRenewalChannelSlug, "Gia Hạn Bot", err, renewalBotGuide())
+		}
+		return autoBotMessages(result.BotMessage), nil
 	}
 	fields := append([]any{
 		"workspace_id", input.WorkspaceID,
@@ -818,6 +902,86 @@ func (s *Service) ServicesExpiring(ctx context.Context, input ServicesExpiringIn
 	return result, nil
 }
 
+func (s *Service) RenewService(ctx context.Context, input RenewServiceInput) (RenewServiceResult, error) {
+	if err := s.ensureConfigured(); err != nil {
+		return RenewServiceResult{}, err
+	}
+	lookup, err := normalizeLookup(input.Email, input.UserID)
+	if err != nil {
+		return RenewServiceResult{}, err
+	}
+	if err := s.ensureRenewalPermission(ctx, input.ActorUserID, input.WorkspaceID, lookup.Email); err != nil {
+		return RenewServiceResult{}, err
+	}
+	serviceType := normalizeServiceType(input.ServiceType)
+	if strings.TrimSpace(input.ServiceType) != "" && serviceType == "" {
+		return RenewServiceResult{}, apperrors.BadRequest("VALIDATION_ERROR", "Loại dịch vụ không hợp lệ.")
+	}
+	serviceName := strings.TrimSpace(input.ServiceName)
+	if input.ServiceID <= 0 && serviceName == "" {
+		return RenewServiceResult{}, apperrors.BadRequest("VALIDATION_ERROR", "Cần cung cấp mã hoặc tên dịch vụ muốn gia hạn.")
+	}
+	months := input.Months
+	if months == 0 {
+		months = 1
+	}
+	if months < 1 || months > 36 {
+		return RenewServiceResult{}, apperrors.BadRequest("VALIDATION_ERROR", "Thời gian gia hạn phải từ 1 đến 36 tháng.")
+	}
+	if err := validateOptionalChannelID(input.ChannelID); err != nil {
+		return RenewServiceResult{}, err
+	}
+	idempotencyKey := strings.TrimSpace(input.TriggerMessageID)
+	if idempotencyKey == "" {
+		return RenewServiceResult{}, apperrors.BadRequest("VALIDATION_ERROR", "Thiếu mã chống gửi trùng cho yêu cầu gia hạn.")
+	}
+
+	envelope, err := s.client.RenewService(ctx, RenewServiceRequest{
+		Email:          lookup.Email,
+		UserID:         lookup.UserID,
+		ServiceType:    serviceType,
+		ServiceID:      input.ServiceID,
+		ServiceName:    serviceName,
+		Months:         months,
+		IdempotencyKey: idempotencyKey,
+	})
+	if err != nil {
+		slog.Warn("Order API request failed",
+			"action", "service_renew",
+			"workspace_id", input.WorkspaceID,
+			"service_type", serviceType,
+			"service_id", input.ServiceID,
+			"error", err,
+		)
+		return RenewServiceResult{}, mapRenewalClientError(err)
+	}
+	if err := ensureRemoteOK(envelope.OK, envelope.Status, envelope.Message); err != nil {
+		return RenewServiceResult{}, err
+	}
+
+	result := RenewServiceResult{Data: envelope.Data}
+	if shouldPost(input.PostToChannel) {
+		message, err := s.postBotMessage(ctx, input.WorkspaceID, defaultRenewalBotSlug, input.ChannelID, defaultRenewalChannelSlug, formatRenewServiceMessage(envelope.Data), map[string]any{
+			"source":             "vpsttt_order",
+			"action":             "service_renew",
+			"trigger_message_id": input.TriggerMessageID,
+			"transaction_id":     envelope.Data.TransactionID,
+			"outcome":            envelope.Data.Outcome,
+			"service_type":       envelope.Data.ServiceType,
+			"service_id":         envelope.Data.ServiceID,
+			"months":             envelope.Data.Months,
+			"amount":             envelope.Data.Amount,
+			"shortage_amount":    envelope.Data.ShortageAmount,
+			"expires_at_after":   envelope.Data.ExpiresAtAfter,
+		})
+		if err != nil {
+			return RenewServiceResult{}, err
+		}
+		result.BotMessage = &message
+	}
+	return result, nil
+}
+
 type autoBotCommand struct {
 	Email           string
 	UserID          int
@@ -829,6 +993,9 @@ type autoBotCommand struct {
 	IntentID        int
 	IntentCode      string
 	Reference       string
+	ServiceID       int
+	ServiceName     string
+	Months          int
 	IsHelp          bool
 	HasLookup       bool
 	HasAmount       bool
@@ -837,6 +1004,7 @@ type autoBotCommand struct {
 	PaymentIntent   bool
 	TicketIntent    bool
 	AlertIntent     bool
+	RenewalIntent   bool
 }
 
 func parseAutoBotCommand(body string) autoBotCommand {
@@ -848,12 +1016,14 @@ func parseAutoBotCommand(body string) autoBotCommand {
 		Days:           7,
 		ServiceType:    "all",
 		ExpiresMinutes: 1440,
+		Months:         1,
 		IsHelp:         containsAny(plain, "help", "huong dan", "cach dung", "/bot", "/help"),
 		IncludeExpired: containsAny(plain, "include_expired true", "include expired true", "gom het han", "bao gom het han", "ca het han"),
 		WalletIntent:   containsAny(plain, "tra vi", "so du", "wallet", "balance", "kiem tra vi"),
 		PaymentIntent:  amountHintPattern.MatchString(lower) || containsAny(plain, "nap vi", "tao qr", "thanh toan", "chuyen khoan", "qr"),
 		TicketIntent:   containsAny(plain, "ticket", "ho tro", "khach", "loi", "khong truy cap", "khong vao duoc", "vps", "hosting", "domain", "proxy"),
 		AlertIntent:    containsAny(plain, "alert", "canh bao", "server", "down", "mat ping", "ping", "port", "cpu", "ram", "disk", "service", "timeout", "critical"),
+		RenewalIntent:  containsAny(plain, "gia han", "renew", "extend") && !containsAny(plain, "sap het han", "kiem tra", "thong ke", "bao cao"),
 	}
 	if match := intentIDPattern.FindStringSubmatch(body); len(match) == 2 {
 		command.IntentID, _ = strconv.Atoi(match[1])
@@ -865,6 +1035,17 @@ func parseAutoBotCommand(body string) autoBotCommand {
 	}
 	if match := orderRefPattern.FindStringSubmatch(body); len(match) == 2 {
 		command.Reference = strings.TrimSpace(match[1])
+	}
+	if match := serviceIDPattern.FindStringSubmatch(body); len(match) == 2 {
+		command.ServiceID, _ = strconv.Atoi(match[1])
+	}
+	if match := serviceNamePattern.FindStringSubmatch(body); len(match) == 2 {
+		command.ServiceName = cleanServiceName(match[1])
+	}
+	if match := monthsPattern.FindStringSubmatch(body); len(match) == 3 {
+		if value := parseHumanInt(match[1]); value > 0 {
+			command.Months = value
+		}
 	}
 	command.HasOrderPayment = command.IntentID > 0 || command.IntentCode != "" || command.Reference != ""
 
@@ -900,6 +1081,9 @@ func parseAutoBotCommand(body string) autoBotCommand {
 			command.ServiceType = value
 		}
 	}
+	if command.ServiceType == "all" {
+		command.ServiceType = inferServiceType(plain)
+	}
 	if command.Amount == 0 && command.PaymentIntent {
 		command.Amount = firstMoneyValue(body)
 		command.HasAmount = command.Amount > 0
@@ -914,6 +1098,9 @@ func autoBotCommandLogFields(command autoBotCommand) []any {
 		"user_id", command.UserID,
 		"days", command.Days,
 		"service_type", command.ServiceType,
+		"service_id", command.ServiceID,
+		"service_name", compactSummary(command.ServiceName, 80),
+		"months", command.Months,
 		"amount", command.Amount,
 		"has_lookup", command.HasLookup,
 		"has_amount", command.HasAmount,
@@ -923,6 +1110,7 @@ func autoBotCommandLogFields(command autoBotCommand) []any {
 		"payment_intent", command.PaymentIntent,
 		"ticket_intent", command.TicketIntent,
 		"alert_intent", command.AlertIntent,
+		"renewal_intent", command.RenewalIntent,
 	}
 }
 
@@ -1021,6 +1209,12 @@ Kiểm tra dịch vụ sắp hết hạn:
 Email: khach@example.com
 Số ngày: 7
 Loại dịch vụ: Tất cả
+
+Gia hạn theo mã dịch vụ:
+Tôi muốn gia hạn VPS #1234 của tài khoản khach@example.com thêm 1 tháng.
+
+Gia hạn theo tên dịch vụ:
+Gia hạn dịch vụ vps-hanoi-01 của tài khoản khach@example.com trong 3 tháng.
 
 Hỗ trợ: Tất cả, VPS, Proxy, Hosting, S3, Drive, WAF, Domain và Separate.`)
 }
@@ -1212,6 +1406,34 @@ func (s *Service) ensurePermission(ctx context.Context, userID string, workspace
 	return nil
 }
 
+func (s *Service) ensureRenewalPermission(ctx context.Context, userID string, workspaceID string, targetEmail string) error {
+	if s.checker == nil {
+		return nil
+	}
+	billingAllowed, err := s.checker.HasWorkspacePermission(ctx, strings.TrimSpace(userID), strings.TrimSpace(workspaceID), PermissionOrderBilling)
+	if err != nil {
+		return err
+	}
+	if billingAllowed {
+		return nil
+	}
+	selfServiceAllowed, err := s.checker.HasWorkspacePermission(ctx, strings.TrimSpace(userID), strings.TrimSpace(workspaceID), PermissionOrderPaymentRequest)
+	if err != nil {
+		return err
+	}
+	if !selfServiceAllowed || s.repo == nil || normalizeEmail(targetEmail) == "" {
+		return apperrors.Forbidden("Bạn không có quyền gia hạn dịch vụ của tài khoản này.")
+	}
+	actorEmail, err := s.repo.UserEmailByID(ctx, strings.TrimSpace(userID))
+	if err != nil {
+		return err
+	}
+	if normalizeEmail(actorEmail) != normalizeEmail(targetEmail) {
+		return apperrors.Forbidden("Email yêu cầu gia hạn phải trùng email tài khoản chat đã xác minh. Vui lòng dùng đúng tài khoản hoặc liên hệ #ke-toan.")
+	}
+	return nil
+}
+
 func (s *Service) ensureConfigured() error {
 	if s.client == nil || !s.client.Configured() {
 		return apperrors.Internal("Chưa cấu hình ORDER_INTERNAL_API_KEY cho bot order VPSTTT.")
@@ -1317,6 +1539,26 @@ func normalizeServiceType(value string) string {
 	}
 }
 
+func inferServiceType(plain string) string {
+	for _, serviceType := range []string{"proxy", "hosting", "drive", "domain", "separate", "vps", "s3", "waf"} {
+		pattern := regexp.MustCompile(`(^|[^a-z0-9])` + regexp.QuoteMeta(serviceType) + `([^a-z0-9]|$)`)
+		if pattern.MatchString(plain) {
+			return serviceType
+		}
+	}
+	return "all"
+}
+
+func cleanServiceName(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, "\"'`.,:;-")
+	runes := []rune(value)
+	if len(runes) > 160 {
+		return string(runes[:160])
+	}
+	return value
+}
+
 func validateOptionalChannelID(channelID string) error {
 	channelID = strings.TrimSpace(channelID)
 	if channelID == "" {
@@ -1381,6 +1623,18 @@ func mapOrderClientError(err error) error {
 		"Không kết nối được tới Order API. Vui lòng kiểm tra kết nối và thử lại.",
 		http.StatusServiceUnavailable,
 	)
+}
+
+func mapRenewalClientError(err error) error {
+	var upstream *UpstreamError
+	if errors.As(err, &upstream) && (upstream.StatusCode == http.StatusNotFound || upstream.StatusCode == http.StatusMethodNotAllowed) {
+		return apperrors.New(
+			"ORDER_RENEWAL_NOT_SUPPORTED",
+			"Order API chưa bật endpoint gia hạn nội bộ an toàn. Không có số dư nào bị trừ. Vui lòng liên hệ Zalo OA VPSTTT hoặc gửi yêu cầu tại #ke-toan để được hỗ trợ.",
+			http.StatusServiceUnavailable,
+		)
+	}
+	return mapOrderClientError(err)
 }
 
 func formatWalletBalanceMessage(data WalletBalanceData) string {
@@ -1476,6 +1730,55 @@ func formatExpiringServicesMessage(data ServicesExpiringData) string {
 	}
 	if len(data.Items) > limit {
 		builder.WriteString("... và " + strconv.Itoa(len(data.Items)-limit) + " dịch vụ khác.\n")
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func formatRenewServiceMessage(data RenewServiceData) string {
+	var builder strings.Builder
+	outcome := normalizeText(strings.TrimSpace(data.Outcome))
+	insufficient := data.ShortageAmount > 0 || containsAny(outcome, "insufficient", "not enough", "khong du", "thieu tien")
+	if insufficient {
+		builder.WriteString("GIA HẠN · SỐ DƯ KHÔNG ĐỦ\n")
+	} else if containsAny(outcome, "success", "renewed", "completed", "thanh cong", "da gia han") {
+		builder.WriteString("GIA HẠN · ĐÃ HOÀN TẤT\n")
+	} else {
+		builder.WriteString("GIA HẠN · ĐÃ TIẾP NHẬN\n")
+	}
+	builder.WriteString("Khách hàng: " + customerLine(data.User.Name, data.User.Email, data.User.UserID) + "\n")
+	serviceType := firstNonEmpty(data.ServiceType, "Dịch vụ")
+	serviceName := firstNonEmpty(data.ServiceName, "không có tên")
+	if data.ServiceID > 0 {
+		builder.WriteString("Dịch vụ: " + serviceType + " #" + strconv.Itoa(data.ServiceID) + " - " + serviceName + "\n")
+	} else {
+		builder.WriteString("Dịch vụ: " + serviceType + " - " + serviceName + "\n")
+	}
+	if data.Months > 0 {
+		builder.WriteString("Thời gian gia hạn: " + strconv.Itoa(data.Months) + " tháng\n")
+	}
+	if data.Amount > 0 {
+		builder.WriteString("Chi phí: " + formatVND(data.Amount) + "\n")
+	}
+	if data.BalanceBefore > 0 || insufficient {
+		builder.WriteString("Số dư ví: " + formatVND(data.BalanceBefore) + "\n")
+	}
+	if insufficient {
+		shortage := data.ShortageAmount
+		if shortage <= 0 && data.Amount > data.BalanceBefore {
+			shortage = data.Amount - data.BalanceBefore
+		}
+		builder.WriteString("Số tiền còn thiếu: " + formatVND(shortage) + "\n")
+		builder.WriteString("\nVui lòng liên hệ Zalo OA VPSTTT hoặc gửi yêu cầu tại #ke-toan để nạp thêm tiền vào ví.")
+		return strings.TrimSpace(builder.String())
+	}
+	if data.BalanceAfter >= 0 && data.Amount > 0 {
+		builder.WriteString("Số dư sau gia hạn: " + formatVND(data.BalanceAfter) + "\n")
+	}
+	if data.ExpiresAtAfter != "" {
+		builder.WriteString("Hạn sử dụng mới: " + data.ExpiresAtAfter + "\n")
+	}
+	if data.TransactionID != "" {
+		builder.WriteString("Mã giao dịch: " + data.TransactionID + "\n")
 	}
 	return strings.TrimSpace(builder.String())
 }

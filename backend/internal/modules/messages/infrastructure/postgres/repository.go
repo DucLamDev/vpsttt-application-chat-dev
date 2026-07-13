@@ -117,7 +117,7 @@ WHERE m.workspace_id = $1::uuid
   AND m.channel_id = $2::uuid
   AND m.id = $3::uuid
   AND m.deleted_at IS NULL
-`, params.WorkspaceID, params.ChannelID, params.MessageID, params.ActorUserID)
+`, params.WorkspaceID, params.ChannelID, params.MessageID)
 	message, err := scanMessage(row)
 	if err != nil {
 		return messagesdomain.Message{}, err
@@ -306,10 +306,10 @@ WHERE workspace_id = $1::uuid AND message_id = $2::uuid
 		return messagesdomain.Message{}, err
 	}
 	if err := insertOutbox(ctx, tx, "message", message.ID, "MessageCreated", map[string]any{
-		"workspace_id":        message.WorkspaceID,
-		"channel_id":          message.ChannelID,
-		"message_id":          message.ID,
-		"sender_id":           params.ActorUserID,
+		"workspace_id":         message.WorkspaceID,
+		"channel_id":           message.ChannelID,
+		"message_id":           message.ID,
+		"sender_id":            params.ActorUserID,
 		"forwarded_message_id": params.MessageID,
 	}); err != nil {
 		return messagesdomain.Message{}, err
@@ -400,15 +400,11 @@ func (r *Repository) Delete(ctx context.Context, params messagesapp.DeleteParams
 	command, err := tx.Exec(ctx, `
 UPDATE messages m
 SET deleted_at = now()
-FROM channel_members cm
-WHERE cm.channel_id = m.channel_id
-  AND cm.user_id = $4::uuid
-  AND cm.status IN ('active', 'muted')
-  AND m.workspace_id = $1::uuid
+WHERE m.workspace_id = $1::uuid
   AND m.channel_id = $2::uuid
   AND m.id = $3::uuid
   AND m.deleted_at IS NULL
-`, params.WorkspaceID, params.ChannelID, params.MessageID, params.ActorUserID)
+`, params.WorkspaceID, params.ChannelID, params.MessageID)
 	if err != nil {
 		return err
 	}

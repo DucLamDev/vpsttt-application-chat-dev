@@ -20,6 +20,21 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+func (r *Repository) UserEmailByID(ctx context.Context, userID string) (string, error) {
+	var email string
+	err := r.pool.QueryRow(ctx, `
+SELECT email
+FROM users
+WHERE id = $1::uuid
+  AND status = 'active'
+  AND deleted_at IS NULL
+`, userID).Scan(&email)
+	if err != nil {
+		return "", err
+	}
+	return email, nil
+}
+
 func (r *Repository) ChannelByID(ctx context.Context, workspaceID string, channelID string) (orderapp.ChannelDTO, error) {
 	row := r.pool.QueryRow(ctx, `
 SELECT id::text, workspace_id::text, COALESCE(settings->>'bot_source_slug', slug::text), name

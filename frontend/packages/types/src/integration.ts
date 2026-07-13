@@ -231,6 +231,44 @@ export type OrderServicesExpiringResult = {
   bot_message?: BotMessage;
 };
 
+export type OrderRenewServiceInput = {
+  email?: string;
+  user_id?: number;
+  service_type?: "all" | "vps" | "proxy" | "hosting" | "s3" | "drive" | "waf" | "domain" | "separate";
+  service_id?: number;
+  service_name?: string;
+  months: number;
+  idempotency_key: string;
+  channel_id?: Id;
+  post_to_channel?: boolean;
+};
+
+export type OrderRenewServiceData = {
+  outcome?: string;
+  transaction_id?: string;
+  user?: {
+    user_id?: number;
+    email?: string;
+    name?: string;
+    balance?: number;
+  };
+  service_type?: string;
+  service_id?: number;
+  service_name?: string;
+  months?: number;
+  amount?: number;
+  balance_before?: number;
+  balance_after?: number;
+  shortage_amount?: number;
+  expires_at_before?: string;
+  expires_at_after?: string;
+};
+
+export type OrderRenewServiceResult = {
+  data: OrderRenewServiceData;
+  bot_message?: BotMessage;
+};
+
 export type IncomingWebhook = {
   id: Id;
   workspace_id: Id;

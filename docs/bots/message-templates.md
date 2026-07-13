@@ -91,7 +91,18 @@ Yêu cầu gia hạn theo tên dịch vụ:
 Gia hạn dịch vụ vps-hanoi-01 của tài khoản khach@example.com trong 3 tháng.
 ```
 
-Lưu ý: thao tác gia hạn thực tế chỉ được bật khi Order API cung cấp endpoint nội bộ gia hạn có idempotency, báo giá, số dư và số tiền còn thiếu. Bot không được thông báo thành công nếu Order chưa xác nhận giao dịch.
+Flow gia hạn tự động gọi endpoint nội bộ `/internal/services/renew` với `idempotency_key` là ID tin nhắn kích hoạt. Order API phải trả kết quả giao dịch, chi phí, số dư trước/sau và số tiền còn thiếu. Nếu Order API chưa triển khai endpoint này, bot thông báo rõ chưa có khoản tiền nào bị trừ và hướng người dùng sang Zalo OA hoặc `#ke-toan`; bot tuyệt đối không thông báo gia hạn thành công giả.
+
+Khi số dư không đủ, phản hồi chuẩn:
+
+```text
+GIA HẠN · SỐ DƯ KHÔNG ĐỦ
+Chi phí: 500.000 VND
+Số dư ví: 350.000 VND
+Số tiền còn thiếu: 150.000 VND
+
+Vui lòng liên hệ Zalo OA VPSTTT hoặc gửi yêu cầu tại #ke-toan để nạp thêm tiền vào ví.
+```
 
 ## Thanh Toán Bot — `#ke-toan`
 

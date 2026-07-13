@@ -48,10 +48,14 @@ WHERE workspace_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL
 
 func (r *Repository) List(ctx context.Context, workspaceID string) ([]departmentsdomain.Department, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT id::text, workspace_id::text, parent_id::text, slug::text, name, description, created_by::text, created_at, updated_at
-FROM departments
-WHERE workspace_id = $1::uuid AND deleted_at IS NULL
-ORDER BY name
+SELECT d.id::text, d.workspace_id::text, d.parent_id::text, d.slug::text, d.name, d.description, d.created_by::text,
+       d.created_at, d.updated_at,
+       (SELECT count(*)::int FROM department_members dm JOIN users u ON u.id = dm.user_id AND u.deleted_at IS NULL WHERE dm.department_id = d.id),
+       (SELECT count(*)::int FROM department_members dm JOIN users u ON u.id = dm.user_id AND u.deleted_at IS NULL WHERE dm.department_id = d.id AND dm.role = 'lead'),
+       (SELECT count(*)::int FROM channels c WHERE c.department_id = d.id AND c.deleted_at IS NULL)
+FROM departments d
+WHERE d.workspace_id = $1::uuid AND d.deleted_at IS NULL
+ORDER BY d.name
 `, workspaceID)
 	if err != nil {
 		return nil, err
@@ -60,13 +64,40 @@ ORDER BY name
 
 	var departments []departmentsdomain.Department
 	for rows.Next() {
-		department, err := scanDepartment(rows)
+		department, err := scanDepartmentSummary(rows)
 		if err != nil {
 			return nil, err
 		}
 		departments = append(departments, department)
 	}
 	return departments, rows.Err()
+}
+
+func scanDepartmentSummary(row rowScanner) (departmentsdomain.Department, error) {
+	var department departmentsdomain.Department
+	var parentID sql.NullString
+	var description sql.NullString
+	var createdBy sql.NullString
+	if err := row.Scan(
+		&department.ID,
+		&department.WorkspaceID,
+		&parentID,
+		&department.Slug,
+		&department.Name,
+		&description,
+		&createdBy,
+		&department.CreatedAt,
+		&department.UpdatedAt,
+		&department.MemberCount,
+		&department.LeadCount,
+		&department.ChannelCount,
+	); err != nil {
+		return departmentsdomain.Department{}, err
+	}
+	department.ParentID = nullStringPtr(parentID)
+	department.Description = nullStringPtr(description)
+	department.CreatedBy = nullStringPtr(createdBy)
+	return department, nil
 }
 
 func (r *Repository) CanSetParent(ctx context.Context, workspaceID string, departmentID string, parentID string) (bool, error) {

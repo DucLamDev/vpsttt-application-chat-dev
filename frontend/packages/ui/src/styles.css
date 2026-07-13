@@ -476,6 +476,19 @@ a {
   width: 44px;
 }
 
+.ui-navigation-rail__brand--image {
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.ui-navigation-rail__brand img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
 .ui-navigation-rail__nav {
   display: grid;
   gap: 8px;
@@ -615,6 +628,20 @@ a {
   height: 48px;
   justify-content: center;
   width: 48px;
+}
+
+.auth-header-brand__logo--image {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.auth-header-brand__logo img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
 }
 
 .auth-header-brand span:last-child {
@@ -1237,6 +1264,9 @@ a {
 }
 .auth-screen--register .auth-panel { padding: clamp(20px, 2.2vh, 30px); width: min(520px, calc(100% - 56px)); }
 .auth-panel__icon { align-items: center; background: #e8f0ff; border-radius: 14px; box-shadow: 0 10px 24px rgb(36 105 230 / 14%); color: #1263e5; display: flex; font-size: 25px; font-weight: 800; height: 54px; justify-content: center; margin: 0 auto; width: 54px; }
+.auth-panel__product-logo { justify-self: center; width: min(220px, 72%); }
+.auth-panel__product-logo img { display: block; height: auto; object-fit: contain; width: 100%; }
+.auth-screen--register .auth-panel__product-logo { width: min(170px, 58%); }
 .auth-panel__header h2 { font-size: 24px; }
 .auth-google-area { display: grid; min-height: 42px; position: relative; }
 .auth-google-render { display: flex; justify-content: center; min-height: 42px; overflow: hidden; width: 100%; }

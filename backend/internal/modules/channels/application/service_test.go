@@ -47,6 +47,10 @@ func (r *directConversationRepo) ArchiveChannel(context.Context, string, string)
 	panic("không được gọi")
 }
 
+func (r *directConversationRepo) CountMembers(context.Context, string, string) (int, error) {
+	return 1, nil
+}
+
 func (r *directConversationRepo) ListMembers(context.Context, string, string) ([]channelsdomain.Member, error) {
 	panic("không được gọi")
 }
@@ -144,6 +148,37 @@ func TestOpenPrivateSessionReturnsUserOnlyChannel(t *testing.T) {
 	}
 	if dto.ID != "session-1" || dto.Type != "direct" || !dto.IsMember {
 		t.Fatalf("OpenPrivateSession() = %#v", dto)
+	}
+}
+
+type channelListRepo struct {
+	directConversationRepo
+	channel channelsdomain.Channel
+}
+
+func (r *channelListRepo) ListChannels(context.Context, string) ([]channelsdomain.Channel, error) {
+	return []channelsdomain.Channel{r.channel}, nil
+}
+
+func (r *channelListRepo) FindMember(context.Context, string, string, string) (channelsdomain.Member, error) {
+	return channelsdomain.Member{Status: "active"}, nil
+}
+
+func TestListIncludesActiveMemberCount(t *testing.T) {
+	now := time.Date(2026, 7, 13, 8, 0, 0, 0, time.UTC)
+	repo := &channelListRepo{
+		channel: channelsdomain.Channel{
+			ID: "channel-1", WorkspaceID: "workspace-1", Name: "Kỹ thuật", Type: "private", MemberCount: 3, CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	service := NewService(repo, staticPermissionChecker{allowed: true})
+
+	channels, err := service.List(context.Background(), "user-1", "workspace-1")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(channels) != 1 || channels[0].MemberCount != 3 {
+		t.Fatalf("List() member_count = %#v, want 3", channels)
 	}
 }
 

@@ -8,6 +8,9 @@ export type Department = {
   name: string;
   description?: string | null;
   created_by?: Id | null;
+  member_count?: number;
+  lead_count?: number;
+  channel_count?: number;
   created_at?: ISODateTime;
   updated_at?: ISODateTime;
 };

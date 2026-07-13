@@ -46,6 +46,18 @@ type servicesExpiringRequest struct {
 	PostToChannel  *bool  `json:"post_to_channel"`
 }
 
+type renewServiceRequest struct {
+	Email          string `json:"email"`
+	UserID         int    `json:"user_id"`
+	ServiceType    string `json:"service_type"`
+	ServiceID      int    `json:"service_id"`
+	ServiceName    string `json:"service_name"`
+	Months         int    `json:"months"`
+	IdempotencyKey string `json:"idempotency_key"`
+	ChannelID      string `json:"channel_id"`
+	PostToChannel  *bool  `json:"post_to_channel"`
+}
+
 func NewHandler(service *orderapp.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -58,6 +70,7 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.POST("/wallet/deposit-qr", h.CreateDepositQR)
 	private.POST("/payment/order-qr", h.CreateOrderPaymentQR)
 	private.POST("/services/expiring", h.ServicesExpiring)
+	private.POST("/services/renew", h.RenewService)
 }
 
 func (h *Handler) CreateOrderPaymentQR(c *gin.Context) {
@@ -150,6 +163,32 @@ func (h *Handler) ServicesExpiring(c *gin.Context) {
 		ServiceType:    req.ServiceType,
 		ChannelID:      req.ChannelID,
 		PostToChannel:  req.PostToChannel,
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, result)
+}
+
+func (h *Handler) RenewService(c *gin.Context) {
+	var req renewServiceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON không hợp lệ.", nil)
+		return
+	}
+	result, err := h.service.RenewService(c.Request.Context(), orderapp.RenewServiceInput{
+		ActorUserID:      middleware.CurrentUserID(c),
+		WorkspaceID:      c.Param("workspace_id"),
+		TriggerMessageID: req.IdempotencyKey,
+		Email:            req.Email,
+		UserID:           req.UserID,
+		ServiceType:      req.ServiceType,
+		ServiceID:        req.ServiceID,
+		ServiceName:      req.ServiceName,
+		Months:           req.Months,
+		ChannelID:        req.ChannelID,
+		PostToChannel:    req.PostToChannel,
 	})
 	if err != nil {
 		response.Error(c, err)

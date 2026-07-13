@@ -12,15 +12,18 @@ var (
 )
 
 type Department struct {
-	ID          string
-	WorkspaceID string
-	ParentID    *string
-	Slug        string
-	Name        string
-	Description *string
-	CreatedBy   *string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           string
+	WorkspaceID  string
+	ParentID     *string
+	Slug         string
+	Name         string
+	Description  *string
+	CreatedBy    *string
+	MemberCount  int
+	LeadCount    int
+	ChannelCount int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Member struct {
