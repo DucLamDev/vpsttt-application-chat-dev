@@ -59,6 +59,12 @@ func TestErrorMapsExpectedInfrastructureFailures(t *testing.T) {
 			wantRetryAfter: "1",
 		},
 		{
+			name:       "cardinality violation",
+			err:        &pgconn.PgError{Code: "21000"},
+			wantStatus: http.StatusConflict,
+			wantCode:   "DATA_CONSISTENCY_CONFLICT",
+		},
+		{
 			name:           "connection exception",
 			err:            &pgconn.PgError{Code: "08006"},
 			wantStatus:     http.StatusServiceUnavailable,

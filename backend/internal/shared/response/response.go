@@ -132,6 +132,8 @@ func writePostgresError(c *gin.Context, err *pgconn.PgError) bool {
 	case "40001", "40P01", "55P03":
 		c.Header("Retry-After", "1")
 		Fail(c, http.StatusServiceUnavailable, "DATABASE_RETRY_REQUIRED", "Dữ liệu vừa được thay đổi đồng thời, vui lòng thử lại.", nil)
+	case "21000":
+		Fail(c, http.StatusConflict, "DATA_CONSISTENCY_CONFLICT", "Du lieu hoi thoai dang khong nhat quan, vui long tai lai trang va thu lai.", nil)
 	case "57014":
 		c.Header("Retry-After", "1")
 		Fail(c, http.StatusGatewayTimeout, "DATABASE_TIMEOUT", "Truy vấn dữ liệu quá thời gian cho phép, vui lòng thử lại.", nil)
