@@ -6182,4 +6182,786 @@
 @media (max-width: 1180px) { .automation-grid { grid-template-columns: 1fr; } }
 @media (max-width: 950px) { .automation-hero { grid-template-columns: 1fr; } .automation-flow { display: none; } .webhook-columns, .webhook-detail-grid { grid-template-columns: 1fr; } .automation-create-form { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 650px) { .automation-page__header, .automation-toolbar { align-items: stretch; flex-direction: column; } .automation-page__header .ui-segmented { min-width: 0; width: 100%; } .automation-hero { border-radius: 14px; padding: 21px; } .automation-create-form, .webhook-create-form, .webhook-editor-form { grid-template-columns: 1fr; } .automation-create-form__payload, .webhook-detail-actions { grid-column: auto; } }
+
+/* Compact, consistent application density. Keep this final so legacy screen rules
+   cannot re-introduce oversized type, padding or decorative elevation. */
+.chat-app-shell--zalo {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.chat-app-shell--zalo .panel-heading {
+  min-height: 56px;
+  padding: 9px 12px;
+}
+
+.chat-app-shell--zalo .panel-heading p {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.chat-app-shell--zalo .chat-header {
+  min-height: 58px;
+  padding: 8px 14px;
+}
+
+.chat-app-shell--zalo .chat-title h1 {
+  font-size: 16px;
+  line-height: 1.25;
+  margin-bottom: 2px;
+}
+
+.chat-app-shell--zalo .chat-title p,
+.chat-app-shell--zalo .workspace-tile p,
+.chat-app-shell--zalo .contact-card__body span {
+  font-size: 12.5px;
+}
+
+.chat-app-shell--zalo .workspace-page {
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+}
+
+.chat-app-shell--zalo .workspace-page__header {
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.chat-app-shell--zalo .workspace-page__header h1 {
+  font-size: 20px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.chat-app-shell--zalo .workspace-page h2 {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.chat-app-shell--zalo .ui-button,
+.chat-app-shell--zalo button,
+.chat-app-shell--zalo input,
+.chat-app-shell--zalo select,
+.chat-app-shell--zalo textarea {
+  font-size: 13px;
+}
+
+.chat-app-shell--zalo .ui-button--sm {
+  height: 30px;
+  padding-inline: 10px;
+}
+
+.chat-app-shell--zalo .ui-segmented {
+  border-radius: 9px;
+  gap: 2px;
+  padding: 3px;
+}
+
+.chat-app-shell--zalo .ui-segmented__item {
+  border-radius: 7px;
+  font-size: 12px;
+  min-height: 28px;
+  padding: 0 9px;
+}
+
+.chat-app-shell--zalo .channel-panel .channel-filter-tabs.ui-segmented {
+  border-radius: 9px;
+  margin: 0 12px 9px;
+  padding: 3px;
+}
+
+.chat-app-shell--zalo .channel-panel .channel-filter-tabs .ui-segmented__item {
+  border-radius: 7px;
+  font-size: 12px;
+  min-height: 28px;
+  padding: 0 7px;
+}
+
+.chat-app-shell--zalo .detail-tabs {
+  gap: 5px;
+  min-height: 44px;
+  padding: 7px 10px;
+}
+
+.chat-app-shell--zalo .message-sidebar-tabs {
+  border-radius: 9px;
+  margin: 9px 12px 8px;
+  padding: 3px;
+}
+
+.chat-app-shell--zalo .message-sidebar-tab {
+  border-radius: 7px;
+  font-size: 12px;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+.chat-app-shell--zalo .contacts-tabs {
+  border-radius: 9px;
+  gap: 3px;
+  padding: 3px;
+}
+
+.chat-app-shell--zalo .contacts-tabs__item {
+  border-radius: 7px;
+  font-size: 12px;
+  min-height: 34px;
+  padding: 5px 9px;
+}
+
+.chat-app-shell--zalo .contacts-tabs__item strong {
+  font-size: 10px;
+  min-width: 20px;
+  padding: 2px 6px;
+}
+
+.chat-app-shell--zalo .zalo-search-panel {
+  gap: 10px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  padding: 10px 12px;
+}
+
+.chat-app-shell--zalo .zalo-search-panel__icon {
+  height: 38px;
+  width: 38px;
+}
+
+.chat-app-shell--zalo .zalo-search-panel > div:last-child {
+  gap: 6px;
+}
+
+.chat-app-shell--zalo .zalo-search-panel .ui-input-shell {
+  border-radius: 8px;
+  min-height: 36px;
+}
+
+/* Contacts are compact cards in columns instead of one full-width row each. */
+.chat-app-shell--zalo .contacts-page .contact-list {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  min-width: 0;
+}
+
+.chat-app-shell--zalo .contacts-page .contact-card {
+  align-items: center;
+  grid-template-areas:
+    "avatar body"
+    "actions actions";
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 0;
+  padding: 11px;
+}
+
+.chat-app-shell--zalo .contacts-page .contact-card > .ui-avatar { grid-area: avatar; }
+.chat-app-shell--zalo .contacts-page .contact-card__body { gap: 6px; grid-area: body; }
+.chat-app-shell--zalo .contacts-page .contact-card__meta { font-size: 11px; gap: 5px; }
+.chat-app-shell--zalo .contacts-page .contact-card__actions {
+  gap: 6px;
+  grid-area: actions;
+  justify-content: flex-start;
+}
+
+/* Channel directory uses denser responsive columns with content-driven height. */
+.chat-app-shell--zalo .workspace-grid-list {
+  align-content: start;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  min-width: 0;
+}
+
+.chat-app-shell--zalo .workspace-tile {
+  align-content: start;
+  border-radius: 8px;
+  gap: 7px;
+  min-height: 0;
+  min-width: 0;
+  padding: 12px;
+}
+
+.chat-app-shell--zalo .workspace-tile strong { font-size: 14px; }
+.chat-app-shell--zalo .workspace-tile p { line-height: 1.35; margin: 2px 0; }
+.chat-app-shell--zalo .workspace-tile small { font-size: 11.5px; line-height: 1.35; }
+.chat-app-shell--zalo .workspace-tile .channel-hash,
+.chat-app-shell--zalo .channel-panel .channel-hash {
+  border-radius: 8px;
+  font-size: 18px;
+  height: 36px;
+  width: 36px;
+}
+
+.chat-app-shell--zalo .channel-panel .channel-row,
+.chat-app-shell--zalo .channel-panel .conversation-row {
+  min-height: 54px;
+  padding-block: 6px;
+}
+
+.chat-app-shell--zalo .composer {
+  gap: 6px;
+  padding: 9px 12px;
+}
+
+.chat-app-shell--zalo .composer-input-group {
+  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.chat-app-shell--zalo .send-button.ui-button {
+  height: 38px;
+  min-width: 70px;
+}
+
+/* Flat surfaces: borders and state colors carry hierarchy without heavy shadows. */
+.chat-app-shell--zalo .workspace-page__header,
+.chat-app-shell--zalo .contacts-tabs__item--active,
+.chat-app-shell--zalo .channel-filter-tabs .ui-segmented__item--active,
+.chat-app-shell--zalo .detail-tabs .ui-segmented__item--active,
+.chat-app-shell--zalo .message-sidebar-tab--active,
+.chat-app-shell--zalo .contact-card,
+.chat-app-shell--zalo .workspace-tile,
+.chat-app-shell--zalo .file-directory__item,
+.chat-app-shell--zalo .workspace-feed__item,
+.chat-app-shell--zalo .zalo-search-panel,
+.chat-app-shell--zalo .channel-hash,
+.chat-app-shell--zalo .message-row__content,
+.chat-app-shell--zalo .message-actions,
+.chat-app-shell--zalo .message-reaction-control .reaction-add-button,
+.chat-app-shell--zalo .composer-wrap,
+.chat-app-shell--zalo .typing-dots,
+.chat-app-shell--zalo .ui-button--primary,
+.chat-app-shell--zalo .send-button.ui-button,
+.chat-app-shell--zalo .send-button.ui-button:not(:disabled):hover {
+  box-shadow: none;
+}
+
+.chat-app-shell--zalo .contact-card:hover,
+.chat-app-shell--zalo .file-directory__item:hover,
+.chat-app-shell--zalo .workspace-feed__item:hover,
+.chat-app-shell--zalo .workspace-tile:hover {
+  background: #f8fbff;
+  border-color: #b9d4ff;
+  box-shadow: none;
+  color: var(--zalo-text);
+  transform: none;
+}
+
+.chat-app-shell--zalo .contacts-tabs__item:hover,
+.chat-app-shell--zalo .composer .ui-button--icon:hover,
+.chat-app-shell--zalo .chat-header .ui-button--icon:hover,
+.chat-app-shell--zalo .message-actions button:hover {
+  background: #eef4ff;
+  color: var(--zalo-blue);
+  transform: none;
+}
+
+/* Light tooltips stay legible and are aligned inside clipped panel boundaries. */
+.chat-app-shell--zalo .ui-tooltip__content {
+  border: 1px solid var(--zalo-border);
+  box-shadow: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 7px;
+  z-index: 120;
+}
+
+html:not([data-theme="dark"]) .chat-app-shell--zalo .ui-tooltip__content {
+  background: #ffffff;
+  color: #334155;
+}
+
+.chat-app-shell--zalo .panel-heading__actions,
+.chat-app-shell--zalo .chat-actions,
+.chat-app-shell--zalo .detail-tabs,
+.chat-app-shell--zalo .message-actions,
+.chat-app-shell--zalo .composer {
+  overflow: visible;
+}
+
+.chat-app-shell--zalo .composer-leading-tooltip .ui-tooltip__content {
+  left: 0;
+  right: auto;
+  transform: translateY(4px);
+}
+
+.chat-app-shell--zalo .composer-leading-tooltip:hover .ui-tooltip__content,
+.chat-app-shell--zalo .composer-leading-tooltip:focus-within .ui-tooltip__content {
+  transform: translateY(0);
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .ui-tooltip__content {
+  background: #182235;
+  border-color: #334155;
+  color: #e5edf7;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .contact-card:hover,
+[data-theme="dark"] .chat-app-shell--zalo .file-directory__item:hover,
+[data-theme="dark"] .chat-app-shell--zalo .workspace-feed__item:hover,
+[data-theme="dark"] .chat-app-shell--zalo .workspace-tile:hover {
+  background: #172033;
+  border-color: #36516f;
+  color: var(--zalo-text);
+}
+
+/* Thin, neutral scrollbars for vertical lists and horizontally scrollable tables. */
+.chat-app-shell--zalo,
+.chat-app-shell--zalo * {
+  scrollbar-color: #aebdd1 transparent;
+  scrollbar-width: thin;
+}
+
+.chat-app-shell--zalo *::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.chat-app-shell--zalo *::-webkit-scrollbar-track { background: transparent; }
+.chat-app-shell--zalo *::-webkit-scrollbar-thumb {
+  background: #aebdd1;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+.chat-app-shell--zalo *::-webkit-scrollbar-thumb:hover { background-color: #8294ad; }
+.chat-app-shell--zalo *::-webkit-scrollbar-corner { background: transparent; }
+
+[data-theme="dark"] .chat-app-shell--zalo,
+[data-theme="dark"] .chat-app-shell--zalo * { scrollbar-color: #4b607a transparent; }
+[data-theme="dark"] .chat-app-shell--zalo *::-webkit-scrollbar-thumb { background-color: #4b607a; }
+
+@media (max-width: 760px) {
+  .chat-app-shell--zalo .workspace-page { padding: 10px; }
+  .chat-app-shell--zalo .contacts-tabs { grid-template-columns: 1fr; }
+  .chat-app-shell--zalo .contacts-page .contact-list,
+  .chat-app-shell--zalo .workspace-grid-list { grid-template-columns: 1fr; }
+}
+
+/* System-wide directory and settings pass. */
+.chat-app-shell--zalo .panel-heading {
+  align-items: center;
+}
+
+.chat-app-shell--zalo .panel-heading > div:first-child {
+  align-items: center;
+  display: flex;
+  min-height: 36px;
+}
+
+.chat-app-shell--zalo .panel-heading p {
+  align-items: center;
+  display: flex;
+  line-height: 1;
+  margin: 0;
+  min-height: 36px;
+}
+
+.chat-app-shell--zalo .panel-heading__actions,
+.chat-app-shell--zalo .panel-heading__actions > .ui-tooltip,
+.chat-app-shell--zalo .panel-heading__actions .ui-button {
+  align-items: center;
+  display: flex;
+}
+
+.chat-app-shell--zalo .message-sidebar-tab__count {
+  background: #e3efff;
+  border: 1px solid #bdd7ff;
+  color: #075fce;
+  font-size: 10.5px;
+  font-weight: 800;
+  height: 22px;
+  min-width: 22px;
+}
+
+.chat-app-shell--zalo .message-sidebar-tab--active .message-sidebar-tab__count {
+  background: var(--zalo-blue);
+  border-color: var(--zalo-blue);
+  color: #ffffff;
+}
+
+.chat-app-shell--zalo .message-sidebar-tab__count--unread,
+.chat-app-shell--zalo .message-sidebar-tab--active .message-sidebar-tab__count--unread {
+  background: #e53935;
+  border-color: #e53935;
+  color: #ffffff;
+}
+
+/* Headers that still carry actions remain as compact toolbars, never full cards. */
+.chat-app-shell--zalo .workspace-page__header {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  min-height: 34px;
+  padding: 0;
+}
+
+.chat-app-shell--zalo .workspace-page__header h1 {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.chat-app-shell--zalo .sidebar-context-panel {
+  align-content: start;
+  gap: 0;
+  padding: 10px 12px;
+}
+
+.chat-app-shell--zalo .sidebar-context-panel .ui-button {
+  justify-self: start;
+}
+
+/* One shared dense table pattern for contacts, channels, departments and files. */
+.chat-app-shell--zalo .workspace-data-table-shell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: auto;
+}
+
+.chat-app-shell--zalo .workspace-data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--text);
+  min-width: 760px;
+  width: 100%;
+}
+
+.chat-app-shell--zalo .contacts-data-table { min-width: 900px; }
+.chat-app-shell--zalo .channels-data-table,
+.chat-app-shell--zalo .departments-data-table { min-width: 980px; }
+
+.chat-app-shell--zalo .workspace-data-table th {
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  padding: 9px 12px;
+  position: sticky;
+  text-align: left;
+  top: 0;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.chat-app-shell--zalo .workspace-data-table td {
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  padding: 9px 12px;
+  vertical-align: middle;
+}
+
+.chat-app-shell--zalo .workspace-data-table tbody tr:last-child td { border-bottom: 0; }
+.chat-app-shell--zalo .workspace-data-table tbody tr { transition: background 120ms ease; }
+.chat-app-shell--zalo .workspace-data-table tbody tr:hover { background: #f6f9ff; }
+.chat-app-shell--zalo .workspace-data-table__row--active { background: #eef5ff; }
+
+.chat-app-shell--zalo .workspace-data-table__identity {
+  align-items: center;
+  color: var(--text);
+  display: flex;
+  gap: 10px;
+  min-width: 190px;
+}
+
+.chat-app-shell--zalo .workspace-data-table__identity > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat-app-shell--zalo .workspace-data-table__identity strong,
+.chat-app-shell--zalo .workspace-data-table__identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-app-shell--zalo .workspace-data-table__identity strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.chat-app-shell--zalo .workspace-data-table__identity small {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.chat-app-shell--zalo .workspace-data-table__description {
+  line-height: 1.35;
+  max-width: 330px;
+  min-width: 170px;
+}
+
+.chat-app-shell--zalo .workspace-data-table__actions-heading { text-align: right; }
+.chat-app-shell--zalo .workspace-data-table td:last-child { width: 1%; }
+.chat-app-shell--zalo .workspace-data-table__actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.chat-app-shell--zalo .workspace-data-table__actions--stacked {
+  align-items: flex-end;
+  flex-direction: column;
+}
+
+.chat-app-shell--zalo .workspace-data-table .channel-hash,
+.chat-app-shell--zalo .workspace-data-table .file-icon,
+.chat-app-shell--zalo .department-table-icon {
+  align-items: center;
+  border-radius: 7px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.chat-app-shell--zalo .department-table-icon {
+  background: #eaf2ff;
+  border: 1px solid #cfe0ff;
+  color: var(--brand-700);
+}
+
+.chat-app-shell--zalo .workspace-data-table .channel-membership-manager {
+  max-width: 260px;
+  white-space: normal;
+}
+
+.chat-app-shell--zalo .directory-toolbar {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 520px) auto;
+  justify-content: space-between;
+}
+
+/* Settings has an explicit visual order instead of an uneven four-column grid. */
+.chat-app-shell--zalo .settings-page {
+  padding: 14px;
+}
+
+.chat-app-shell--zalo .settings-grid {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-areas:
+    "profile privacy"
+    "profile appearance"
+    "sessions sessions";
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr);
+}
+
+.chat-app-shell--zalo .settings-card {
+  align-content: start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: none;
+  gap: 10px;
+  padding: 14px;
+}
+
+.chat-app-shell--zalo .settings-card--profile { grid-area: profile; }
+.chat-app-shell--zalo .settings-card--privacy { grid-area: privacy; }
+.chat-app-shell--zalo .settings-card--appearance { grid-area: appearance; }
+.chat-app-shell--zalo .settings-card--sessions { grid-area: sessions; }
+
+.chat-app-shell--zalo .settings-card__heading,
+.chat-app-shell--zalo .settings-card > div:first-child {
+  align-items: flex-start;
+  display: flex;
+}
+
+.chat-app-shell--zalo .settings-card__heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.chat-app-shell--zalo .settings-card h2 { font-size: 15px; }
+.chat-app-shell--zalo .settings-card p { font-size: 12.5px; line-height: 1.4; }
+
+.chat-app-shell--zalo .settings-card--profile .profile-form {
+  align-items: start;
+  display: grid;
+  gap: 10px 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr);
+}
+
+.chat-app-shell--zalo .settings-card--profile .avatar-upload-field {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.chat-app-shell--zalo .settings-card--profile .profile-form > .ui-button {
+  justify-self: start;
+}
+
+.chat-app-shell--zalo .settings-card--sessions {
+  gap: 12px;
+  overflow: visible;
+  padding: 14px;
+}
+
+.chat-app-shell--zalo .settings-card > .sessions-heading {
+  gap: 10px;
+}
+
+.chat-app-shell--zalo .sessions-heading__icon,
+.chat-app-shell--zalo .session-device-icon {
+  border-radius: 8px;
+  height: 36px;
+  width: 36px;
+}
+
+.chat-app-shell--zalo .sessions-count {
+  border-radius: 7px;
+  font-size: 11.5px;
+  padding: 6px 9px;
+}
+
+.chat-app-shell--zalo .settings-card > .session-list,
+.chat-app-shell--zalo .session-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 0;
+  grid-template-columns: 1fr;
+  overflow: hidden;
+}
+
+.chat-app-shell--zalo .session-item {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 10px 12px;
+}
+
+.chat-app-shell--zalo .session-item:last-child { border-bottom: 0; }
+.chat-app-shell--zalo .session-item--current { background: #f3fff8; }
+.chat-app-shell--zalo .session-item__body { gap: 6px; }
+.chat-app-shell--zalo .session-item__meta { gap: 5px; }
+.chat-app-shell--zalo .session-item__meta span { padding: 4px 6px; }
+
+[data-theme="dark"] .chat-app-shell--zalo .workspace-data-table tbody tr:hover,
+[data-theme="dark"] .chat-app-shell--zalo .workspace-data-table__row--active { background: #172033; }
+[data-theme="dark"] .chat-app-shell--zalo .department-table-icon { background: #102a4c; border-color: #28517f; color: #93c5fd; }
+[data-theme="dark"] .chat-app-shell--zalo .session-item--current { background: #10291f; }
+
+@media (max-width: 1050px) {
+  .chat-app-shell--zalo .settings-grid {
+    grid-template-areas:
+      "profile profile"
+      "privacy appearance"
+      "sessions sessions";
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .chat-app-shell--zalo .settings-grid {
+    grid-template-areas: "profile" "privacy" "appearance" "sessions";
+    grid-template-columns: 1fr;
+  }
+
+  .chat-app-shell--zalo .settings-card--profile .profile-form { grid-template-columns: 1fr; }
+  .chat-app-shell--zalo .settings-card--profile .avatar-upload-field { grid-column: auto; grid-row: auto; }
+  .chat-app-shell--zalo .directory-toolbar { grid-template-columns: 1fr; }
+  .chat-app-shell--zalo .directory-toolbar .ui-badge { justify-self: start; }
+  .chat-app-shell--zalo .sessions-heading { grid-template-columns: auto minmax(0, 1fr); }
+  .chat-app-shell--zalo .sessions-count { grid-column: 1 / -1; justify-self: start; }
+  .chat-app-shell--zalo .session-item { grid-template-columns: auto minmax(0, 1fr); }
+  .chat-app-shell--zalo .session-item > .ui-button { grid-column: 1 / -1; justify-self: start; }
+}
+
+/* Session table and exact numeric badge alignment. */
+.chat-app-shell--zalo .message-sidebar-tab__count {
+  align-items: center;
+  display: inline-grid;
+  font-variant-numeric: tabular-nums;
+  justify-items: center;
+  line-height: 1;
+  padding: 0;
+  place-items: center;
+  text-align: center;
+  width: 22px;
+}
+
+.chat-app-shell--zalo .settings-card > .sessions-heading {
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  width: 100%;
+}
+
+.chat-app-shell--zalo .sessions-heading > div {
+  align-items: center;
+  display: flex;
+  min-height: 36px;
+}
+
+.chat-app-shell--zalo .sessions-heading h2 {
+  line-height: 1.2;
+  margin: 0;
+}
+
+.chat-app-shell--zalo .sessions-logout-all {
+  justify-self: end;
+  margin-left: 4px;
+}
+
+.chat-app-shell--zalo .sessions-data-table {
+  min-width: 1040px;
+}
+
+.chat-app-shell--zalo .sessions-data-table td {
+  white-space: nowrap;
+}
+
+.chat-app-shell--zalo .sessions-data-table .session-table__device {
+  min-width: 260px;
+  white-space: normal;
+}
+
+.chat-app-shell--zalo .workspace-data-table__row--current {
+  background: #f3fff8;
+}
+
+.chat-app-shell--zalo .workspace-data-table__row--revoked {
+  opacity: .62;
+}
+
+.chat-app-shell--zalo .session-table__no-action {
+  color: var(--text-muted);
+  display: inline-flex;
+  justify-content: center;
+  min-width: 30px;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .workspace-data-table__row--current {
+  background: #10291f;
+}
+
+@media (max-width: 900px) {
+  .chat-app-shell--zalo .settings-card > .sessions-heading {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .chat-app-shell--zalo .sessions-logout-all {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    margin-left: 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) { .automation-flow__node, .automation-flow__packet, .automation-secret, .automation-create-form, .webhook-create-form { animation: none; } }

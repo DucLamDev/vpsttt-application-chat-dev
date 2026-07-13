@@ -228,9 +228,7 @@ export function AutomationPage({
     <div className="workspace-page automation-page">
       <header className="workspace-page__header automation-page__header">
         <div>
-          <span className="workspace-page__eyebrow">Điều phối công việc</span>
           <h1>Automation</h1>
-          <p>Lập lịch tác vụ, chạy quy trình và kết nối hệ thống qua webhook.</p>
         </div>
         <SegmentedControl aria-label="Chọn phần automation" onValueChange={setActiveTab} options={automationTabs.filter((tab) => tab.value === "jobs" ? canManageCronjobs : canManageWebhooks)} value={activeTab} />
       </header>
@@ -239,7 +237,6 @@ export function AutomationPage({
         <div>
           <Badge tone="blue"><Workflow size={13} /> Luồng trực quan</Badge>
           <h2>Mọi tác vụ vận hành trong một trung tâm</h2>
-          <p>Chạy cleanup, gọi HTTP endpoint, nhận sự kiện và theo dõi kết quả theo thời gian thực.</p>
           <div className="automation-hero__stats">
             <span><strong>{activeJobs}</strong> quy trình hoạt động</span>
             <span><strong>{incomingWebhooks.length + outgoingWebhooks.length}</strong> webhook</span>

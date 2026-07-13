@@ -542,7 +542,7 @@ export function ChatWorkspace() {
   const selectedRailLabel = railItems.find((item) => item.id === activeRailItem)?.label ?? "Tin nhắn";
   const panelTitle =
     activeRailItem === "contacts"
-      ? "Danh bạ"
+      ? "Bạn bè"
       : activeRailItem === "channels"
         ? "Kênh"
         : activeRailItem === "departments"
@@ -552,12 +552,6 @@ export function ChatWorkspace() {
           : activeRailItem === "settings"
             ? "Cài đặt"
             : "Tin nhắn";
-  const panelSubtitle =
-    activeRailItem === "messages"
-      ? "Hội thoại riêng và kênh"
-      : activeRailItem === "contacts"
-        ? "Tìm bạn bè để nhắn tin"
-        : selectedRailLabel;
 
   async function handleCreateChannel(input: CreateChannelPayload) {
     if (!canCreateChannel) {
@@ -1165,7 +1159,6 @@ export function ChatWorkspace() {
         <header className="panel-heading">
           <div>
             <p>{panelTitle}</p>
-            <span>{panelSubtitle}</span>
           </div>
           <div className="panel-heading__actions">
             <Tooltip label="Thông báo">
@@ -1444,7 +1437,6 @@ export function ChatWorkspace() {
           </>
         ) : (
           <SidebarContextPanel
-            activeRailItem={activeRailItem}
             onOpenMessages={() => handleRailSelect("messages")}
           />
         )}
@@ -1467,7 +1459,6 @@ export function ChatWorkspace() {
             canManageCronjobs={data.can("cronjob.manage")}
             canUseOrderBot={data.can("order.view")}
             canUseOrderBilling={data.can("order.billing")}
-            canCreateChannel={canCreateChannel}
             canManageWebhooks={data.can("webhook.manage")}
             channels={data.channels.filter((channel) => channel.type !== "direct")}
             contacts={contactResults}
@@ -1688,7 +1679,7 @@ export function ChatWorkspace() {
                     <span /> Đang ghi {formatRecordingTime(recordingSeconds)}
                   </div>
                 ) : null}
-                <Tooltip label="Thêm nội dung">
+                <Tooltip className="composer-leading-tooltip" label="Thêm nội dung">
                   <Button aria-label="Thêm nội dung" type="button" variant="icon">
                     <Plus size={20} />
                   </Button>
@@ -1842,59 +1833,12 @@ export function ChatWorkspace() {
 }
 
 function SidebarContextPanel({
-  activeRailItem,
   onOpenMessages
 }: {
-  activeRailItem: RailItemId;
   onOpenMessages: () => void;
 }) {
-  const config: Record<RailItemId, { description: string; title: string }> = {
-    automation: {
-      description: "Tự động hóa và webhook cho nhóm làm việc.",
-      title: "Automation"
-    },
-    bots: {
-      description: "Bot hỗ trợ kênh, thông báo và quy trình nội bộ.",
-      title: "Bot"
-    },
-    channels: {
-      description: "Không gian nhóm và kênh dùng chung.",
-      title: "Kênh"
-    },
-    contacts: {
-      description: "Tìm bạn bè bằng email, số điện thoại hoặc tên đăng nhập.",
-      title: "Bạn bè"
-    },
-    departments: {
-      description: "Tổ chức thành viên theo nhóm và phòng ban trong workspace.",
-      title: "Phòng ban"
-    },
-    files: {
-      description: "File và hình ảnh được chia sẻ gần đây.",
-      title: "File"
-    },
-    messages: {
-      description: "Hội thoại riêng và kênh đang hoạt động.",
-      title: "Tin nhắn"
-    },
-    settings: {
-      description: "Hồ sơ, giao diện và quyền riêng tư.",
-      title: "Cài đặt"
-    },
-    tickets: {
-      description: "Theo dõi yêu cầu hỗ trợ và sự cố nội bộ.",
-      title: "Ticket"
-    }
-  };
-  const current = config[activeRailItem];
-
   return (
     <div className="sidebar-context-panel">
-      <div>
-        <span className="section-label">Đang xem</span>
-        <h2>{current.title}</h2>
-        <p>{current.description}</p>
-      </div>
       <Button onClick={onOpenMessages} size="sm" variant="secondary">
         <MessageCircle size={15} />
         Quay lại tin nhắn
@@ -1911,7 +1855,6 @@ function WorkspaceSectionPage({
   canManageWebhooks,
   canUseOrderBilling,
   canUseOrderBot,
-  canCreateChannel,
   channels,
   contacts,
   currentUser,
@@ -1950,7 +1893,6 @@ function WorkspaceSectionPage({
   canManageWebhooks: boolean;
   canUseOrderBilling: boolean;
   canUseOrderBot: boolean;
-  canCreateChannel: boolean;
   channels: ChatChannel[];
   contacts: ContactResult[];
   currentUser: ChatUser;
@@ -2004,7 +1946,6 @@ function WorkspaceSectionPage({
   if (activeRailItem === "channels") {
     return (
       <ChannelsDirectoryPage
-        canCreateChannel={canCreateChannel}
         channels={channels}
         isLoading={isLoadingChannels}
         isMutatingMembership={isMutatingChannelMembership}
@@ -2115,15 +2056,6 @@ function ContactsPage({
 
   return (
     <div className="workspace-page contacts-page">
-      <header className="workspace-page__header">
-        <div>
-          <span className="workspace-page__eyebrow">Danh bạ</span>
-          <h1>Danh bạ & kết nối</h1>
-          <p>Quản lý đồng nghiệp trong workspace, bạn bè và các kết nối mới ở ba khu vực riêng biệt.</p>
-        </div>
-        <Badge tone="blue">{contacts.length} liên hệ</Badge>
-      </header>
-
       <nav aria-label="Phân loại danh bạ" className="contacts-tabs">
         {tabItems.map((tab) => (
           <button
@@ -2157,51 +2089,70 @@ function ContactsPage({
       {isLoading ? (
         <PanelSkeleton />
       ) : visibleContacts.length ? (
-        <div className="contact-list">
-          {visibleContacts.map((contact) => {
-            return (
-              <article className="contact-card" key={contact.userId}>
-                <Avatar name={contact.name} size="lg" src={contact.avatarUrl ?? undefined} />
-                <div className="contact-card__body">
-                  <div>
-                    <strong>{contact.name}</strong>
-                    <span>{contact.email ?? contact.username ?? "Chưa có email"}</span>
-                  </div>
-                  <div className="contact-card__meta">
-                    {contact.isWorkspaceMember ? <Badge tone="blue">Nhân viên hệ thống</Badge> : null}
+        <div className="workspace-data-table-shell">
+          <table className="workspace-data-table contacts-data-table">
+            <thead>
+              <tr>
+                <th scope="col">Liên hệ</th>
+                <th scope="col">Số điện thoại</th>
+                <th scope="col">Phân loại</th>
+                <th scope="col">Trạng thái</th>
+                <th className="workspace-data-table__actions-heading" scope="col">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleContacts.map((contact) => (
+                <tr key={contact.userId}>
+                  <td>
+                    <div className="workspace-data-table__identity">
+                      <Avatar name={contact.name} size="md" src={contact.avatarUrl ?? undefined} />
+                      <span>
+                        <strong>{contact.name}</strong>
+                        <small>{contact.email ?? contact.username ?? "Chưa có email"}</small>
+                      </span>
+                    </div>
+                  </td>
+                  <td>{contact.phoneNumber || "Chưa có số điện thoại"}</td>
+                  <td>
+                    <Badge tone={contact.isWorkspaceMember ? "blue" : "slate"}>
+                      {contact.isWorkspaceMember ? "Nhân viên hệ thống" : "Ngoài workspace"}
+                    </Badge>
+                  </td>
+                  <td>
                     <Badge tone={contact.contactStatus === "accepted" ? "green" : contact.contactStatus === "pending" ? "orange" : "blue"}>
                       {contactBadgeLabel(contact)}
                     </Badge>
-                    <span>{contact.phoneNumber || "Chưa có số điện thoại"}</span>
-                  </div>
-                </div>
-                <div className="contact-card__actions">
-                  <Button
-                    disabled={
-                      isCreatingDirectConversation ||
-                      (contact.contactStatus === "pending" && contact.contactDirection === "outgoing")
-                    }
-                    onClick={() => onStartConversation(contact)}
-                    size="sm"
-                    variant={contact.contactStatus === "pending" && contact.contactDirection === "outgoing" ? "secondary" : "primary"}
-                  >
-                    <MessageCircle size={16} />
-                    {contactActionLabel(contact)}
-                  </Button>
-                  {contact.contactStatus === "pending" && contact.contactRequestId ? (
-                    <Button
-                      disabled={isCreatingDirectConversation}
-                      onClick={() => onSecondaryAction(contact)}
-                      size="sm"
-                      variant="ghost"
-                    >
-                      {contact.contactDirection === "incoming" ? "Từ chối" : "Hủy lời mời"}
-                    </Button>
-                  ) : null}
-                </div>
-              </article>
-            );
-          })}
+                  </td>
+                  <td>
+                    <div className="workspace-data-table__actions">
+                      <Button
+                        disabled={
+                          isCreatingDirectConversation ||
+                          (contact.contactStatus === "pending" && contact.contactDirection === "outgoing")
+                        }
+                        onClick={() => onStartConversation(contact)}
+                        size="sm"
+                        variant={contact.contactStatus === "pending" && contact.contactDirection === "outgoing" ? "secondary" : "primary"}
+                      >
+                        <MessageCircle size={16} />
+                        {contactActionLabel(contact)}
+                      </Button>
+                      {contact.contactStatus === "pending" && contact.contactRequestId ? (
+                        <Button
+                          disabled={isCreatingDirectConversation}
+                          onClick={() => onSecondaryAction(contact)}
+                          size="sm"
+                          variant="ghost"
+                        >
+                          {contact.contactDirection === "incoming" ? "Từ chối" : "Hủy lời mời"}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         <EmptyState
@@ -2250,7 +2201,6 @@ function contactBadgeLabel(contact: ContactResult): string {
 }
 
 function ChannelsDirectoryPage({
-  canCreateChannel,
   channels,
   isLoading,
   isMutatingMembership,
@@ -2262,7 +2212,6 @@ function ChannelsDirectoryPage({
   onRequestJoin,
   workspaceMembers
 }: {
-  canCreateChannel: boolean;
   channels: ChatChannel[];
   isLoading: boolean;
   isMutatingMembership: boolean;
@@ -2276,51 +2225,72 @@ function ChannelsDirectoryPage({
 }) {
   return (
     <div className="workspace-page">
-      <header className="workspace-page__header">
-        <div>
-          <span className="workspace-page__eyebrow">Kênh & bot</span>
-          <h1>Kênh</h1>
-          <p>Kênh dùng cho nhóm, bot và thông báo chung.</p>
-        </div>
-        <Badge tone={canCreateChannel ? "green" : "orange"}>{canCreateChannel ? "Có thể tạo kênh" : "Chỉ xem"}</Badge>
-      </header>
-
       {isLoading ? (
         <PanelSkeleton />
       ) : channels.length ? (
-        <div className="workspace-grid-list">
-          {channels.map((channel) => (
-            <article className="workspace-tile" key={channel.id}>
-              <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>
-                <Hash size={20} />
-              </span>
-              <strong>{channel.name}</strong>
-              <p>{channel.description}</p>
-              <small>{channel.memberCount} thành viên · {channel.unreadCount} chưa đọc</small>
-              {channel.isMember ? (
-                <Button onClick={() => onChannelSelect(channel.id)} size="sm">
-                  <MessageCircle size={16} /> Mở kênh
-                </Button>
-              ) : channel.membershipStatus === "invited" ? (
-                <Button disabled size="sm" variant="secondary">Đang chờ chủ kênh duyệt</Button>
-              ) : (
-                <Button disabled={isMutatingMembership} onClick={() => onRequestJoin(channel.id)} size="sm" variant="secondary">
-                  <Users size={16} /> Yêu cầu tham gia
-                </Button>
-              )}
-              {channel.canManage ? (
-                <ChannelMembershipManager
-                  channel={channel}
-                  isPending={isMutatingMembership}
-                  joinRequests={joinRequestsByChannelId.get(channel.id) ?? []}
-                  onApprove={onApproveJoin}
-                  onInvite={onInviteMember}
-                  onReject={onRejectJoin}
-                  workspaceMembers={workspaceMembers}
-                />
-              ) : null}
-            </article>
-          ))}
+        <div className="workspace-data-table-shell">
+          <table className="workspace-data-table channels-data-table">
+            <thead>
+              <tr>
+                <th scope="col">Kênh</th>
+                <th scope="col">Mô tả</th>
+                <th scope="col">Thành viên</th>
+                <th scope="col">Chưa đọc</th>
+                <th scope="col">Trạng thái</th>
+                <th className="workspace-data-table__actions-heading" scope="col">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {channels.map((channel) => (
+                <tr key={channel.id}>
+                  <td>
+                    <div className="workspace-data-table__identity">
+                      <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>
+                        <Hash size={18} />
+                      </span>
+                      <span><strong>{channel.name}</strong></span>
+                    </div>
+                  </td>
+                  <td className="workspace-data-table__description">{channel.description || "Chưa có mô tả"}</td>
+                  <td>{channel.memberCount}</td>
+                  <td>
+                    <Badge tone={channel.unreadCount ? "red" : "slate"}>{channel.unreadCount}</Badge>
+                  </td>
+                  <td>
+                    <Badge tone={channel.isMember ? "green" : channel.membershipStatus === "invited" ? "orange" : "slate"}>
+                      {channel.isMember ? "Đã tham gia" : channel.membershipStatus === "invited" ? "Chờ duyệt" : "Chưa tham gia"}
+                    </Badge>
+                  </td>
+                  <td>
+                    <div className="workspace-data-table__actions workspace-data-table__actions--stacked">
+                      {channel.isMember ? (
+                        <Button onClick={() => onChannelSelect(channel.id)} size="sm">
+                          <MessageCircle size={16} /> Mở kênh
+                        </Button>
+                      ) : channel.membershipStatus === "invited" ? (
+                        <Button disabled size="sm" variant="secondary">Đang chờ duyệt</Button>
+                      ) : (
+                        <Button disabled={isMutatingMembership} onClick={() => onRequestJoin(channel.id)} size="sm" variant="secondary">
+                          <Users size={16} /> Yêu cầu tham gia
+                        </Button>
+                      )}
+                      {channel.canManage ? (
+                        <ChannelMembershipManager
+                          channel={channel}
+                          isPending={isMutatingMembership}
+                          joinRequests={joinRequestsByChannelId.get(channel.id) ?? []}
+                          onApprove={onApproveJoin}
+                          onInvite={onInviteMember}
+                          onReject={onRejectJoin}
+                          workspaceMembers={workspaceMembers}
+                        />
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         <EmptyState description="Tạo kênh ở panel bên trái khi tài khoản có quyền." title="Chưa có kênh" />
@@ -2555,9 +2525,7 @@ function DepartmentsPage({
     <div className="workspace-page departments-page">
       <header className="workspace-page__header">
         <div>
-          <span className="workspace-page__eyebrow">Tổ chức</span>
           <h1>Phòng ban</h1>
-          <p>Quản lý cơ cấu, trưởng phòng, nhân sự và kênh phụ trách từ một nơi.</p>
         </div>
         <Button disabled={!canManage} onClick={() => setIsFormOpen((current) => !current)} size="sm">
           <Plus size={16} /> Tạo phòng ban
@@ -2629,28 +2597,49 @@ function DepartmentsPage({
       ) : !canManage ? (
         <EmptyState description="Bạn cần quyền quản lý workspace để xem và tạo phòng ban." title="Không có quyền quản lý phòng ban" />
       ) : visibleRows.length ? (
-        <div className="department-grid">
-          {visibleRows.map(({ department, depth }) => (
-            <article className={department.id === selectedDepartmentId ? "department-card department-card--active" : "department-card"} key={department.id}>
-              <span style={{ marginLeft: `${Math.min(depth, 4) * 12}px` }}><Users size={19} /></span>
-              <div>
-                <strong>{department.name}</strong>
-                <small>#{department.slug}{department.parent_id ? ` · thuộc ${departmentName(departments, department.parent_id)}` : " · cấp gốc"}</small>
-                <p>{department.description || "Chưa có mô tả"}</p>
-                <div className="department-card__coverage">
-                  <Badge tone={department.lead_count ? "green" : "orange"}>
-                    {department.lead_count ? `${department.lead_count} trưởng phòng` : "Chưa có trưởng phòng"}
-                  </Badge>
-                  <span>{department.member_count ?? 0} nhân sự</span>
-                  <span>{department.channel_count ?? 0} kênh</span>
-                </div>
-              </div>
-              <aside>
-                {department.parent_id ? <Badge tone="slate">Cấp {depth + 1}</Badge> : <Badge tone="blue">Phòng ban</Badge>}
-                <Button onClick={() => openDepartment(department)} size="sm" variant="secondary">Quản lý</Button>
-              </aside>
-            </article>
-          ))}
+        <div className="workspace-data-table-shell">
+          <table className="workspace-data-table departments-data-table">
+            <thead>
+              <tr>
+                <th scope="col">Phòng ban</th>
+                <th scope="col">Mô tả</th>
+                <th scope="col">Trưởng phòng</th>
+                <th scope="col">Nhân sự</th>
+                <th scope="col">Kênh</th>
+                <th scope="col">Cấp</th>
+                <th className="workspace-data-table__actions-heading" scope="col">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.map(({ department, depth }) => (
+                <tr className={department.id === selectedDepartmentId ? "workspace-data-table__row--active" : undefined} key={department.id}>
+                  <td>
+                    <div className="workspace-data-table__identity" style={{ paddingLeft: `${Math.min(depth, 4) * 14}px` }}>
+                      <span className="department-table-icon"><Users size={17} /></span>
+                      <span>
+                        <strong>{department.name}</strong>
+                        <small>#{department.slug}{department.parent_id ? ` · ${departmentName(departments, department.parent_id)}` : " · cấp gốc"}</small>
+                      </span>
+                    </div>
+                  </td>
+                  <td className="workspace-data-table__description">{department.description || "Chưa có mô tả"}</td>
+                  <td>
+                    <Badge tone={department.lead_count ? "green" : "orange"}>
+                      {department.lead_count ?? 0}
+                    </Badge>
+                  </td>
+                  <td>{department.member_count ?? 0}</td>
+                  <td>{department.channel_count ?? 0}</td>
+                  <td>{department.parent_id ? <Badge tone="slate">Cấp {depth + 1}</Badge> : <Badge tone="blue">Gốc</Badge>}</td>
+                  <td>
+                    <div className="workspace-data-table__actions">
+                      <Button onClick={() => openDepartment(department)} size="sm" variant="secondary">Quản lý</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : query.trim() || coverageFilter !== "all" ? (
         <EmptyState description="Thử từ khóa hoặc trạng thái phân công khác." title="Không tìm thấy phòng ban phù hợp" />
@@ -2852,41 +2841,54 @@ function FilesPage({
 
   return (
     <div className="workspace-page">
-      <header className="workspace-page__header">
-        <div>
-          <span className="workspace-page__eyebrow">Tệp tin</span>
-          <h1>File</h1>
-          <p>File, hình ảnh và tài liệu gần đây.</p>
-        </div>
+      <div className="directory-toolbar">
+        <Input
+          aria-label="Tìm file"
+          leftAddon={<Search size={17} />}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Tìm theo tên hoặc loại file..."
+          value={query}
+        />
         <Badge tone="blue">{files.length} file</Badge>
-      </header>
-
-      <Input
-        aria-label="Tìm file"
-        leftAddon={<Search size={17} />}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Tìm theo tên hoặc loại file..."
-        value={query}
-      />
+      </div>
 
       {isLoading ? (
         <PanelSkeleton />
       ) : visibleFiles.length ? (
-        <div className="file-directory">
-          {visibleFiles.map((file) => (
-            <article className="file-directory__item" key={file.id}>
-              <span className={`file-icon file-icon--${file.tone}`}>
-                <FileText size={20} />
-              </span>
-              <div>
-                <strong>{file.name}</strong>
-                <small>{file.size} · {file.updatedAt}</small>
-              </div>
-              <Button onClick={() => onDownloadFile(file)} size="sm" variant="secondary">
-                Tải xuống
-              </Button>
-            </article>
-          ))}
+        <div className="workspace-data-table-shell">
+          <table className="workspace-data-table files-data-table">
+            <thead>
+              <tr>
+                <th scope="col">Tệp</th>
+                <th scope="col">Loại nội dung</th>
+                <th scope="col">Kích thước</th>
+                <th scope="col">Cập nhật</th>
+                <th className="workspace-data-table__actions-heading" scope="col">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleFiles.map((file) => (
+                <tr key={file.id}>
+                  <td>
+                    <div className="workspace-data-table__identity">
+                      <span className={`file-icon file-icon--${file.tone}`}><FileText size={18} /></span>
+                      <span><strong>{file.name}</strong></span>
+                    </div>
+                  </td>
+                  <td className="workspace-data-table__description">{file.mimeType || "Không xác định"}</td>
+                  <td>{file.size}</td>
+                  <td>{file.updatedAt}</td>
+                  <td>
+                    <div className="workspace-data-table__actions">
+                      <Button onClick={() => onDownloadFile(file)} size="sm" variant="secondary">
+                        Tải xuống
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : query.trim() ? (
         <EmptyState description="Thử một tên file hoặc loại nội dung khác." title="Không tìm thấy file" />
@@ -2989,20 +2991,13 @@ function SettingsPage({
   }
 
   return (
-    <div className="workspace-page">
-      <header className="workspace-page__header">
-        <div>
-          <span className="workspace-page__eyebrow">Tài khoản</span>
-          <h1>Cài đặt</h1>
-          <p>Quản lý hồ sơ cá nhân, quyền riêng tư và giao diện hiển thị.</p>
-        </div>
-      </header>
-
+    <div className="workspace-page settings-page">
       <div className="settings-grid">
         <section className="settings-card settings-card--profile">
-          <div>
-            <Avatar name={currentUser.name} size="lg" src={avatarValue || undefined} status={currentUser.status} />
-            <h2>Hồ sơ cá nhân</h2>
+          <div className="settings-card__heading">
+            <div>
+              <h2>Hồ sơ cá nhân</h2>
+            </div>
           </div>
           <form className="profile-form" onSubmit={handleSubmit}>
             <label>
@@ -3039,14 +3034,14 @@ function SettingsPage({
             </Button>
           </form>
         </section>
-        <section className="settings-card">
+        <section className="settings-card settings-card--privacy">
           <div>
             <ShieldCheck size={22} />
             <h2>Quyền riêng tư</h2>
           </div>
           <p>Tài khoản của bạn được bảo vệ trong phiên làm việc hiện tại.</p>
         </section>
-        <section className="settings-card">
+        <section className="settings-card settings-card--appearance">
           <div>
             {theme === "dark" ? <Moon size={22} /> : <Sun size={22} />}
             <h2>Giao diện</h2>
@@ -3061,69 +3056,10 @@ function SettingsPage({
             <span className="sessions-heading__icon"><ShieldCheck size={22} /></span>
             <div>
               <h2>Phiên đăng nhập</h2>
-              <p>Kiểm tra thiết bị đang đăng nhập và thu hồi ngay những phiên bạn không nhận ra.</p>
             </div>
             <span className="sessions-count"><strong>{activeSessionCount}</strong> phiên đang hoạt động</span>
-          </div>
-          {sessionsQuery.isLoading ? (
-            <div className="session-list session-list--loading">
-              <Skeleton style={{ height: 116 }} />
-              <Skeleton style={{ height: 116 }} />
-            </div>
-          ) : sessionsQuery.isError ? (
-            <ErrorState
-              action={<Button onClick={() => void sessionsQuery.refetch()} size="sm" variant="secondary">Thử lại</Button>}
-              description="Không tải được danh sách thiết bị."
-              title="Lỗi phiên đăng nhập"
-            />
-          ) : (
-            <div className="session-list">
-              {sessions.map((session: AuthSession) => {
-                const isCurrent = session.id === currentSessionId;
-                const isRevoked = Boolean(session.revoked_at);
-                const isMobile = isMobileSession(session);
-                return (
-                  <article className={`session-item${isCurrent ? " session-item--current" : ""}${isRevoked ? " session-item--revoked" : ""}`} key={session.id}>
-                    <span className="session-device-icon" aria-hidden="true">
-                      {isMobile ? <Smartphone size={22} /> : <Monitor size={22} />}
-                    </span>
-                    <div className="session-item__body">
-                      <div className="session-item__title">
-                        <strong>{session.device_name || sessionDeviceLabel(session)}</strong>
-                        {isCurrent ? <Badge tone="green">Thiết bị này</Badge> : null}
-                        {isRevoked ? <Badge tone="slate">Đã thu hồi</Badge> : null}
-                      </div>
-                      <div className="session-item__meta">
-                        <span><strong>IP</strong>{session.ip_address || "Không xác định"}</span>
-                        <span><strong>Hoạt động</strong>{formatRelativeSessionDate(session.last_seen_at || session.created_at)}</span>
-                        {session.expires_at ? <span><strong>Hết hạn</strong>{formatSessionDate(session.expires_at)}</span> : null}
-                      </div>
-                      {session.user_agent ? <small title={session.user_agent}>{session.user_agent}</small> : null}
-                    </div>
-                    {!isCurrent && !isRevoked ? (
-                    <Button
-                      disabled={revokeSessionMutation.isPending || revokeAllSessionsMutation.isPending}
-                      onClick={() => {
-                        if (window.confirm(`Thu hồi phiên trên ${session.device_name || sessionDeviceLabel(session)}?`)) {
-                          revokeSessionMutation.mutate(session.id);
-                        }
-                      }}
-                      size="sm"
-                      variant="secondary"
-                    >
-                      {revokeSessionMutation.isPending && revokeSessionMutation.variables === session.id ? "Đang thu hồi..." : "Thu hồi phiên"}
-                    </Button>
-                    ) : null}
-                  </article>
-                );
-              })}
-              {!sessions.length ? <EmptyState description="Các thiết bị đăng nhập sẽ xuất hiện tại đây." title="Chưa có phiên đăng nhập" /> : null}
-            </div>
-          )}
-          {sessionActionError ? <p className="session-action-error" role="alert">{sessionActionError}</p> : null}
-          <footer className="sessions-footer">
-            <p>Thao tác này sẽ đăng xuất tài khoản khỏi tất cả thiết bị, gồm cả thiết bị hiện tại.</p>
             <Button
+              className="sessions-logout-all"
               disabled={revokeAllSessionsMutation.isPending || !activeSessionCount}
               onClick={() => {
                 if (window.confirm("Đăng xuất khỏi tất cả thiết bị? Bạn sẽ cần đăng nhập lại.")) {
@@ -3136,7 +3072,83 @@ function SettingsPage({
               <LogOut size={16} />
               {revokeAllSessionsMutation.isPending ? "Đang đăng xuất..." : "Đăng xuất tất cả thiết bị"}
             </Button>
-          </footer>
+          </div>
+          {sessionsQuery.isLoading ? (
+            <div className="session-list session-list--loading">
+              <Skeleton style={{ height: 116 }} />
+              <Skeleton style={{ height: 116 }} />
+            </div>
+          ) : sessionsQuery.isError ? (
+            <ErrorState
+              action={<Button onClick={() => void sessionsQuery.refetch()} size="sm" variant="secondary">Thử lại</Button>}
+              description="Không tải được danh sách thiết bị."
+              title="Lỗi phiên đăng nhập"
+            />
+          ) : sessions.length ? (
+            <div className="workspace-data-table-shell">
+              <table className="workspace-data-table sessions-data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Thiết bị</th>
+                    <th scope="col">Địa chỉ IP</th>
+                    <th scope="col">Hoạt động</th>
+                    <th scope="col">Hết hạn</th>
+                    <th scope="col">Trạng thái</th>
+                    <th className="workspace-data-table__actions-heading" scope="col">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((session: AuthSession) => {
+                    const isCurrent = session.id === currentSessionId;
+                    const isRevoked = Boolean(session.revoked_at);
+                    const isMobile = isMobileSession(session);
+                    return (
+                      <tr className={isCurrent ? "workspace-data-table__row--current" : isRevoked ? "workspace-data-table__row--revoked" : undefined} key={session.id}>
+                        <td>
+                          <div className="workspace-data-table__identity session-table__device">
+                            <span className="session-device-icon" aria-hidden="true">
+                              {isMobile ? <Smartphone size={19} /> : <Monitor size={19} />}
+                            </span>
+                            <span>
+                              <strong>{session.device_name || sessionDeviceLabel(session)}</strong>
+                              <small title={session.user_agent ?? undefined}>{session.user_agent || "Không có thông tin trình duyệt"}</small>
+                            </span>
+                          </div>
+                        </td>
+                        <td>{session.ip_address || "Không xác định"}</td>
+                        <td>{formatRelativeSessionDate(session.last_seen_at || session.created_at)}</td>
+                        <td>{session.expires_at ? formatSessionDate(session.expires_at) : "Không xác định"}</td>
+                        <td>
+                          <Badge tone={isCurrent ? "green" : isRevoked ? "slate" : "blue"}>
+                            {isCurrent ? "Thiết bị này" : isRevoked ? "Đã thu hồi" : "Đang hoạt động"}
+                          </Badge>
+                        </td>
+                        <td>
+                          <div className="workspace-data-table__actions">
+                            {!isCurrent && !isRevoked ? (
+                              <Button
+                                disabled={revokeSessionMutation.isPending || revokeAllSessionsMutation.isPending}
+                                onClick={() => {
+                                  if (window.confirm(`Thu hồi phiên trên ${session.device_name || sessionDeviceLabel(session)}?`)) {
+                                    revokeSessionMutation.mutate(session.id);
+                                  }
+                                }}
+                                size="sm"
+                                variant="secondary"
+                              >
+                                {revokeSessionMutation.isPending && revokeSessionMutation.variables === session.id ? "Đang thu hồi..." : "Thu hồi phiên"}
+                              </Button>
+                            ) : <span className="session-table__no-action">—</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : <EmptyState description="Các thiết bị đăng nhập sẽ xuất hiện tại đây." title="Chưa có phiên đăng nhập" />}
+          {sessionActionError ? <p className="session-action-error" role="alert">{sessionActionError}</p> : null}
         </section>
       </div>
     </div>
@@ -3398,9 +3410,7 @@ function BotsPage({
     <div className="workspace-page bot-page">
       <header className="workspace-page__header bot-page__header">
         <div>
-          <span className="workspace-page__eyebrow">Trung tâm tự động</span>
           <h1>Bot</h1>
-          <p>Tạo trợ lý, kết nối vào kênh và thử luồng thông báo ngay trong workspace.</p>
         </div>
         {canManage ? (
           <Button onClick={() => setIsCreateOpen((current) => !current)} size="sm">
@@ -3414,7 +3424,6 @@ function BotsPage({
         <div className="bot-hero__copy">
           <Badge tone="blue"><Sparkles size={13} /> Bot workspace</Badge>
           <h2>Tự động hóa thông báo, cảnh báo và chăm sóc nội bộ</h2>
-          <p>Phù hợp cho Ticket Bot, Server Alert Bot và Gia Hạn Bot của VPSTTT.</p>
           <div className="bot-hero__stats">
             <span><strong>{bots.length}</strong> tổng bot</span>
             <span><strong>{activeBots}</strong> đang hoạt động</span>
@@ -3715,25 +3724,21 @@ function resizeAvatarFile(file: File): Promise<string> {
 }
 
 function OperationalPage({ activeRailItem }: { activeRailItem: RailItemId }) {
-  const pageConfig: Partial<Record<RailItemId, { description: string; icon: typeof Ticket; title: string }>> = {
+  const pageConfig: Partial<Record<RailItemId, { icon: typeof Ticket; title: string }>> = {
     automation: {
-      description: "Tự động hóa các tác vụ lặp lại, kết nối webhook và quy trình nội bộ.",
       icon: Workflow,
       title: "Automation"
     },
     bots: {
-      description: "Quản lý trợ lý tự động cho kênh, thông báo và các luồng hỗ trợ nội bộ.",
       icon: Bot,
       title: "Bot"
     },
     tickets: {
-      description: "Theo dõi yêu cầu hỗ trợ, sự cố và công việc cần xử lý.",
       icon: Ticket,
       title: "Ticket"
     }
   };
   const config = pageConfig[activeRailItem] ?? {
-    description: "Màn hình này đang được hoàn thiện cho quy trình làm việc nội bộ.",
     icon: Archive,
     title: "Chức năng"
   };
@@ -3741,17 +3746,10 @@ function OperationalPage({ activeRailItem }: { activeRailItem: RailItemId }) {
 
   return (
     <div className="workspace-page">
-      <header className="workspace-page__header">
-        <div>
-          <span className="workspace-page__eyebrow">Đang hoàn thiện</span>
-          <h1>{config.title}</h1>
-          <p>{config.description}</p>
-        </div>
-        <Badge tone="orange">Sắp có</Badge>
-      </header>
       <section className="operational-empty">
+        <Badge tone="orange">Sắp có</Badge>
         <Icon size={42} />
-        <h2>Tính năng đang được hoàn thiện</h2>
+        <h2>{config.title} đang được hoàn thiện</h2>
         <p>WebTui Chat sẽ mở phần này khi quy trình sử dụng đã sẵn sàng cho người dùng.</p>
       </section>
     </div>
