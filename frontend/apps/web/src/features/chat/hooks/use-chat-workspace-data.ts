@@ -87,7 +87,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     refetchInterval: contactRefetchMs
   });
   const channels = useMemo(
-    () => (channelsQuery.data ?? []).map(mapChannel),
+    () => (channelsQuery.data ?? []).map(mapChannel).filter((channel) => channel.type !== "direct"),
     [channelsQuery.data]
   );
 
@@ -154,8 +154,9 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
   const selectedDirectConversation = directConversations.find((conversation) => conversation.id === requestedChannelId);
   const selectedChannel =
-    channels.find((channel) => channel.id === requestedChannelId) ??
-    (selectedDirectConversation ? directConversationToChannel(selectedDirectConversation) : null);
+    selectedDirectConversation
+      ? directConversationToChannel(selectedDirectConversation)
+      : channels.find((channel) => channel.id === requestedChannelId) ?? null;
   const selectedChannelId = requestedChannelId || "";
   const canAccessSelectedChannel = Boolean(
     selectedChannel && (selectedChannel.type === "direct" || selectedChannel.isMember)

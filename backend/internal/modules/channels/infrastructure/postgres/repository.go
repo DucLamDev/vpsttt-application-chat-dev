@@ -77,7 +77,7 @@ SELECT id::text, workspace_id::text, department_id::text, slug::text, name, desc
        COALESCE(settings->>'bot_session_mode', '') = 'private',
        (SELECT count(*)::int FROM channel_members cm JOIN users u ON u.id = cm.user_id AND u.deleted_at IS NULL WHERE cm.channel_id = channels.id AND cm.status IN ('active', 'muted'))
 FROM channels
-WHERE workspace_id = $1::uuid AND deleted_at IS NULL
+WHERE workspace_id = $1::uuid AND deleted_at IS NULL AND type <> 'direct'
 ORDER BY type, name
 `, workspaceID)
 	if err != nil {

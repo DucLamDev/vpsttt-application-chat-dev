@@ -52,6 +52,10 @@ WHERE workspace_id = $1::uuid
 		}
 	}
 
+	if err := ensureDirectChannelMember(ctx, tx, params.WorkspaceID, params.ChannelID, params.SenderID); err != nil {
+		return messagesdomain.Message{}, err
+	}
+
 	row := tx.QueryRow(ctx, `
 INSERT INTO messages (workspace_id, channel_id, sender_id, parent_id, thread_root_id, kind, body, metadata)
 SELECT c.workspace_id, c.id, $3::uuid, NULLIF($4, '')::uuid, NULLIF($5, '')::uuid, $6, $7, $8::jsonb
@@ -102,6 +106,27 @@ RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, paren
 		MessageID:   message.ID,
 		ActorUserID: params.SenderID,
 	})
+}
+
+func ensureDirectChannelMember(ctx context.Context, exec commandExecutor, workspaceID, channelID, userID string) error {
+	_, err := exec.Exec(ctx, `
+INSERT INTO channel_members (channel_id, user_id, status)
+SELECT dc.channel_id, dcm.user_id, 'active'
+FROM direct_conversations dc
+JOIN direct_conversation_members dcm ON dcm.direct_conversation_id = dc.id
+WHERE dc.workspace_id = $1::uuid
+  AND dc.channel_id = $2::uuid
+  AND EXISTS (
+      SELECT 1
+      FROM direct_conversation_members sender_member
+      WHERE sender_member.direct_conversation_id = dc.id
+        AND sender_member.user_id = $3::uuid
+  )
+ON CONFLICT (channel_id, user_id)
+DO UPDATE SET status = 'active'
+WHERE channel_members.status IN ('left', 'removed', 'invited')
+`, workspaceID, channelID, userID)
+	return err
 }
 
 func (r *Repository) Get(ctx context.Context, params messagesapp.MessageRef) (messagesdomain.Message, error) {
