@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@webtui/api-client";
@@ -74,6 +74,9 @@ export { mapAuthUser } from "./use-message-timeline";
 export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspaceDataOptions = {}) {
   const queryClient = useQueryClient();
   const lastMarkedReadRef = useRef("");
+  const [isViewportActive, setIsViewportActive] = useState(() =>
+    typeof document === "undefined" ? true : document.visibilityState === "visible" && document.hasFocus()
+  );
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -586,6 +589,23 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     }
   });
 
+  useEffect(() => {
+    const updateViewportState = () => {
+      setIsViewportActive(document.visibilityState === "visible" && document.hasFocus());
+    };
+
+    updateViewportState();
+    window.addEventListener("focus", updateViewportState);
+    window.addEventListener("blur", updateViewportState);
+    document.addEventListener("visibilitychange", updateViewportState);
+
+    return () => {
+      window.removeEventListener("focus", updateViewportState);
+      window.removeEventListener("blur", updateViewportState);
+      document.removeEventListener("visibilitychange", updateViewportState);
+    };
+  }, []);
+
   const markChannelRead = useCallback(
     (channelId: string, messageId?: string) => {
       if (!workspaceId) {
@@ -616,6 +636,9 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     if (!workspaceId || !selectedChannelId || !lastTimelineMessageId || lastTimelineMessagePending) {
       return;
     }
+    if (!isViewportActive) {
+      return;
+    }
 
     const readKey = `${workspaceId}:${selectedChannelId}:${lastTimelineMessageId}`;
     if (lastMarkedReadRef.current === readKey) {
@@ -624,7 +647,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
     lastMarkedReadRef.current = readKey;
     markChannelRead(selectedChannelId, lastTimelineMessageId);
-  }, [lastTimelineMessageId, lastTimelineMessagePending, markChannelRead, selectedChannelId, workspaceId]);
+  }, [isViewportActive, lastTimelineMessageId, lastTimelineMessagePending, markChannelRead, selectedChannelId, workspaceId]);
 
   return {
     ...workspaceContext,

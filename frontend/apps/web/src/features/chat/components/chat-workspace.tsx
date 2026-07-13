@@ -579,7 +579,6 @@ export function ChatWorkspace() {
     }
     setMessageSidebarTab(data.directConversations.some((conversation) => conversation.id === channelId) ? "conversations" : "channels");
     data.setSelectedChannelId(channelId);
-    setLocallyReadChatIds((current) => new Set(current).add(channelId));
     if (manuallyUnreadChatIds.has(channelId)) {
       const nextUnread = new Set(manuallyUnreadChatIds);
       nextUnread.delete(channelId);
@@ -956,11 +955,9 @@ export function ChatWorkspace() {
           data.realtime.publishTyping(false);
           typingPublishedRef.current = false;
           uploadQueue.clearAttached();
-          setToast(
-            result.failedUploadNames.length
-              ? `Tin nhắn đã gửi, ${result.failedUploadNames.length} file cần thử lại.`
-              : "Tin nhắn đã được gửi."
-          );
+          if (result.failedUploadNames.length) {
+            setToast(`Tin nhắn đã gửi, ${result.failedUploadNames.length} file cần thử lại.`);
+          }
         }
       }
     );
@@ -1627,6 +1624,7 @@ export function ChatWorkspace() {
               <TimelineSkeleton />
             ) : (
               <MessageTimeline
+                currentUserId={currentUser.id}
                 editingBody={editingBody}
                 editingMessageId={editingMessageId}
                 hasOlderMessages={data.hasOlderMessages}
@@ -1656,6 +1654,7 @@ export function ChatWorkspace() {
                 onTogglePin={handleToggleMessagePin}
                 onToggleReaction={handleToggleReaction}
                 pinnedMessageIds={pinnedMessageIds}
+                readMembers={selectedChannelMembers}
                 searchQuery={activeMessageSearchQuery}
                 searchResults={data.messageSearchResults}
               />
@@ -4233,6 +4232,7 @@ function ForwardMessageDialog({
 }
 
 function MessageTimeline({
+  currentUserId,
   editingBody,
   editingMessageId,
   hasOlderMessages,
@@ -4253,9 +4253,11 @@ function MessageTimeline({
   onTogglePin,
   onToggleReaction,
   pinnedMessageIds,
+  readMembers,
   searchQuery,
   searchResults
 }: {
+  currentUserId: string;
   editingBody: string;
   editingMessageId: string | null;
   hasOlderMessages: boolean;
@@ -4276,12 +4278,18 @@ function MessageTimeline({
   onTogglePin: (message: ChatMessage, isPinned: boolean) => void;
   onToggleReaction: (message: ChatMessage, emoji: string) => void;
   pinnedMessageIds: Set<string>;
+  readMembers: ChannelMember[];
   searchQuery: string;
   searchResults: ChatMessage[];
 }) {
   const lastMessageId = messages.at(-1)?.id;
   const bottomRef = useRef<HTMLDivElement>(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const messageOrderById = useMemo(() => new Map(messages.map((message, index) => [message.id, index])), [messages]);
+  const lastOwnReceipt = useMemo(
+    () => resolveLastOwnMessageReceipt(messages, readMembers, currentUserId, messageOrderById),
+    [currentUserId, messageOrderById, messages, readMembers]
+  );
 
   useEffect(() => {
     if (!lastMessageId) {
@@ -4476,6 +4484,12 @@ function MessageTimeline({
                 ))}
               </div>
             ) : null}
+            {lastOwnReceipt?.messageId === message.id ? (
+              <span className={`message-read-status message-read-status--${lastOwnReceipt.tone}`}>
+                <span aria-hidden="true">✓✓</span>
+                {lastOwnReceipt.label}
+              </span>
+            ) : null}
             {!message.isDeleted ? (
               <div className="message-reaction-control">
                 <button
@@ -4513,6 +4527,63 @@ function MessageTimeline({
       <div ref={bottomRef} aria-hidden="true" />
     </div>
   );
+}
+
+type MessageReceipt = {
+  label: "Đã nhận" | "Đã xem";
+  messageId: string;
+  tone: "delivered" | "seen";
+};
+
+function resolveLastOwnMessageReceipt(
+  messages: ChatMessage[],
+  readMembers: ChannelMember[],
+  currentUserId: string,
+  messageOrderById: Map<string, number>
+): MessageReceipt | null {
+  const message = [...messages].reverse().find((item) => item.isMine && !item.isDeleted && !item.isPending && !item.isLocal);
+  if (!message) {
+    return null;
+  }
+
+  const messageIndex = messageOrderById.get(message.id) ?? -1;
+  const messageCreatedAt = parseDateMs(message.rawCreatedAt);
+  const hasReader = readMembers.some((member) => {
+    if (!member.user_id || member.user_id === currentUserId) {
+      return false;
+    }
+    return memberHasReadMessage(member, messageIndex, messageCreatedAt, messageOrderById);
+  });
+
+  return {
+    label: hasReader ? "Đã xem" : "Đã nhận",
+    messageId: message.id,
+    tone: hasReader ? "seen" : "delivered"
+  };
+}
+
+function memberHasReadMessage(
+  member: ChannelMember,
+  messageIndex: number,
+  messageCreatedAt: number | null,
+  messageOrderById: Map<string, number>
+) {
+  const readMessageId = member.last_read_message_id ?? "";
+  const readMessageIndex = readMessageId ? messageOrderById.get(readMessageId) : undefined;
+  if (typeof readMessageIndex === "number" && messageIndex >= 0) {
+    return readMessageIndex >= messageIndex;
+  }
+
+  const readAt = parseDateMs(member.last_read_at);
+  return Boolean(readAt && messageCreatedAt && readAt >= messageCreatedAt);
+}
+
+function parseDateMs(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
 }
 
 function MessageBody({ body }: { body: string }) {

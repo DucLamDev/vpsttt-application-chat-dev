@@ -31,6 +31,8 @@ export type ChannelMember = {
   email?: string;
   avatar_url?: string | null;
   status?: string;
+  last_read_at?: ISODateTime | null;
+  last_read_message_id?: Id | null;
   joined_at?: ISODateTime;
 };
 
