@@ -477,9 +477,11 @@ a {
 }
 
 .ui-navigation-rail__brand--image {
-  background: transparent;
-  box-shadow: none;
+  background: #ffffff;
+  border: 1px solid rgb(255 255 255 / 74%);
+  box-shadow: 0 12px 26px rgb(0 25 82 / 22%);
   overflow: hidden;
+  padding: 5px;
 }
 
 .ui-navigation-rail__brand img {
@@ -631,10 +633,11 @@ a {
 }
 
 .auth-header-brand__logo--image {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
+  background: #ffffff;
+  border: 1px solid rgb(255 255 255 / 84%);
+  box-shadow: 0 16px 34px rgb(2 8 23 / 20%);
   overflow: hidden;
+  padding: 5px;
 }
 
 .auth-header-brand__logo img {

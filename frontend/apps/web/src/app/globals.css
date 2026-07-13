@@ -225,8 +225,10 @@
 }
 
 .chat-app-shell--zalo .ui-navigation-rail__brand--image {
-  background: transparent;
-  box-shadow: 0 12px 24px rgb(0 33 105 / 16%);
+  background: #ffffff;
+  border: 1px solid rgb(255 255 255 / 72%);
+  box-shadow: 0 12px 24px rgb(0 33 105 / 24%);
+  padding: 5px;
 }
 
 .chat-app-shell--zalo .ui-navigation-rail__nav {
