@@ -144,8 +144,10 @@ func writePostgresError(c *gin.Context, err *pgconn.PgError) bool {
 		if strings.HasPrefix(err.Code, "08") || strings.HasPrefix(err.Code, "53") || strings.HasPrefix(err.Code, "58") {
 			c.Header("Retry-After", "2")
 			Fail(c, http.StatusServiceUnavailable, "DATABASE_UNAVAILABLE", "Cơ sở dữ liệu tạm thời không sẵn sàng, vui lòng thử lại sau vài giây.", nil)
+		} else if strings.HasPrefix(err.Code, "42") {
+			Fail(c, http.StatusInternalServerError, "DATABASE_SCHEMA_MISMATCH", "Co so du lieu chua duoc cap nhat dung phien ban. Vui long chay migration va thu lai.", nil)
 		} else {
-			return false
+			Fail(c, http.StatusInternalServerError, "DATABASE_ERROR", "Co so du lieu tra ve loi khi xu ly yeu cau. Vui long kiem tra log theo ma request.", nil)
 		}
 	}
 

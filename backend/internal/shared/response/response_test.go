@@ -79,6 +79,18 @@ func TestErrorMapsExpectedInfrastructureFailures(t *testing.T) {
 			wantRetryAfter: "2",
 		},
 		{
+			name:       "schema mismatch",
+			err:        &pgconn.PgError{Code: "42703"},
+			wantStatus: http.StatusInternalServerError,
+			wantCode:   "DATABASE_SCHEMA_MISMATCH",
+		},
+		{
+			name:       "unclassified postgres error",
+			err:        &pgconn.PgError{Code: "XX000"},
+			wantStatus: http.StatusInternalServerError,
+			wantCode:   "DATABASE_ERROR",
+		},
+		{
 			name:           "query cancelled by timeout",
 			err:            &pgconn.PgError{Code: "57014"},
 			wantStatus:     http.StatusGatewayTimeout,

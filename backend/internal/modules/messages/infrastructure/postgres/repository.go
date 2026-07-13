@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 
 	messagesapp "github.com/duclamdev/application-chat/backend/internal/modules/messages/application"
@@ -30,7 +32,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) Send(ctx context.Context, params messagesapp.SendParams) (messagesdomain.Message, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return messagesdomain.Message{}, err
+		return messagesdomain.Message{}, fmt.Errorf("message send begin transaction: %w", err)
 	}
 	defer func() {
 		_ = tx.Rollback(ctx)
@@ -54,7 +56,7 @@ WHERE workspace_id = $1::uuid
 	}
 
 	if err := ensureDirectChannelMember(ctx, tx, params.WorkspaceID, params.ChannelID, params.SenderID); err != nil {
-		return messagesdomain.Message{}, err
+		return messagesdomain.Message{}, fmt.Errorf("message send repair direct channel members: %w", err)
 	}
 
 	row := tx.QueryRow(ctx, `
@@ -77,14 +79,14 @@ RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, paren
 		if errors.Is(err, messagesdomain.ErrMessageNotFound) {
 			return messagesdomain.Message{}, messagesdomain.ErrChannelNotFound
 		}
-		return messagesdomain.Message{}, err
+		return messagesdomain.Message{}, fmt.Errorf("message send insert message: %w", err)
 	}
 
 	if err := r.replaceMentions(ctx, tx, message.WorkspaceID, message.ChannelID, message.ID, params.MentionedUserIDs); err != nil {
-		return messagesdomain.Message{}, err
+		return messagesdomain.Message{}, fmt.Errorf("message send replace mentions: %w", err)
 	}
 	if err := upsertSearchDocument(ctx, tx, message); err != nil {
-		return messagesdomain.Message{}, err
+		return messagesdomain.Message{}, fmt.Errorf("message send upsert search document: %w", err)
 	}
 	if err := insertOutbox(ctx, tx, "message", message.ID, "MessageCreated", map[string]any{
 		"workspace_id":       message.WorkspaceID,
@@ -95,18 +97,39 @@ RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, paren
 		"thread_root_id":     threadRootID,
 		"mentioned_user_ids": params.MentionedUserIDs,
 	}); err != nil {
-		return messagesdomain.Message{}, err
+		return messagesdomain.Message{}, fmt.Errorf("message send insert outbox: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return messagesdomain.Message{}, err
+		return messagesdomain.Message{}, fmt.Errorf("message send commit: %w", err)
 	}
-	return r.Get(ctx, messagesapp.MessageRef{
+	hydrated, err := r.Get(ctx, messagesapp.MessageRef{
 		WorkspaceID: params.WorkspaceID,
 		ChannelID:   params.ChannelID,
 		MessageID:   message.ID,
 		ActorUserID: params.SenderID,
 	})
+	if err != nil {
+		slog.Warn("Khong hydrate duoc tin nhan vua luu, tra ve payload toi thieu",
+			"workspace_id", params.WorkspaceID,
+			"channel_id", params.ChannelID,
+			"message_id", message.ID,
+			"actor_user_id", params.SenderID,
+			"error", err,
+		)
+		return withEmptyMessageRelations(message), nil
+	}
+	return hydrated, nil
+}
+
+func withEmptyMessageRelations(message messagesdomain.Message) messagesdomain.Message {
+	if message.Mentions == nil {
+		message.Mentions = []string{}
+	}
+	if message.Reactions == nil {
+		message.Reactions = []messagesdomain.ReactionSummary{}
+	}
+	return message
 }
 
 func ensureDirectChannelMember(ctx context.Context, exec commandExecutor, workspaceID, channelID, userID string) error {
@@ -144,7 +167,7 @@ WHERE m.workspace_id = $1::uuid
   AND m.channel_id = $2::uuid
   AND m.id = $3::uuid
   AND m.deleted_at IS NULL
-`, params.WorkspaceID, params.ChannelID, params.MessageID)
+`, params.WorkspaceID, params.ChannelID, params.MessageID, params.ActorUserID)
 	message, err := scanMessage(row)
 	if err != nil {
 		return messagesdomain.Message{}, err

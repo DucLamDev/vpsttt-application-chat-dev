@@ -91,6 +91,7 @@ func (h *Handler) Send(c *gin.Context) {
 		"workspace_id", c.Param("workspace_id"),
 		"channel_id", c.Param("channel_id"),
 		"actor_user_id", middleware.CurrentUserID(c),
+		"request_id", middleware.GetRequestID(c),
 		"kind", req.Kind,
 		"body_len", len([]rune(req.Body)),
 		"has_parent", req.ParentID != "",
@@ -111,6 +112,7 @@ func (h *Handler) Send(c *gin.Context) {
 			"workspace_id", c.Param("workspace_id"),
 			"channel_id", c.Param("channel_id"),
 			"actor_user_id", middleware.CurrentUserID(c),
+			"request_id", middleware.GetRequestID(c),
 			"error", err,
 		)
 		response.Error(c, err)
@@ -120,6 +122,7 @@ func (h *Handler) Send(c *gin.Context) {
 		"workspace_id", message.WorkspaceID,
 		"channel_id", message.ChannelID,
 		"message_id", message.ID,
+		"request_id", middleware.GetRequestID(c),
 		"kind", message.Kind,
 	)
 	response.Created(c, message)
