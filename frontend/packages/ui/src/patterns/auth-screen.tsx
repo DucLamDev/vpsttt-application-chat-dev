@@ -127,38 +127,33 @@ export function AuthScreen({
           <span><strong>{title}</strong><small>{subtitle}</small></span>
         </div>
         <div className="auth-hero__copy">
-          <p className="auth-hero__eyebrow">Không gian giao tiếp dành cho đội ngũ</p>
-          <h1>Giao tiếp thông minh,<span> kết nối không giới hạn</span></h1>
-          <p>Trò chuyện, chia sẻ và cộng tác liền mạch trên mọi thiết bị.</p>
+          <h1>Giao tiếp thông minh,<span>kết nối không giới hạn</span></h1>
         </div>
-        <div className="auth-visual" aria-hidden="true">
-          <div className="auth-product-preview">
-            <div className="auth-product-preview__rail"><i /><i /><i /><i /></div>
-            <div className="auth-product-preview__contacts">
-              <span />
-              <p><i /><b /></p>
-              <p><i /><b /></p>
-              <p><i /><b /></p>
-            </div>
-            <div className="auth-product-preview__chat">
-              <header><i /><span /></header>
-              <div className="auth-preview-message auth-preview-message--incoming"><i /><i /></div>
-              <div className="auth-preview-message auth-preview-message--outgoing"><i /><i /></div>
-              <footer><span /><b><i /><i /><i /></b></footer>
+        <div className="auth-showcase" aria-hidden="true">
+          <div className="auth-visual">
+            <div className="auth-product-preview">
+              <div className="auth-product-preview__rail"><i /><i /><i /><i /></div>
+              <div className="auth-product-preview__contacts">
+                <span />
+                <p><i /><b /></p>
+                <p><i /><b /></p>
+                <p><i /><b /></p>
+              </div>
+              <div className="auth-product-preview__chat">
+                <header><i /><span /></header>
+                <div className="auth-preview-message auth-preview-message--incoming"><i /><i /></div>
+                <div className="auth-preview-message auth-preview-message--outgoing"><i /><i /></div>
+                <footer><span /><b><i /><i /><i /></b></footer>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="auth-bot-decoration" aria-hidden="true">
-          <span className="auth-bot-decoration__orbit auth-bot-decoration__orbit--one"><i /></span>
-          <span className="auth-bot-decoration__orbit auth-bot-decoration__orbit--two"><i /></span>
-          <span className="auth-bot-decoration__signal" />
-          <span className="auth-bot-decoration__core"><i /><i /><b /></span>
-          <span className="auth-bot-decoration__spark">✦</span>
-        </div>
-        <div className="auth-benefits" aria-label="Ưu điểm của WebTui Chat">
-          <span><b>✓</b><strong>Bảo mật cao</strong><small>Mã hóa dữ liệu</small></span>
-          <span><b>↯</b><strong>Tốc độ nhanh</strong><small>Trải nghiệm mượt</small></span>
-          <span><b>▣</b><strong>Đa nền tảng</strong><small>Web và mobile</small></span>
+          <div className="auth-bot-decoration">
+            <span className="auth-bot-decoration__orbit auth-bot-decoration__orbit--one"><i /></span>
+            <span className="auth-bot-decoration__orbit auth-bot-decoration__orbit--two"><i /></span>
+            <span className="auth-bot-decoration__signal" />
+            <span className="auth-bot-decoration__core"><i /><i /><b /></span>
+            <span className="auth-bot-decoration__spark">✦</span>
+          </div>
         </div>
       </section>
 
@@ -172,27 +167,7 @@ export function AuthScreen({
         )}
         <div className="auth-panel__header">
           <h2>{mode === "login" ? "Đăng nhập" : "Tạo tài khoản mới"}</h2>
-          <p>{mode === "login" ? "Chào mừng bạn trở lại 👋" : "Tham gia cùng chúng tôi ngay hôm nay 🚀"}</p>
         </div>
-        {onGoogleCredential ? (
-          <>
-            <div className="auth-google-area">
-              <div className="auth-google-render" ref={googleButtonRef} />
-              {!isGoogleReady ? (
-                <button
-                  className="auth-google-fallback"
-                  disabled={Boolean(googleClientId)}
-                  onClick={() => setLocalError("Đăng nhập Google cần cấu hình NEXT_PUBLIC_GOOGLE_CLIENT_ID.")}
-                  type="button"
-                >
-                  <GoogleMark />
-                  {mode === "login" ? "Đăng nhập với Google" : "Đăng ký với Google"}
-                </button>
-              ) : null}
-            </div>
-            <div className="auth-divider"><span>hoặc tiếp tục bằng email</span></div>
-          </>
-        ) : null}
         <form className="auth-form" onSubmit={handleSubmit}>
           {mode === "register" ? <>
             <label>Họ và tên<Input autoComplete="name" onChange={(event) => setDisplayName(event.target.value)} placeholder="Nhập họ và tên của bạn" required value={displayName} /></label>
@@ -207,12 +182,30 @@ export function AuthScreen({
             <span className="auth-submit__arrow" aria-hidden="true">→</span>
           </Button>
         </form>
+        {onGoogleCredential ? (
+          <>
+            <div className="auth-divider"><span>hoặc tiếp tục với Google</span></div>
+            <div className="auth-google-area">
+              <div className="auth-google-render" ref={googleButtonRef} />
+              {!isGoogleReady ? (
+                <button
+                  className="auth-google-fallback"
+                  disabled={Boolean(googleClientId)}
+                  onClick={() => setLocalError("Đăng nhập Google cần cấu hình NEXT_PUBLIC_GOOGLE_CLIENT_ID.")}
+                  type="button"
+                >
+                  <GoogleMark />
+                  {mode === "login" ? "Đăng nhập với Google" : "Đăng ký với Google"}
+                </button>
+              ) : null}
+            </div>
+          </>
+        ) : null}
         <p className="auth-mode-link">
           {mode === "login" ? "Chưa có tài khoản?" : "Đã có tài khoản?"}{" "}
           <button onClick={() => onModeChange(mode === "login" ? "register" : "login")} type="button">{mode === "login" ? "Đăng ký ngay" : "Đăng nhập ngay"}</button>
         </p>
       </section>
-      <div className="auth-trust-row" aria-hidden="true"><span>Mã hóa đầu cuối</span><span>Không lưu trữ nội dung</span><span>99.9% uptime</span></div>
     </main>
   );
 }

@@ -139,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
         }
         panelLogoAlt="WebTui Chat"
-        panelLogoSrc="/brand/logo_webtui_bottom_text.png"
+        panelLogoSrc="/brand/logo_webtui.png"
       />
     );
   }
