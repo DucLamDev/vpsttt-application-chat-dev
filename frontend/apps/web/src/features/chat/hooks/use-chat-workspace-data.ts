@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@webtui/api-client";
@@ -73,6 +73,7 @@ export { mapAuthUser } from "./use-message-timeline";
 
 export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspaceDataOptions = {}) {
   const queryClient = useQueryClient();
+  const lastMarkedReadRef = useRef("");
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -487,19 +488,21 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         queryClient.setQueryData(messageTimelineKey(workspaceId, selectedChannelId), context.previous);
       }
     },
-    onSuccess: async (result, _input, context) => {
+    onSuccess: async (result, input, context) => {
       mergeMessageIntoTimeline(queryClient, workspaceId, selectedChannelId, result.message, context?.optimisticId);
       queryClient.setQueryData<ApiDirectConversation[]>(
         queryKeys.channels.directConversations(workspaceId),
         (current) => updateDirectConversationLastMessage(current, selectedChannelId, result.message)
       );
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.messages.channel(workspaceId, selectedChannelId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.channels.directConversations(workspaceId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.files.messageAttachments(workspaceId, selectedChannelId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.files.all(workspaceId) })
-      ]);
+      queryClient.setQueryData<ApiChannel[]>(queryKeys.channels.all(workspaceId), (current) =>
+        updateChannelAfterOwnMessage(current, selectedChannelId, result.message)
+      );
+      if (input.uploads.length) {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.files.all(workspaceId),
+          refetchType: "inactive"
+        });
+      }
     }
   });
 
@@ -591,21 +594,37 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
       void api.channels
         .updateReadState(workspaceId, channelId, messageId ? { last_read_message_id: messageId } : {})
-        .then(() => Promise.all([
-          queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.channels.directConversations(workspaceId) })
-        ]))
+        .then(() => {
+          queryClient.setQueryData<ApiChannel[]>(queryKeys.channels.all(workspaceId), (current) =>
+            markChannelCacheRead(current, channelId)
+          );
+          queryClient.setQueryData<ApiDirectConversation[]>(
+            queryKeys.channels.directConversations(workspaceId),
+            (current) => markDirectConversationCacheRead(current, channelId)
+          );
+        })
         .catch(() => undefined);
     },
     [queryClient, workspaceId]
   );
 
+  const lastTimelineMessage = messageTimeline.messages.at(-1);
+  const lastTimelineMessageId = lastTimelineMessage?.id ?? "";
+  const lastTimelineMessagePending = Boolean(lastTimelineMessage?.isPending);
+
   useEffect(() => {
-    const lastMessage = messageTimeline.messages.at(-1);
-    if (workspaceId && selectedChannelId && lastMessage?.id && !lastMessage.isPending) {
-      markChannelRead(selectedChannelId, lastMessage.id);
+    if (!workspaceId || !selectedChannelId || !lastTimelineMessageId || lastTimelineMessagePending) {
+      return;
     }
-  }, [markChannelRead, messageTimeline.messages, selectedChannelId, workspaceId]);
+
+    const readKey = `${workspaceId}:${selectedChannelId}:${lastTimelineMessageId}`;
+    if (lastMarkedReadRef.current === readKey) {
+      return;
+    }
+
+    lastMarkedReadRef.current = readKey;
+    markChannelRead(selectedChannelId, lastTimelineMessageId);
+  }, [lastTimelineMessageId, lastTimelineMessagePending, markChannelRead, selectedChannelId, workspaceId]);
 
   return {
     ...workspaceContext,
@@ -845,6 +864,49 @@ function updateDirectConversationLastMessage(
       updated_at: message.updated_at ?? message.created_at ?? conversation.updated_at
     };
   });
+}
+
+function updateChannelAfterOwnMessage(
+  current: ApiChannel[] | undefined,
+  channelId: string,
+  message: ApiMessage
+): ApiChannel[] | undefined {
+  if (!current?.length || !channelId) {
+    return current;
+  }
+
+  return current.map((channel) => {
+    if (channel.id !== channelId) {
+      return channel;
+    }
+
+    return {
+      ...channel,
+      unread_count: 0,
+      updated_at: message.updated_at ?? message.created_at ?? channel.updated_at
+    };
+  });
+}
+
+function markChannelCacheRead(current: ApiChannel[] | undefined, channelId: string): ApiChannel[] | undefined {
+  if (!current?.length || !channelId) {
+    return current;
+  }
+
+  return current.map((channel) => (channel.id === channelId ? { ...channel, unread_count: 0 } : channel));
+}
+
+function markDirectConversationCacheRead(
+  current: ApiDirectConversation[] | undefined,
+  channelId: string
+): ApiDirectConversation[] | undefined {
+  if (!current?.length || !channelId) {
+    return current;
+  }
+
+  return current.map((conversation) =>
+    (conversation.channel_id ?? conversation.id) === channelId ? { ...conversation, unread_count: 0 } : conversation
+  );
 }
 
 function mapFile(file: FileObject): FileItem {

@@ -112,7 +112,7 @@ RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, paren
 func ensureDirectChannelMember(ctx context.Context, exec commandExecutor, workspaceID, channelID, userID string) error {
 	_, err := exec.Exec(ctx, `
 INSERT INTO channel_members (channel_id, user_id, status)
-SELECT dc.channel_id, dcm.user_id, 'active'
+SELECT DISTINCT dc.channel_id, dcm.user_id, 'active'
 FROM direct_conversations dc
 JOIN direct_conversation_members dcm ON dcm.direct_conversation_id = dc.id
 WHERE dc.workspace_id = $1::uuid
