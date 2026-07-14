@@ -60,12 +60,22 @@ jobs:
 
   desktop-native:
     name: Native desktop (${{ matrix.os }})
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ matrix.os }}
     needs: desktop-web
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            bundle: nsis
+            artifact_path: frontend/apps/desktop/src-tauri/target/release/bundle/nsis/**
+          - os: macos-latest
+            bundle: dmg
+            artifact_path: frontend/apps/desktop/src-tauri/target/release/bundle/dmg/**
+          - os: ubuntu-latest
+            bundle: deb
+            artifact_path: frontend/apps/desktop/src-tauri/target/release/bundle/deb/**
     defaults:
       run:
         working-directory: frontend
@@ -88,6 +98,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Install
         run: npm ci
@@ -102,11 +114,11 @@ jobs:
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       - name: Build desktop bundle
-        run: npm --workspace @webtui/desktop run build
+        run: npm --workspace @webtui/desktop run tauri -- build --bundles ${{ matrix.bundle }} --ci --no-sign
 
       - name: Upload native bundle
         uses: actions/upload-artifact@v4
         with:
           name: webtui-desktop-${{ runner.os }}
-          path: frontend/apps/desktop/src-tauri/target/release/bundle/**
+          path: ${{ matrix.artifact_path }}
           if-no-files-found: error

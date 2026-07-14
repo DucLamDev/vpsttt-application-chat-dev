@@ -43,7 +43,7 @@ fn unread_tooltip(count: u32) -> String {
     if count == 0 {
         "WebTui Chat".to_string()
     } else {
-        format!("WebTui Chat - {count} thong bao chua doc")
+        format!("WebTui Chat - {count} thông báo chưa đọc")
     }
 }
 
@@ -139,6 +139,6 @@ mod tests {
 
     #[test]
     fn unread_tooltip_includes_unread_count() {
-        assert_eq!(unread_tooltip(7), "WebTui Chat - 7 thong bao chua doc");
+        assert_eq!(unread_tooltip(7), "WebTui Chat - 7 thông báo chưa đọc");
     }
 }

@@ -5777,6 +5777,32 @@
   color: #8fc0ff;
 }
 
+.chat-app-shell--zalo .message-row--call {
+  align-items: end;
+  grid-template-columns: auto minmax(0, max-content);
+}
+
+.chat-app-shell--zalo .message-row--call.message-row--local {
+  grid-template-columns: minmax(0, max-content) auto;
+  justify-content: end;
+  justify-items: end;
+}
+
+.chat-app-shell--zalo .message-row--call .message-call-card {
+  justify-self: start;
+  max-width: min(240px, 72vw);
+  min-width: 158px;
+  width: fit-content;
+}
+
+.chat-app-shell--zalo .message-row--call.message-row--local .message-call-card {
+  justify-self: end;
+}
+
+.chat-app-shell--zalo .message-row--call .message-call-card span {
+  white-space: nowrap;
+}
+
 @media (max-width: 1440px) {
   .chat-app-shell--zalo.chat-app-shell--detail-open .detail-panel {
     bottom: 0;
