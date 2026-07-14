@@ -6,6 +6,7 @@ const nextConfig = [
     ignores: [
       ".next/**",
       "dist/**",
+      "out/**",
       "coverage/**",
       "node_modules/**"
     ]

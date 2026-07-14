@@ -1299,7 +1299,7 @@ export function ChatWorkspace() {
                           </span>
                           <span className="conversation-row__meta">
                             <time>{item.relativeTime}</time>
-                            {unreadCount ? <Badge className="conversation-row__unread-badge" tone="red">{unreadCount}</Badge> : null}
+                            <UnreadBadge count={unreadCount} />
                             <Tooltip label={isFavoriteChat(item.id) ? "Bỏ yêu thích" : "Yêu thích"}>
                               <span
                                 aria-label={isFavoriteChat(item.id) ? "Bỏ yêu thích" : "Yêu thích"}
@@ -1364,7 +1364,7 @@ export function ChatWorkspace() {
                           </span>
                           <span className="channel-row__meta">
                             <time>{channel.relativeTime}</time>
-                            {unreadCount ? <Badge className="conversation-row__unread-badge" tone="red">{unreadCount}</Badge> : null}
+                            <UnreadBadge count={unreadCount} />
                             <Tooltip label={isFavoriteChat(channel.id, channel.isFavorite) ? "Bỏ yêu thích" : "Yêu thích"}>
                               <span
                                 aria-label={isFavoriteChat(channel.id, channel.isFavorite) ? "Bỏ yêu thích" : "Yêu thích"}
@@ -1657,6 +1657,7 @@ export function ChatWorkspace() {
                 readMembers={selectedChannelMembers}
                 searchQuery={activeMessageSearchQuery}
                 searchResults={data.messageSearchResults}
+                workspaceMembers={data.members}
               />
             )}
             {!canSendMessage ? (
@@ -4255,7 +4256,8 @@ function MessageTimeline({
   pinnedMessageIds,
   readMembers,
   searchQuery,
-  searchResults
+  searchResults,
+  workspaceMembers
 }: {
   currentUserId: string;
   editingBody: string;
@@ -4281,10 +4283,17 @@ function MessageTimeline({
   readMembers: ChannelMember[];
   searchQuery: string;
   searchResults: ChatMessage[];
+  workspaceMembers: WorkspaceMember[];
 }) {
   const lastMessageId = messages.at(-1)?.id;
   const bottomRef = useRef<HTMLDivElement>(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const memberByUserId = useMemo(
+    () => new Map<MessageAuthorLookupMember["user_id"], MessageAuthorLookupMember>(
+      [...workspaceMembers, ...readMembers].map((member) => [member.user_id, member])
+    ),
+    [readMembers, workspaceMembers]
+  );
   const messageOrderById = useMemo(() => new Map(messages.map((message, index) => [message.id, index])), [messages]);
   const lastOwnReceipt = useMemo(
     () => resolveLastOwnMessageReceipt(messages, readMembers, currentUserId, messageOrderById),
@@ -4347,15 +4356,17 @@ function MessageTimeline({
         </section>
       ) : null}
 
-      {messages.map((message) => (
+      {messages.map((message) => {
+        const messageAuthor = resolveRenderedMessageAuthor(message, memberByUserId);
+        return (
         <article
           className={`${message.isMine ? "message-row message-row--local" : "message-row"}${isImageOnlyMessage(message) ? " message-row--media-only" : ""}`}
           key={message.id}
         >
-          <Avatar name={message.author.name} src={message.author.avatarUrl} status={message.author.status} />
+          <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} />
           <div className="message-row__content">
             <header>
-              <strong>{message.author.name}</strong>
+              <strong>{messageAuthor.name}</strong>
               {message.isBot ? <Badge tone="blue">BOT</Badge> : null}
               <span>{message.sentAt}</span>
               {message.isForwarded ? <span>Đã chuyển tiếp</span> : null}
@@ -4523,7 +4534,8 @@ function MessageTimeline({
             ) : null}
           </div>
         </article>
-      ))}
+        );
+      })}
       <div ref={bottomRef} aria-hidden="true" />
     </div>
   );
@@ -4584,6 +4596,43 @@ function parseDateMs(value?: string | null) {
   }
   const timestamp = new Date(value).getTime();
   return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+type MessageAuthorLookupMember = Pick<ChannelMember | WorkspaceMember, "avatar_url" | "display_name" | "email" | "status" | "user_id" | "username">;
+
+function resolveRenderedMessageAuthor(message: ChatMessage, memberByUserId: Map<string, MessageAuthorLookupMember>): ChatUser {
+  if (message.isBot || !message.rawSenderId) {
+    return message.author;
+  }
+
+  const member = memberByUserId.get(message.rawSenderId);
+  if (!member) {
+    return message.author;
+  }
+
+  const memberDisplayName = member.display_name || member.username || member.email || "";
+  if (!memberDisplayName && message.author.name !== "Người dùng") {
+    return message.author;
+  }
+
+  return {
+    avatarUrl: member.avatar_url ?? message.author.avatarUrl,
+    id: member.user_id,
+    name: memberDisplayName || message.author.name,
+    status: member.status === "busy" ? "busy" : member.status === "offline" ? "offline" : "online"
+  };
+}
+
+function UnreadBadge({ count }: { count: number }) {
+  if (count <= 0) {
+    return null;
+  }
+
+  return (
+    <span aria-label={`${count} tin nhắn chưa đọc`} className="conversation-row__unread-badge">
+      {count > 5 ? "5+" : count}
+    </span>
+  );
 }
 
 function MessageBody({ body }: { body: string }) {
