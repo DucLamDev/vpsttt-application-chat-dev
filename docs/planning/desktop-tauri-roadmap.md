@@ -211,6 +211,8 @@ frontend/
 | D5.10 | Typing, read state và presence | D5.8 | Trạng thái tự hết hạn và đúng conversation | P0 |
 | D5.11 | Sleep/wake/network change | D5.8 | Resume tự reconnect và REST catch-up | P0 |
 
+Trạng thái triển khai D5: xem [Desktop App Phase D5 Completion](desktop-phase-d5-completion.md).
+
 ## Phase D6: Ảnh, file, voice và video
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
@@ -226,6 +228,8 @@ frontend/
 | D6.9 | Large file/network interruption | D6.3 | Giữ trạng thái retry; không treo composer | P1 |
 | D6.10 | File security state | D6.3 | Hiển thị scanning/quarantine khi backend hỗ trợ | P1 |
 
+Trạng thái triển khai D6: xem [Desktop App Phase D6 Completion](desktop-phase-d6-completion.md).
+
 ## Phase D7: Notification và trải nghiệm desktop native
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
@@ -239,6 +243,8 @@ frontend/
 | D7.7 | Single instance | D7.4 | Mở link lần hai không tạo app instance mới | P0 |
 | D7.8 | Auto start tùy chọn | D7.6 | Mặc định tắt; user bật/tắt được | P1 |
 | D7.9 | Quiet hours/Do Not Disturb | D7.3 | Không phát native notification ngoài policy | P1 |
+
+Trạng thái triển khai D7: xem [Desktop App Phase D7 Completion](desktop-phase-d7-completion.md).
 
 ## Phase D8: Module nghiệp vụ đầy đủ
 
@@ -255,6 +261,8 @@ frontend/
 | D8.9 | Announcement/system message | Backend producer | Hiển thị, acknowledge nếu contract yêu cầu | P1 |
 | D8.10 | Admin deep link | D3.6 | Chỉ user có `admin.view` mới thấy link mở Admin Panel browser | P1 |
 
+Trang thai trien khai D8: xem [Desktop App Phase D8 Completion](desktop-phase-d8-completion.md).
+
 ## Phase D9: Offline, reliability và performance
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
@@ -270,6 +278,8 @@ frontend/
 | D9.9 | Timeline virtualization | D5.1 | Channel lớn vẫn cuộn mượt | P1 |
 | D9.10 | Proxy/corporate network test | D5.8 | REST/WSS hoạt động hoặc báo cấu hình rõ | P1 |
 
+Trang thai trien khai D9: xem [Desktop App Phase D9 Completion](desktop-phase-d9-completion.md).
+
 ## Phase D10: Packaging, signing và auto update
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
@@ -282,6 +292,8 @@ frontend/
 | D10.6 | Stable/beta channel | D10.5 | Chuyển channel có kiểm soát | P1 |
 | D10.7 | Rollback/runbook | D10.5 | Có hướng xử lý update lỗi mà không mất local data | P0 |
 | D10.8 | Version compatibility | Backend version policy | App chặn/nhắc update khi API không còn tương thích | P0 |
+
+Trang thai trien khai D10: xem [Desktop App Phase D10 Completion](desktop-phase-d10-completion.md).
 
 ## Phase D11: Test, CI/CD, observability và release
 
@@ -338,16 +350,6 @@ Tạo `.github/workflows/desktop.yml` gồm:
 - [ ] Backup/restore local cache migration được test.
 - [ ] Tài liệu cài đặt, update, rollback và hỗ trợ người dùng đã có.
 
-## 10. Ước lượng
 
-Với hai lập trình viên có kinh nghiệm Next.js/Tauri:
-
-| Mốc | Thời gian dự kiến |
-|---|---:|
-| D0-D2 foundation | 2–3 tuần |
-| D3-D7 desktop MVP đầy đủ chat/native | 4–6 tuần |
-| D8 module nghiệp vụ | 2–3 tuần, chưa tính ticket backend |
-| D9 hardening/offline | 2–3 tuần |
-| D10-D11 release ba OS | 2–3 tuần |
 
 Windows production là mốc đầu; macOS/Linux phát hành sau khi Windows staging ổn định.

@@ -19,6 +19,7 @@ type Handler struct {
 
 type sendMessageRequest struct {
 	ParentID         string          `json:"parent_id"`
+	ClientMessageID  string          `json:"client_message_id"`
 	Kind             string          `json:"kind"`
 	Body             string          `json:"body"`
 	Metadata         json.RawMessage `json:"metadata"`
@@ -102,6 +103,7 @@ func (h *Handler) Send(c *gin.Context) {
 		WorkspaceID:      c.Param("workspace_id"),
 		ChannelID:        c.Param("channel_id"),
 		ParentID:         req.ParentID,
+		ClientMessageID:  firstNonEmpty(req.ClientMessageID, c.GetHeader("Idempotency-Key")),
 		Kind:             req.Kind,
 		Body:             req.Body,
 		Metadata:         req.Metadata,
@@ -126,6 +128,15 @@ func (h *Handler) Send(c *gin.Context) {
 		"kind", message.Kind,
 	)
 	response.Created(c, message)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (h *Handler) Get(c *gin.Context) {

@@ -6,6 +6,7 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: [
     "@webtui/api-client",
+    "@webtui/chat-core",
     "@webtui/icons",
     "@webtui/types",
     "@webtui/ui"

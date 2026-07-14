@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -106,6 +107,34 @@ func (r *captureSendRepo) Send(_ context.Context, params SendParams) (messagesdo
 	}, nil
 }
 
+type staleSendRepo struct {
+	emptyMessageRepo
+}
+
+func (r staleSendRepo) Send(_ context.Context, params SendParams) (messagesdomain.Message, error) {
+	senderID := params.SenderID
+	return messagesdomain.Message{
+		ID:          "message-existing",
+		WorkspaceID: params.WorkspaceID,
+		ChannelID:   params.ChannelID,
+		SenderID:    &senderID,
+		Kind:        params.Kind,
+		Body:        params.Body,
+		Metadata:    params.Metadata,
+		CreatedAt:   time.Now().UTC().Add(-time.Minute),
+		UpdatedAt:   time.Now().UTC().Add(-time.Minute),
+	}, nil
+}
+
+type captureRealtimePublisher struct {
+	count int
+}
+
+func (p *captureRealtimePublisher) Publish(context.Context, RealtimeEvent) error {
+	p.count++
+	return nil
+}
+
 func (r otherUserMessageRepo) Get(context.Context, MessageRef) (messagesdomain.Message, error) {
 	senderID := "user-a"
 	return messagesdomain.Message{
@@ -135,6 +164,52 @@ func TestNormalizeMentionsDeduplicatesExplicitAndBodyMentions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalizeMentions() = %#v, muốn %#v", got, want)
+	}
+}
+
+func TestSendAddsClientMessageIDToMetadata(t *testing.T) {
+	repo := &captureSendRepo{}
+	service := NewService(repo, testPermissionChecker{allowed: true})
+
+	_, err := service.Send(context.Background(), SendInput{
+		ActorUserID:     "11111111-1111-1111-1111-111111111111",
+		Body:            "Hello",
+		ChannelID:       "22222222-2222-2222-2222-222222222222",
+		ClientMessageID: "client-123",
+		Metadata:        json.RawMessage(`{"source":"desktop"}`),
+		WorkspaceID:     "33333333-3333-3333-3333-333333333333",
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if repo.sent.ClientMessageID != "client-123" {
+		t.Fatalf("ClientMessageID = %q, want client-123", repo.sent.ClientMessageID)
+	}
+	var metadata map[string]string
+	if err := json.Unmarshal(repo.sent.Metadata, &metadata); err != nil {
+		t.Fatalf("metadata is not object: %v", err)
+	}
+	if metadata["client_message_id"] != "client-123" || metadata["source"] != "desktop" {
+		t.Fatalf("metadata = %#v, want client_message_id and source preserved", metadata)
+	}
+}
+
+func TestSendDoesNotRepublishDuplicateClientMessage(t *testing.T) {
+	realtime := &captureRealtimePublisher{}
+	service := NewService(staleSendRepo{}, testPermissionChecker{allowed: true}, realtime)
+
+	_, err := service.Send(context.Background(), SendInput{
+		ActorUserID:     "11111111-1111-1111-1111-111111111111",
+		Body:            "Hello",
+		ChannelID:       "22222222-2222-2222-2222-222222222222",
+		ClientMessageID: "client-123",
+		WorkspaceID:     "33333333-3333-3333-3333-333333333333",
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if realtime.count != 0 {
+		t.Fatalf("Publish count = %d, want 0 for duplicate retry", realtime.count)
 	}
 }
 

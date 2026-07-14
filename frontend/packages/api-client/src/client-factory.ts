@@ -18,6 +18,7 @@ import { createHealthClient } from "./health-client";
 import { HttpClient, type HttpClientOptions } from "./http-client";
 import { createMessagesClient } from "./messages-client";
 import { createRbacClient } from "./rbac-client";
+import { createTicketsClient } from "./tickets-client";
 import { createUsersClient } from "./users-client";
 import { createWorkspacesClient } from "./workspaces-client";
 
@@ -42,6 +43,7 @@ export function createWebTuiApiClient(options: HttpClientOptions) {
     orderBot: createOrderBotClient(http),
     presence: createPresenceClient(http),
     rbac: createRbacClient(http),
+    tickets: createTicketsClient(http),
     users: createUsersClient(http),
     webhooks: createWebhooksClient(http),
     workspaces: createWorkspacesClient(http)

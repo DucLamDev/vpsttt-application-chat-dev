@@ -14,6 +14,7 @@ export type JsonRequestBody =
 
 export type HttpClientOptions = {
   baseUrl: string;
+  fetcher?: typeof fetch;
   getAccessToken?: () => string | null | undefined;
   onUnauthorized?: () => void;
   refreshAccessToken?: () => Promise<string | null | undefined>;
@@ -54,6 +55,7 @@ export class ApiClientError extends Error {
 
 export class HttpClient {
   private readonly baseUrl: string;
+  private readonly fetcher: typeof fetch;
   private readonly getAccessToken?: () => string | null | undefined;
   private readonly onUnauthorized?: () => void;
   private readonly refreshAccessToken?: () => Promise<string | null | undefined>;
@@ -61,6 +63,7 @@ export class HttpClient {
 
   constructor(options: HttpClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
+    this.fetcher = options.fetcher ?? fetch;
     this.getAccessToken = options.getAccessToken;
     this.onUnauthorized = options.onUnauthorized;
     this.refreshAccessToken = options.refreshAccessToken;
@@ -161,7 +164,7 @@ export class HttpClient {
   private async fetch(path: string, options: InternalRequestOptions): Promise<Response> {
     const { body, query, didRefresh: _didRefresh, unwrap: _unwrap, ...requestInit } = options;
 
-    return fetch(this.createUrl(path, query), {
+    return this.fetcher(this.createUrl(path, query), {
       ...requestInit,
       body: this.createBody(body),
       headers: this.createHeaders(options)

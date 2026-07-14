@@ -8,6 +8,7 @@ import { queryKeys } from "@webtui/api-client";
 import { api } from "@/lib/api";
 import { useAuthStore } from "./auth-store";
 import { clearMediaObjectUrlCache } from "@/features/chat/model/media-cache";
+import { isLikelyOfflineError } from "@/features/chat/model/offline-cache";
 
 type AuthContextValue = {
   isAuthenticated: boolean;
@@ -29,6 +30,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setUser = useAuthStore((state) => state.setUser);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [formError, setFormError] = useState<string | null>(null);
+  const [isRestoringSession, setIsRestoringSession] = useState(false);
+  const [restoreAttemptedToken, setRestoreAttemptedToken] = useState<string | null>(null);
 
   const meQuery = useQuery({
     enabled: hydrated && Boolean(accessToken),
@@ -47,10 +50,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [meQuery.data, setUser]);
 
   useEffect(() => {
-    if (meQuery.isError) {
+    if (meQuery.isError && !isLikelyOfflineError(meQuery.error)) {
       clearSession();
     }
-  }, [clearSession, meQuery.isError]);
+  }, [clearSession, meQuery.error, meQuery.isError]);
+
+  useEffect(() => {
+    if (!hydrated || accessToken || !refreshToken || restoreAttemptedToken === refreshToken) {
+      return;
+    }
+
+    let active = true;
+    setIsRestoringSession(true);
+    setRestoreAttemptedToken(refreshToken);
+
+    api.auth
+      .refresh({ refresh_token: refreshToken })
+      .then((result) => {
+        if (!active) {
+          return;
+        }
+        setSession(result);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
+      })
+      .catch(() => {
+        if (active) {
+          clearSession();
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsRestoringSession(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [accessToken, clearSession, hydrated, queryClient, refreshToken, restoreAttemptedToken, setSession]);
 
   const loginMutation = useMutation({
     mutationFn: (input: LoginInput) => api.auth.login(input),
@@ -104,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [accessToken, logoutMutation, user]
   );
 
-  if (!hydrated) {
+  if (!hydrated || isRestoringSession) {
     return <AuthLoadingState label="Đang khởi tạo phiên làm việc..." />;
   }
 

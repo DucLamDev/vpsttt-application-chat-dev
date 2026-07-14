@@ -14,6 +14,15 @@ type Handler struct {
 	service *notificationsapp.Service
 }
 
+type preferenceRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	Mode        string `json:"mode"`
+	Preview     *bool  `json:"preview"`
+	QuietHours  *bool  `json:"quiet_hours"`
+	QuietStart  string `json:"quiet_start"`
+	QuietEnd    string `json:"quiet_end"`
+}
+
 func NewHandler(service *notificationsapp.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -22,6 +31,8 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private := router.Group("/notifications")
 	private.Use(authMiddleware)
 	private.GET("", h.ListMine)
+	private.GET("/preferences", h.GetPreferences)
+	private.PUT("/preferences", h.UpsertPreferences)
 	private.PUT("/:notification_id/read", h.MarkRead)
 	private.PUT("/read-all", h.MarkAllRead)
 }
@@ -37,6 +48,37 @@ func (h *Handler) ListMine(c *gin.Context) {
 		return
 	}
 	response.OK(c, nethttp.StatusOK, gin.H{"notifications": notifications})
+}
+
+func (h *Handler) GetPreferences(c *gin.Context) {
+	preference, err := h.service.GetPreference(c.Request.Context(), middleware.CurrentUserID(c), c.Query("workspace_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, preference)
+}
+
+func (h *Handler) UpsertPreferences(c *gin.Context) {
+	var req preferenceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khong hop le.", nil)
+		return
+	}
+	preference, err := h.service.UpsertPreference(c.Request.Context(), notificationsapp.PreferenceInput{
+		UserID:      middleware.CurrentUserID(c),
+		WorkspaceID: requestWorkspaceID(c, req.WorkspaceID),
+		Mode:        req.Mode,
+		Preview:     req.Preview,
+		QuietHours:  req.QuietHours,
+		QuietStart:  req.QuietStart,
+		QuietEnd:    req.QuietEnd,
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, preference)
 }
 
 func (h *Handler) MarkRead(c *gin.Context) {
@@ -62,4 +104,11 @@ func queryInt(c *gin.Context, key string) int {
 		return 0
 	}
 	return value
+}
+
+func requestWorkspaceID(c *gin.Context, bodyWorkspaceID string) string {
+	if bodyWorkspaceID != "" {
+		return bodyWorkspaceID
+	}
+	return c.Query("workspace_id")
 }

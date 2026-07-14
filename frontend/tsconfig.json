@@ -8,6 +8,9 @@
       "path": "./packages/api-client"
     },
     {
+      "path": "./packages/chat-core"
+    },
+    {
       "path": "./packages/ui"
     },
     {

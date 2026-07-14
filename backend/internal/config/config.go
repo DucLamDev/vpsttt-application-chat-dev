@@ -23,6 +23,7 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 
 type Config struct {
 	App          AppConfig
+	Client       ClientConfig
 	HTTP         HTTPConfig
 	Metrics      MetricsConfig
 	Worker       WorkerConfig
@@ -46,6 +47,13 @@ type AppConfig struct {
 	LogFormat   string
 	StartedAt   time.Time
 	ServiceName string
+}
+
+type ClientConfig struct {
+	DesktopMinimumVersion     string
+	DesktopRecommendedVersion string
+	DesktopReleaseManifestDir string
+	DesktopUpdateURL          string
 }
 
 type HTTPConfig struct {
@@ -137,6 +145,12 @@ func Load() (*Config, error) {
 			StartedAt:   time.Now().UTC(),
 			ServiceName: getEnv("SERVICE_NAME", "api"),
 		},
+		Client: ClientConfig{
+			DesktopMinimumVersion:     getEnv("DESKTOP_MIN_VERSION", "0.1.0"),
+			DesktopRecommendedVersion: getEnv("DESKTOP_RECOMMENDED_VERSION", getEnv("APP_VERSION", "dev")),
+			DesktopReleaseManifestDir: getEnv("DESKTOP_RELEASE_MANIFEST_DIR", ""),
+			DesktopUpdateURL:          getEnv("DESKTOP_UPDATE_URL", "https://chat.vpsttt.com/downloads/desktop"),
+		},
 		HTTP: HTTPConfig{
 			Host:                 getEnv("API_HTTP_HOST", "0.0.0.0"),
 			Port:                 getEnvInt("API_HTTP_PORT", 8080),
@@ -212,6 +226,12 @@ func (c *Config) Validate() error {
 
 	if c.App.Name == "" {
 		problems = append(problems, "APP_NAME không được để trống")
+	}
+	if strings.TrimSpace(c.Client.DesktopUpdateURL) != "" {
+		parsed, err := url.Parse(strings.TrimSpace(c.Client.DesktopUpdateURL))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			problems = append(problems, "DESKTOP_UPDATE_URL must be a valid http/https URL")
+		}
 	}
 	if c.HTTP.Port <= 0 || c.HTTP.Port > 65535 {
 		problems = append(problems, "API_HTTP_PORT không hợp lệ")

@@ -1,6 +1,7 @@
 "use client";
 
 import type { AuthResult, AuthUser } from "@webtui/types";
+import { getPlatformServices } from "@webtui/chat-core";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
@@ -56,7 +57,7 @@ export const useAuthStore = create<AuthState>()(
         state?.setHydrated(true);
       },
       partialize: (state) => ({
-        accessToken: state.accessToken,
+        accessToken: getPlatformServices().lifecycle.isDesktop ? null : state.accessToken,
         refreshToken: state.refreshToken,
         rememberLogin: state.rememberLogin,
         sessionId: state.sessionId,
@@ -70,11 +71,10 @@ export const useAuthStore = create<AuthState>()(
 function createAuthStorage(): StateStorage {
   return {
     getItem(name) {
-      return window.localStorage.getItem(name) ?? window.sessionStorage.getItem(name);
+      return getPlatformServices().storage.getItem(name);
     },
     removeItem(name) {
-      window.localStorage.removeItem(name);
-      window.sessionStorage.removeItem(name);
+      return getPlatformServices().storage.removeItem(name);
     },
     setItem(name, value) {
       let remember = true;
@@ -85,10 +85,7 @@ function createAuthStorage(): StateStorage {
         // Keep the safer default for data written by older app versions.
       }
 
-      const target = remember ? window.localStorage : window.sessionStorage;
-      const stale = remember ? window.sessionStorage : window.localStorage;
-      stale.removeItem(name);
-      target.setItem(name, value);
+      return getPlatformServices().storage.setItem(name, value, remember ? "persistent" : "session");
     }
   };
 }

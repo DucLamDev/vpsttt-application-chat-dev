@@ -1,7 +1,9 @@
 export {
   DEFAULT_API_BASE_URL,
   DEFAULT_APP_NAME,
+  DEFAULT_APP_VERSION,
   DEFAULT_LOCALE,
+  DEFAULT_RELEASE_CHANNEL,
   DEFAULT_WS_BASE_URL,
   createRuntimeEnvironment
 } from "./runtime";
@@ -40,6 +42,7 @@ export type {
   RealtimeGatewayOptions,
   RealtimeServerEvent
 } from "./realtime-gateway";
+export { createTicketsClient } from "./tickets-client";
 export { collectionFrom, itemFrom } from "./response-utils";
 export { createUsersClient } from "./users-client";
 export { createWorkspacesClient } from "./workspaces-client";

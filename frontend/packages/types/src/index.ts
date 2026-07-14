@@ -30,4 +30,5 @@ export { createPermissionSet, hasPermission, normalizePermissionCode } from "./p
 export type { PermissionInput } from "./permission-utils";
 export type * from "./presence";
 export type * from "./rbac";
+export type * from "./ticket";
 export type * from "./workspace";

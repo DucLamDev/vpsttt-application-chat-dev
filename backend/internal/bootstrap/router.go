@@ -58,6 +58,9 @@ import (
 	rbacapp "github.com/duclamdev/application-chat/backend/internal/modules/rbac/application"
 	rbachttp "github.com/duclamdev/application-chat/backend/internal/modules/rbac/delivery/http"
 	rbacpostgres "github.com/duclamdev/application-chat/backend/internal/modules/rbac/infrastructure/postgres"
+	ticketsapp "github.com/duclamdev/application-chat/backend/internal/modules/tickets/application"
+	ticketshttp "github.com/duclamdev/application-chat/backend/internal/modules/tickets/delivery/http"
+	ticketspostgres "github.com/duclamdev/application-chat/backend/internal/modules/tickets/infrastructure/postgres"
 	usersapp "github.com/duclamdev/application-chat/backend/internal/modules/users/application"
 	usershttp "github.com/duclamdev/application-chat/backend/internal/modules/users/delivery/http"
 	userspostgres "github.com/duclamdev/application-chat/backend/internal/modules/users/infrastructure/postgres"
@@ -76,12 +79,16 @@ import (
 
 func (a *API) registerRoutes() {
 	healthHandler := healthhttp.NewHandler(healthhttp.BuildInfo{
-		Name:      a.cfg.App.Name,
-		Env:       a.cfg.App.Env,
-		Version:   a.cfg.App.Version,
-		StartedAt: a.cfg.App.StartedAt,
-		Now:       time.Now,
-		Checks:    a.healthChecks(),
+		Name:                      a.cfg.App.Name,
+		Env:                       a.cfg.App.Env,
+		Version:                   a.cfg.App.Version,
+		DesktopMinimumVersion:     a.cfg.Client.DesktopMinimumVersion,
+		DesktopRecommendedVersion: a.cfg.Client.DesktopRecommendedVersion,
+		DesktopReleaseManifestDir: a.cfg.Client.DesktopReleaseManifestDir,
+		DesktopUpdateURL:          a.cfg.Client.DesktopUpdateURL,
+		StartedAt:                 a.cfg.App.StartedAt,
+		Now:                       time.Now,
+		Checks:                    a.healthChecks(),
 	})
 
 	healthHandler.Register(a.engine)
@@ -209,6 +216,11 @@ func (a *API) registerAPIV1() {
 	orderService := orderapp.NewService(orderAPIClient, orderRepo, rbacService)
 	orderHandler := orderhttp.NewHandler(orderService)
 	orderHandler.RegisterRoutes(v1, authMiddleware)
+
+	ticketsRepo := ticketspostgres.NewRepository(pool)
+	ticketsService := ticketsapp.NewService(ticketsRepo, rbacService)
+	ticketsHandler := ticketshttp.NewHandler(ticketsService)
+	ticketsHandler.RegisterRoutes(v1, authMiddleware)
 
 	webhooksRepo := webhookspostgres.NewRepository(pool)
 	webhooksService := webhooksapp.NewService(webhooksRepo, rbacService, apiTokensService, webhooksender.NewSender())

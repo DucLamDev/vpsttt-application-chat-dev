@@ -19,6 +19,8 @@ import type {
   IncomingWebhook,
   InstallBotInput,
   Notification,
+  NotificationPreference,
+  NotificationPreferenceInput,
   OrderBotStatus,
   OrderPaymentQRInput,
   OrderPaymentQRResult,
@@ -59,6 +61,14 @@ export function createNotificationsClient(http: HttpClient) {
     },
     markAllRead(params: QueryParams = {}) {
       return http.put<void>("/api/v1/notifications/read-all", undefined, { query: params });
+    },
+    getPreferences(workspaceId: string) {
+      return http.get<NotificationPreference>("/api/v1/notifications/preferences", {
+        query: { workspace_id: workspaceId }
+      });
+    },
+    updatePreferences(input: NotificationPreferenceInput) {
+      return http.put<NotificationPreference>("/api/v1/notifications/preferences", input);
     }
   };
 }

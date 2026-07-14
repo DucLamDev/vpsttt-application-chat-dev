@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, type ChangeEvent, type ClipboardEvent, type CSSProperties, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type FormEvent, type ReactNode, type UIEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { queryKeys } from "@webtui/api-client";
+import { getPlatformServices, type MediaRecorderHandle } from "@webtui/chat-core";
 import {
   Avatar,
   Badge,
@@ -37,13 +38,18 @@ import {
   LogOut,
   MessageCircle,
   Mic,
+  MicOff,
   Monitor,
   MoreVertical,
   Moon,
   PanelRightClose,
   PanelRightOpen,
   Paperclip,
+  Pause,
+  Phone,
+  PhoneOff,
   Pin,
+  Play,
   Plus,
   Reply,
   Search,
@@ -62,19 +68,23 @@ import {
   ThumbsUp,
   Trash2,
   Users,
+  Video,
+  VideoOff,
   Workflow,
   X,
   Zap
 } from "@webtui/icons";
 import { useAuth } from "@/features/auth/auth-provider";
 import { useAuthStore } from "@/features/auth/auth-store";
-import { api } from "@/lib/api";
+import { useDesktopVersionStatus, type DesktopVersionStatus } from "@/features/platform/hooks/use-api-status";
+import { api, runtimeEnvironment } from "@/lib/api";
 import {
   mapAuthUser,
   type CreateChannelPayload,
   type CreateDepartmentPayload,
   useChatWorkspaceData
 } from "../hooks/use-chat-workspace-data";
+import { useWebRtcCall, type WebRtcCallState } from "../hooks/use-webrtc-call";
 import type {
   ChannelFilter,
   ChatChannel,
@@ -89,6 +99,7 @@ import type {
 } from "../model/types";
 import { useUploadStore, type UploadQueueItem } from "../stores/upload-store";
 import { getCachedMediaUrl, resolveCachedMediaUrl } from "../model/media-cache";
+import { readDraft, writeDraft } from "../model/offline-cache";
 import { buildChatTargets } from "../model/chat-targets";
 import { buildDepartmentRows, departmentDescendantIds } from "../model/department-tree";
 import type {
@@ -99,11 +110,16 @@ import type {
   ContactRequest,
   Department,
   DepartmentMember,
+  NotificationPreference,
+  NotificationPreferenceInput,
   OrderServicesExpiringData,
   OrderServicesExpiringInput,
   OrderPaymentQRData,
   OrderWalletBalanceData,
   OrderWalletDepositQRData,
+  Ticket as SupportTicket,
+  TicketPriority,
+  TicketStatus,
   WorkspaceMember
 } from "@webtui/types";
 import { AutomationPage } from "./automation-page";
@@ -244,14 +260,63 @@ const quickReactions = [
   { className: "reaction-choice--angry", emoji: "😡", icon: Angry, label: "Giận" }
 ] as const;
 
+const maxUploadSizeBytes = 100 * 1024 * 1024;
+const uploadAcceptList = [
+  "image/*",
+  "text/*",
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-m4a",
+  "application/ogg",
+  "application/pdf",
+  "application/json",
+  "application/zip",
+  "application/octet-stream",
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+];
+const imageUploadAcceptList = ["image/*"];
+
+type NotificationMode = "all" | "mentions" | "muted";
+
+type NotificationPreferences = {
+  mode: NotificationMode;
+  preview: boolean;
+  quietHours: boolean;
+  quietStart: string;
+  quietEnd: string;
+};
+
+const defaultNotificationPreferences: NotificationPreferences = {
+  mode: "all",
+  preview: true,
+  quietEnd: "07:00",
+  quietHours: false,
+  quietStart: "22:00"
+};
+
+const notificationModeOptions: Array<{ label: string; value: NotificationMode }> = [
+  { label: "Tất cả", value: "all" },
+  { label: "Nhắc tên", value: "mentions" },
+  { label: "Tắt", value: "muted" }
+];
+
 export function ChatWorkspace() {
   const { logout, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const pathname = usePathname();
-  const routedRailItem = railItemFromRoute(pathname);
+  const searchParams = useSearchParams();
+  const routedRailItem = railItemFromRoute(pathname, searchParams);
   const [activeRailItem, setActiveRailItem] = useState<RailItemId>(routedRailItem);
   const [messageSidebarTab, setMessageSidebarTab] = useState<MessageSidebarTab>(
-    parseChatRoute(pathname)?.kind === "channel" ? "channels" : "conversations"
+    parseChatRoute(pathname, searchParams)?.kind === "channel" ? "channels" : "conversations"
   );
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [detailTab, setDetailTab] = useState<DetailTab>("pinned");
@@ -271,25 +336,35 @@ export function ChatWorkspace() {
   const [messageSearchDateTo, setMessageSearchDateTo] = useState("");
   const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
   const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isDetailPanelOpen, setIsDetailPanelOpen] = useState(true);
   const [favoriteChatIds, setFavoriteChatIds] = useState<Set<string>>(() => new Set());
   const [manuallyUnreadChatIds, setManuallyUnreadChatIds] = useState<Set<string>>(() => new Set());
   const [locallyReadChatIds, setLocallyReadChatIds] = useState<Set<string>>(() => new Set());
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(defaultNotificationPreferences);
+  const [isAutoStartEnabled, setIsAutoStartEnabled] = useState(false);
+  const [isAutoStartLoading, setIsAutoStartLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
+  const [isComposerDragActive, setIsComposerDragActive] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorderHandle | null>(null);
+  const recordingCancelledRef = useRef(false);
   const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingPausedAtRef = useRef<number | null>(null);
+  const recordingPausedMsRef = useRef(0);
   const recordingStartedAtRef = useRef<number | null>(null);
-  const recordingStreamRef = useRef<MediaStream | null>(null);
   const seenNotificationIdsRef = useRef<Set<string> | null>(null);
   const seenContactRequestIdsRef = useRef<Set<string> | null>(null);
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingPublishedRef = useRef(false);
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
   const currentUser = useMemo(() => mapAuthUser(user), [user]);
+  const desktopVersionStatus = useDesktopVersionStatus();
   const activeMessageSearchQuery = isMessageSearchOpen ? messageSearchQuery : "";
   const data = useChatWorkspaceData(currentUser, {
     friendSearchQuery,
@@ -322,6 +397,12 @@ export function ChatWorkspace() {
   const selectedChannelMembers = useMemo(
     () => (selectedChannelMembersQuery.data ?? []).filter((member) => member.status === "active" || member.status === "muted"),
     [selectedChannelMembersQuery.data]
+  );
+  const mentionMembers = selectedChannelMembers.length ? selectedChannelMembers : data.members;
+  const activeMentionToken = useMemo(() => resolveMentionToken(draft), [draft]);
+  const mentionSuggestions = useMemo(
+    () => buildMentionSuggestions(mentionMembers, currentUser.id, activeMentionToken?.query ?? ""),
+    [activeMentionToken?.query, currentUser.id, mentionMembers]
   );
   const sidebarBotsQuery = useQuery({
     enabled: Boolean(data.workspaceId && data.can("bot.manage") && activeRailItem === "messages"),
@@ -447,6 +528,13 @@ export function ChatWorkspace() {
     [data.contactRequests]
   );
   const notificationBadgeCount = data.unreadNotificationsCount + incomingContactRequests.length;
+  useEffect(() => {
+    const services = getPlatformServices();
+    if (!services.lifecycle.isDesktop) {
+      return;
+    }
+    void services.tray.setUnreadCount(notificationBadgeCount);
+  }, [notificationBadgeCount]);
   const remoteTypingLabel = useMemo(() => {
     const userId = data.realtime.typingUserIds[0];
     if (!userId) {
@@ -475,10 +563,31 @@ export function ChatWorkspace() {
     }
 
     setToast(`${newest.title}: ${newest.body}`);
-    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-      new Notification(newest.title, { body: newest.body, tag: newest.id });
+    const notifications = getPlatformServices().notifications;
+    if (shouldShowDesktopNotification(newest, notificationPreferences)) {
+      const payload = {
+        body: notificationPreferences.preview ? newest.body : "Bạn có thông báo mới.",
+        data: {
+          channelId: newest.channelId,
+          messageId: newest.messageId,
+          workspaceId: data.workspaceId
+        },
+        tag: newest.id,
+        title: newest.title
+      };
+      const permission = notifications.getPermission();
+      if (permission === "granted") {
+        void notifications.show(payload);
+      } else if (permission === "default") {
+        void notifications.requestPermission().then((nextPermission) => {
+          if (nextPermission === "granted") {
+            return notifications.show(payload);
+          }
+          return undefined;
+        });
+      }
     }
-  }, [data.notifications]);
+  }, [data.notifications, data.workspaceId, notificationPreferences]);
 
   useEffect(() => {
     const currentIds = new Set(incomingContactRequests.map((request) => request.id));
@@ -499,8 +608,11 @@ export function ChatWorkspace() {
     if (!data.workspaceId || typeof window === "undefined") {
       return;
     }
-    try {
-      const stored = window.localStorage.getItem(`vpsttt:chat-preferences:${data.workspaceId}`);
+    let active = true;
+    const applyStoredPreferences = (stored: string | null) => {
+      if (!active) {
+        return;
+      }
       if (!stored) {
         setFavoriteChatIds(new Set());
         setManuallyUnreadChatIds(new Set());
@@ -509,11 +621,101 @@ export function ChatWorkspace() {
       const preferences = JSON.parse(stored) as { favorites?: string[]; unread?: string[] };
       setFavoriteChatIds(new Set(preferences.favorites ?? []));
       setManuallyUnreadChatIds(new Set(preferences.unread ?? []));
-    } catch {
+    };
+    const resetStoredPreferences = () => {
+      if (!active) {
+        return;
+      }
       setFavoriteChatIds(new Set());
       setManuallyUnreadChatIds(new Set());
+    };
+
+    try {
+      const stored = getPlatformServices().storage.getItem(`vpsttt:chat-preferences:${data.workspaceId}`);
+      if (stored instanceof Promise) {
+        void stored.then(applyStoredPreferences).catch(resetStoredPreferences);
+      } else {
+        applyStoredPreferences(stored);
+      }
+    } catch {
+      resetStoredPreferences();
     }
+
+    return () => {
+      active = false;
+    };
   }, [data.workspaceId]);
+
+  useEffect(() => {
+    if (!data.workspaceId || typeof window === "undefined") {
+      return;
+    }
+
+    let active = true;
+    const key = notificationPreferencesStorageKey(data.workspaceId);
+    const applyPreferences = (preferences: NotificationPreferences) => {
+      if (active) {
+        setNotificationPreferences(preferences);
+      }
+    };
+    const cachePreferences = (preferences: NotificationPreferences) => {
+      try {
+        void getPlatformServices().storage.setItem(key, JSON.stringify(preferences), "persistent");
+      } catch {
+        // Local cache is best-effort; backend remains the source of truth.
+      }
+    };
+    const loadLocalPreferences = () => {
+      try {
+        const stored = getPlatformServices().storage.getItem(key);
+        if (stored instanceof Promise) {
+          void stored.then((value) => applyPreferences(parseNotificationPreferences(value))).catch(() => applyPreferences(defaultNotificationPreferences));
+        } else {
+          applyPreferences(parseNotificationPreferences(stored));
+        }
+      } catch {
+        applyPreferences(defaultNotificationPreferences);
+      }
+    };
+
+    loadLocalPreferences();
+    void api.notifications.getPreferences(data.workspaceId)
+      .then((preference) => {
+        const next = mapNotificationPreference(preference);
+        applyPreferences(next);
+        cachePreferences(next);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [data.workspaceId]);
+
+  useEffect(() => {
+    if (!getPlatformServices().lifecycle.isDesktop) {
+      return;
+    }
+
+    let active = true;
+    setIsAutoStartLoading(true);
+    void getPlatformServices().autostart.isEnabled()
+      .then((enabled) => {
+        if (active) {
+          setIsAutoStartEnabled(enabled);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) {
+          setIsAutoStartLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     setLocallyReadChatIds((current) => {
@@ -552,6 +754,14 @@ export function ChatWorkspace() {
       userStatus: directConversation.user.status
     };
   }, [data.directConversations, data.selectedChannelWithMessages, selectedChannelMembers, selectedChannelMembersQuery.data]);
+  const callControls = useWebRtcCall({
+    channelId: data.selectedChannelId,
+    channelName: selectedChatChannel?.name,
+    enabled: data.realtime.status === "connected" && selectedChatChannel?.type === "direct" && Boolean(data.selectedChannelId),
+    lastSignal: data.realtime.lastCallSignal,
+    peerName: selectedChatChannel?.name,
+    sendSignal: data.realtime.publishCallSignal
+  });
   const composerPlaceholder = botComposerPlaceholder(selectedChatChannel);
   const selectedChatFiles = useMemo(() => {
     const fileById = new Map<string, FileItem>();
@@ -561,11 +771,13 @@ export function ChatWorkspace() {
           continue;
         }
         fileById.set(attachment.fileId, {
+          checksumSha256: attachment.checksumSha256,
           downloadUrl: attachment.url,
           id: attachment.fileId,
           mimeType: attachment.mimeType,
           name: attachment.name,
           size: attachment.size ?? attachment.mimeType ?? "File",
+          status: attachment.status,
           tone: attachment.tone,
           updatedAt: message.sentAt
         });
@@ -585,8 +797,35 @@ export function ChatWorkspace() {
         : activeRailItem === "files"
           ? "Tệp tin"
           : activeRailItem === "settings"
-            ? "Cài đặt"
+          ? "Cài đặt"
             : "Tin nhắn";
+
+  useEffect(() => {
+    if (!getPlatformServices().lifecycle.isDesktop) {
+      return;
+    }
+
+    let deepLinkCleanup: (() => void) | undefined;
+    let notificationCleanup: (() => void) | undefined;
+    const services = getPlatformServices();
+    const handleUrls = (urls: string[]) => urls.forEach((url) => openDesktopDeepLink(url));
+
+    void services.deepLinks.registerProtocol("webtui").catch(() => undefined);
+    void services.deepLinks.getInitialUrls().then(handleUrls).catch(() => undefined);
+    void services.deepLinks.onOpenUrl(handleUrls).then((cleanup) => {
+      deepLinkCleanup = cleanup;
+    }).catch(() => undefined);
+    void services.notifications.onClick((payload) => {
+      openDesktopNotificationPayload(payload.data);
+    }).then((cleanup) => {
+      notificationCleanup = cleanup;
+    }).catch(() => undefined);
+
+    return () => {
+      deepLinkCleanup?.();
+      notificationCleanup?.();
+    };
+  }, [data.setSelectedChannelId, data.setWorkspaceSection, data.workspaceId]);
 
   async function handleCreateChannel(input: CreateChannelPayload) {
     if (!canCreateChannel) {
@@ -636,6 +875,47 @@ export function ChatWorkspace() {
     }
   }
 
+  function openDesktopDeepLink(url: string) {
+    const target = parseDesktopDeepLink(url);
+    if (!target) {
+      return;
+    }
+    openDesktopTarget(target);
+  }
+
+  function openDesktopNotificationPayload(payload?: Record<string, unknown>) {
+    if (!payload) {
+      return;
+    }
+    const channelId = typeof payload.channelId === "string" ? payload.channelId : "";
+    const workspaceId = typeof payload.workspaceId === "string" ? payload.workspaceId : data.workspaceId;
+    const messageId = typeof payload.messageId === "string" ? payload.messageId : "";
+    if (!channelId) {
+      return;
+    }
+    openDesktopTarget({ channelId, kind: "channel", messageId, workspaceId });
+  }
+
+  function openDesktopTarget(target: DesktopDeepLinkTarget) {
+    if (target.section && railItems.some((item) => item.id === target.section)) {
+      setActiveRailItem(target.section as RailItemId);
+      data.setWorkspaceSection(target.section);
+      return;
+    }
+
+    if (!target.channelId) {
+      return;
+    }
+
+    const kind = target.kind === "dm" ? "direct" : "channel";
+    showMessageWorkspace(target.kind === "dm" ? "conversations" : "channels");
+    data.setSelectedChannelId(target.channelId, target.workspaceId || data.workspaceId, kind);
+    if (target.messageId) {
+      setFocusedMessageId(target.messageId);
+      setThreadMessageId(null);
+    }
+  }
+
   function handleMessageSidebarTabChange(tab: MessageSidebarTab) {
     setMessageSidebarTab(tab);
     setSearchQuery("");
@@ -668,8 +948,48 @@ export function ChatWorkspace() {
   function handleToggleNotifications() {
     const willOpen = !isNotificationsOpen;
     setIsNotificationsOpen(willOpen);
-    if (willOpen && typeof Notification !== "undefined" && Notification.permission === "default") {
-      void Notification.requestPermission();
+    const notifications = getPlatformServices().notifications;
+    if (willOpen && notifications.getPermission() === "default") {
+      void notifications.requestPermission();
+    }
+  }
+
+  function handleNotificationPreferencesChange(next: NotificationPreferences) {
+    const normalized = normalizeNotificationPreferences(next);
+    setNotificationPreferences(normalized);
+    if (data.workspaceId) {
+      void getPlatformServices().storage.setItem(
+        notificationPreferencesStorageKey(data.workspaceId),
+        JSON.stringify(normalized),
+        "persistent"
+      );
+      if (isTimeValue(normalized.quietStart) && isTimeValue(normalized.quietEnd)) {
+        void api.notifications.updatePreferences(toNotificationPreferenceInput(data.workspaceId, normalized)).catch(() => {
+          setToast("Khong dong bo duoc cai dat thong bao len may chu.");
+        });
+      }
+    }
+  }
+
+  async function handleAutoStartChange(enabled: boolean) {
+    if (!getPlatformServices().lifecycle.isDesktop) {
+      setToast("Tự khởi động chỉ hỗ trợ trên ứng dụng desktop.");
+      return;
+    }
+
+    setIsAutoStartLoading(true);
+    try {
+      if (enabled) {
+        await getPlatformServices().autostart.enable();
+      } else {
+        await getPlatformServices().autostart.disable();
+      }
+      setIsAutoStartEnabled(enabled);
+      setToast(enabled ? "Đã bật tự khởi động cùng hệ điều hành." : "Đã tắt tự khởi động.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Không cập nhật được tự khởi động.");
+    } finally {
+      setIsAutoStartLoading(false);
     }
   }
 
@@ -683,13 +1003,73 @@ export function ChatWorkspace() {
     setMessageSearchDateTo("");
   }
 
+  useEffect(() => {
+    function handleWorkspaceShortcut(event: KeyboardEvent) {
+      const target = event.target;
+      const isEditableTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+      const isModKey = event.ctrlKey || event.metaKey;
+
+      if (isModKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        handleToggleMessageSearch();
+        return;
+      }
+
+      if (!isEditableTarget && event.key === "/" && canUseComposer) {
+        event.preventDefault();
+        composerInputRef.current?.focus();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        setIsEmojiPickerOpen(false);
+        setIsNotificationsOpen(false);
+        if (isMessageSearchOpen) {
+          handleCloseMessageSearch();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleWorkspaceShortcut);
+    return () => window.removeEventListener("keydown", handleWorkspaceShortcut);
+  }, [canUseComposer, isMessageSearchOpen]);
+
+  useEffect(() => {
+    if (!getPlatformServices().lifecycle.isDesktop) {
+      return;
+    }
+
+    function handleExternalLinkClick(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const link = target.closest("a[href]");
+      if (!(link instanceof HTMLAnchorElement) || !shouldOpenExternally(link)) {
+        return;
+      }
+      event.preventDefault();
+      void getPlatformServices().links.openExternal(link.href).catch(() => {
+        setToast("Không mở được liên kết bên ngoài.");
+      });
+    }
+
+    document.addEventListener("click", handleExternalLinkClick);
+    return () => document.removeEventListener("click", handleExternalLinkClick);
+  }, []);
+
   function persistChatPreferences(favorites: Set<string>, unread: Set<string>) {
     if (!data.workspaceId || typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem(
+    void getPlatformServices().storage.setItem(
       `vpsttt:chat-preferences:${data.workspaceId}`,
-      JSON.stringify({ favorites: [...favorites], unread: [...unread] })
+      JSON.stringify({ favorites: [...favorites], unread: [...unread] }),
+      "persistent"
     );
   }
 
@@ -730,9 +1110,7 @@ export function ChatWorkspace() {
       return;
     }
 
-    if (files.length) {
-      uploadQueue.addFiles(files);
-    }
+    addFilesToUploadQueue(files);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -740,6 +1118,81 @@ export function ChatWorkspace() {
     if (imageInputRef.current) {
       imageInputRef.current.value = "";
     }
+  }
+
+  async function handlePickUploadFiles(kind: "file" | "image") {
+    if (!canUploadFile) {
+      setToast(kind === "image" ? "Tài khoản hiện tại chưa có quyền gửi ảnh." : "Tài khoản hiện tại chưa có quyền upload file.");
+      return;
+    }
+
+    try {
+      const files = await getPlatformServices().files.pickFiles({
+        accept: kind === "image" ? imageUploadAcceptList : uploadAcceptList,
+        multiple: true,
+        title: kind === "image" ? "Chọn ảnh" : "Chọn file"
+      });
+      addFilesToUploadQueue(files, { imageOnly: kind === "image", source: "picker" });
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Không chọn được file.");
+    }
+  }
+
+  function addFilesToUploadQueue(
+    files: File[],
+    options: { imageOnly?: boolean; source?: "drop" | "input" | "paste" | "picker" } = {}
+  ) {
+    if (!files.length) {
+      return;
+    }
+
+    const { accepted, rejected } = validateUploadFiles(files, options.imageOnly);
+    if (accepted.length) {
+      uploadQueue.addFiles(accepted);
+    }
+
+    if (!rejected.length) {
+      if (options.source === "drop" || options.source === "paste") {
+        setToast(`${accepted.length} file đã được thêm vào tin nhắn.`);
+      }
+      return;
+    }
+
+    const firstReason = rejected[0]?.reason ?? "File không hợp lệ.";
+    const suffix = rejected.length > 1 ? ` (+${rejected.length - 1} file khác)` : "";
+    setToast(`${firstReason}${suffix}`);
+  }
+
+  function handleComposerDragOver(event: DragEvent<HTMLDivElement>) {
+    if (!event.dataTransfer.types.includes("Files")) {
+      return;
+    }
+    event.preventDefault();
+    if (canUploadFile) {
+      event.dataTransfer.dropEffect = "copy";
+      setIsComposerDragActive(true);
+    }
+  }
+
+  function handleComposerDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setIsComposerDragActive(false);
+    }
+  }
+
+  function handleComposerDrop(event: DragEvent<HTMLDivElement>) {
+    if (!event.dataTransfer.files.length) {
+      return;
+    }
+    event.preventDefault();
+    setIsComposerDragActive(false);
+
+    if (!canUploadFile) {
+      setToast("Tài khoản hiện tại chưa có quyền upload file.");
+      return;
+    }
+
+    addFilesToUploadQueue(Array.from(event.dataTransfer.files), { source: "drop" });
   }
 
   function handleComposerPaste(event: ClipboardEvent<HTMLInputElement>) {
@@ -773,8 +1226,7 @@ export function ChatWorkspace() {
       return;
     }
 
-    uploadQueue.addFiles(imageFiles);
-    setToast(`${imageFiles.length} ảnh đã được thêm vào tin nhắn.`);
+    addFilesToUploadQueue(imageFiles, { imageOnly: true, source: "paste" });
   }
 
   function handleEmojiSelect(emoji: string) {
@@ -782,8 +1234,21 @@ export function ChatWorkspace() {
     setIsEmojiPickerOpen(false);
   }
 
+  function handleInsertMention(member: ChannelMember | WorkspaceMember) {
+    const token = resolveMentionToken(draft);
+    if (!token) {
+      return;
+    }
+
+    handleDraftChange(`${draft.slice(0, token.start)}@${mentionMemberName(member)} `);
+    window.requestAnimationFrame(() => composerInputRef.current?.focus());
+  }
+
   function handleDraftChange(value: string) {
     setDraft(value);
+    if (data.workspaceId && data.selectedChannelId) {
+      void writeDraft(data.workspaceId, data.selectedChannelId, value).catch(() => undefined);
+    }
     if (typingStopTimerRef.current) {
       clearTimeout(typingStopTimerRef.current);
       typingStopTimerRef.current = null;
@@ -867,9 +1332,7 @@ export function ChatWorkspace() {
 
   async function handleToggleRecording() {
     if (isRecording) {
-      if (mediaRecorderRef.current?.state === "recording") {
-        mediaRecorderRef.current.stop();
-      }
+      handleStopRecording();
       return;
     }
 
@@ -878,88 +1341,128 @@ export function ChatWorkspace() {
       return;
     }
 
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setToast("Trình duyệt hiện tại chưa hỗ trợ ghi âm.");
-      return;
-    }
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: true
+      const preferredMimeType = preferredVoiceMimeType();
+      let recordingMimeType = preferredMimeType || "audio/webm";
+      recordingCancelledRef.current = false;
+      recordingChunksRef.current = [];
+      recordingPausedAtRef.current = null;
+      recordingPausedMsRef.current = 0;
+      recordingStartedAtRef.current = Date.now();
+
+      const recorder = await getPlatformServices().media.createAudioRecorder({
+        audioBitsPerSecond: 64_000,
+        mimeType: preferredMimeType,
+        onDataAvailable: (blob) => {
+          recordingChunksRef.current.push(blob);
+        },
+        onError: () => {
+          setToast("Ghi âm bị gián đoạn. Vui lòng thử lại.");
+        },
+        onStop: () => {
+          const pausedMs = recordingPausedAtRef.current
+            ? recordingPausedMsRef.current + Date.now() - recordingPausedAtRef.current
+            : recordingPausedMsRef.current;
+          const blob = new Blob(recordingChunksRef.current, { type: recordingMimeType });
+          const extension = voiceFileExtension(recordingMimeType);
+          const durationSeconds = Math.max(
+            1,
+            Math.round((Date.now() - (recordingStartedAtRef.current ?? Date.now()) - pausedMs) / 1000)
+          );
+          if (recordingCancelledRef.current) {
+            setToast("Đã hủy bản ghi âm.");
+          } else {
+            const file = new File([blob], `voice-${Date.now()}.${extension}`, { type: recordingMimeType });
+            if (file.size > 0) {
+              uploadQueue.addVoice(file, durationSeconds);
+              setToast("Đã ghi âm xong. Nhấn Gửi để gửi tin nhắn thoại.");
+            } else {
+              setToast("Không thu được âm thanh. Vui lòng kiểm tra micro và thử lại.");
+            }
+          }
+          recordingCancelledRef.current = false;
+          recordingStartedAtRef.current = null;
+          mediaRecorderRef.current = null;
+          recordingChunksRef.current = [];
+          recordingPausedAtRef.current = null;
+          recordingPausedMsRef.current = 0;
+          setRecordingSeconds(0);
+          setIsRecording(false);
+          setIsRecordingPaused(false);
         }
       });
-      const preferredMimeType = preferredVoiceMimeType();
-      const recorder = preferredMimeType
-        ? new MediaRecorder(stream, { audioBitsPerSecond: 64_000, mimeType: preferredMimeType })
-        : new MediaRecorder(stream, { audioBitsPerSecond: 64_000 });
-      recordingChunksRef.current = [];
-      recordingStartedAtRef.current = Date.now();
-      recordingStreamRef.current = stream;
+
       mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          recordingChunksRef.current.push(event.data);
-        }
-      };
-      recorder.onstop = () => {
-        const mimeType = recorder.mimeType || preferredMimeType || "audio/webm";
-        const blob = new Blob(recordingChunksRef.current, { type: mimeType });
-        const extension = voiceFileExtension(mimeType);
-        const durationSeconds = Math.max(
-          1,
-          Math.round((Date.now() - (recordingStartedAtRef.current ?? Date.now())) / 1000)
-        );
-        const file = new File([blob], `voice-${Date.now()}.${extension}`, { type: mimeType });
-        if (file.size > 0) {
-          uploadQueue.addVoice(file, durationSeconds);
-          setToast("Đã ghi âm xong. Nhấn Gửi để gửi tin nhắn thoại.");
-        } else {
-          setToast("Không thu được âm thanh. Vui lòng kiểm tra micro và thử lại.");
-        }
-        recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
-        recordingStreamRef.current = null;
-        recordingStartedAtRef.current = null;
-        mediaRecorderRef.current = null;
-        recordingChunksRef.current = [];
-        setRecordingSeconds(0);
-        setIsRecording(false);
-      };
-
-      recorder.onerror = () => {
-        setToast("Ghi âm bị gián đoạn. Vui lòng thử lại.");
-      };
-
+      recordingMimeType = recorder.mimeType || recordingMimeType;
       recorder.start(250);
       setRecordingSeconds(0);
       setIsRecording(true);
+      setIsRecordingPaused(false);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Không bật được micro.");
-      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
-      recordingStreamRef.current = null;
+      recordingCancelledRef.current = false;
       recordingStartedAtRef.current = null;
       mediaRecorderRef.current = null;
+      recordingPausedAtRef.current = null;
+      recordingPausedMsRef.current = 0;
       setIsRecording(false);
+      setIsRecordingPaused(false);
     }
   }
 
+  function handleStopRecording() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      return;
+    }
+    recorder.stop();
+  }
+
+  function handlePauseRecording() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording" || !recorder.pause) {
+      return;
+    }
+    recorder.pause();
+    recordingPausedAtRef.current = Date.now();
+    setIsRecordingPaused(true);
+  }
+
+  function handleResumeRecording() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "paused" || !recorder.resume) {
+      return;
+    }
+    if (recordingPausedAtRef.current) {
+      recordingPausedMsRef.current += Date.now() - recordingPausedAtRef.current;
+      recordingPausedAtRef.current = null;
+    }
+    recorder.resume();
+    setIsRecordingPaused(false);
+  }
+
+  function handleCancelRecording() {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+      return;
+    }
+    recordingCancelledRef.current = true;
+    handleStopRecording();
+  }
+
   useEffect(() => {
-    if (!isRecording) {
+    if (!isRecording || isRecordingPaused) {
       return;
     }
     const timer = window.setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
     return () => window.clearInterval(timer);
-  }, [isRecording]);
+  }, [isRecording, isRecordingPaused]);
 
   useEffect(() => {
-    if (isRecording && recordingSeconds >= 300 && mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
+    if (isRecording && !isRecordingPaused && recordingSeconds >= 300 && mediaRecorderRef.current?.state === "recording") {
+      handleStopRecording();
       setToast("Tin nhắn thoại đã đạt giới hạn 5 phút và được dừng tự động.");
     }
-  }, [isRecording, recordingSeconds]);
+  }, [isRecording, isRecordingPaused, recordingSeconds]);
 
   useEffect(
     () => () => {
@@ -972,6 +1475,24 @@ export function ChatWorkspace() {
     },
     [data.realtime.publishTyping]
   );
+
+  useEffect(() => {
+    let disposed = false;
+    if (!data.workspaceId || !data.selectedChannelId) {
+      setDraft("");
+      return undefined;
+    }
+    void readDraft(data.workspaceId, data.selectedChannelId)
+      .then((value) => {
+        if (!disposed) {
+          setDraft(value);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [data.selectedChannelId, data.workspaceId]);
 
   function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -986,15 +1507,24 @@ export function ChatWorkspace() {
       return;
     }
 
+    const mentionedUserIds = collectMentionedUserIds(body, mentionMembers);
+
     data.sendMessageMutation.mutate(
-      { body, uploads: queuedUploads },
+      { body, mentionedUserIds, uploads: queuedUploads },
       {
         onError: (error) => setToast(error instanceof Error ? error.message : "Không gửi được nội dung."),
         onSuccess: (result) => {
           setDraft("");
+          if (data.workspaceId && data.selectedChannelId) {
+            void writeDraft(data.workspaceId, data.selectedChannelId, "").catch(() => undefined);
+          }
           data.realtime.publishTyping(false);
           typingPublishedRef.current = false;
           uploadQueue.clearAttached();
+          if (result.queued) {
+            setToast("Dang offline, tin nhan da duoc luu vao hang cho gui.");
+            return;
+          }
           if (result.failedUploadNames.length) {
             setToast(`Tin nhắn đã gửi, ${result.failedUploadNames.length} file cần thử lại.`);
           }
@@ -1007,18 +1537,28 @@ export function ChatWorkspace() {
     data.downloadMutation.mutate(file, {
       onError: (error) => setToast(error instanceof Error ? error.message : "Không tải được file."),
       onSuccess: (blob) => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = file.name;
-        link.click();
-        URL.revokeObjectURL(url);
+        void saveDownloadedBlob(blob, file);
       }
+    });
+  }
+
+  async function saveDownloadedBlob(blob: Blob, file: FileItem) {
+    if (file.checksumSha256) {
+      const isValid = await verifyBlobChecksum(blob, file.checksumSha256).catch(() => true);
+      if (!isValid) {
+        setToast("Checksum file không khớp. File tải xuống có thể đã bị lỗi, vui lòng thử lại.");
+        return;
+      }
+    }
+
+    await getPlatformServices().files.saveBlob(blob, file.name).catch((error: unknown) => {
+      setToast(error instanceof Error ? error.message : "Không lưu được file.");
     });
   }
 
   function handleDownloadAttachment(attachment: MessageAttachmentItem) {
     handleDownload({
+      checksumSha256: attachment.checksumSha256,
       id: attachment.fileId,
       mimeType: attachment.mimeType,
       name: attachment.name,
@@ -1172,7 +1712,7 @@ export function ChatWorkspace() {
   }
 
   function handleLoadOlderMessages() {
-    data.loadOlderMessages().catch((error: unknown) =>
+    return data.loadOlderMessages().catch((error: unknown) =>
       setToast(error instanceof Error ? error.message : "Không tải được tin nhắn cũ.")
     );
   }
@@ -1494,12 +2034,15 @@ export function ChatWorkspace() {
             activeRailItem={activeRailItem}
             canManageBots={data.can("bot.manage")}
             canManageCronjobs={data.can("cronjob.manage")}
+            canManageTickets={data.can("ticket.manage")}
             canUseOrderBot={data.can("order.view")}
             canUseOrderBilling={data.can("order.billing")}
             canManageWebhooks={data.can("webhook.manage")}
+            canOpenAdmin={data.can("admin.view")}
             channels={data.channels.filter((channel) => channel.type !== "direct")}
             contacts={contactResults}
             currentUser={currentUser}
+            desktopVersionStatus={desktopVersionStatus}
             departments={data.departments}
             files={data.files}
             friendSearchQuery={friendSearchQuery}
@@ -1526,7 +2069,10 @@ export function ChatWorkspace() {
               data.rejectChannelJoinMutation.isPending
             }
             joinRequestsByChannelId={data.joinRequestsByChannelId}
+            isAutoStartEnabled={isAutoStartEnabled}
+            isAutoStartLoading={isAutoStartLoading}
             onChannelSelect={handleChannelSelect}
+            onAutoStartChange={(enabled) => void handleAutoStartChange(enabled)}
             onApproveChannelJoin={(channelId, userId) =>
               data.approveChannelJoinMutation.mutate({ channelId, userId }, {
                 onError: (error) => setToast(error instanceof Error ? error.message : "Không phê duyệt được yêu cầu."),
@@ -1566,6 +2112,8 @@ export function ChatWorkspace() {
               })
             }
             onSecondaryContactAction={handleContactSecondaryAction}
+            notificationPreferences={notificationPreferences}
+            onNotificationPreferencesChange={handleNotificationPreferencesChange}
             onStartConversation={handleContactPrimaryAction}
             onThemeToggle={toggleTheme}
             theme={theme}
@@ -1599,6 +2147,7 @@ export function ChatWorkspace() {
         ) : selectedChatChannel ? (
           <>
             <ChatHeader
+              callStatus={callControls.callState.status}
               channel={selectedChatChannel}
               isDetailPanelOpen={isDetailPanelOpen}
               isFavorite={isFavoriteChat(selectedChatChannel.id, selectedChatChannel.isFavorite)}
@@ -1606,9 +2155,23 @@ export function ChatWorkspace() {
               isSearchOpen={isMessageSearchOpen}
               members={selectedChannelMembers}
               onMarkUnread={() => handleMarkUnread(selectedChatChannel.id)}
+              onStartAudioCall={selectedChatChannel.type === "direct" ? () => void callControls.startCall("audio") : undefined}
+              onStartVideoCall={selectedChatChannel.type === "direct" ? () => void callControls.startCall("video") : undefined}
               onToggleDetailPanel={() => setIsDetailPanelOpen((current) => !current)}
               onToggleFavorite={() => handleToggleFavorite(selectedChatChannel.id)}
               onToggleSearch={handleToggleMessageSearch}
+            />
+            <CallPanel
+              callState={callControls.callState}
+              isCameraOff={callControls.isCameraOff}
+              isMuted={callControls.isMuted}
+              localStream={callControls.localStream}
+              onAccept={() => void callControls.acceptCall()}
+              onEnd={callControls.endCall}
+              onReject={callControls.rejectCall}
+              onToggleCamera={callControls.toggleCamera}
+              onToggleMute={callControls.toggleMute}
+              remoteStream={callControls.remoteStream}
             />
             {isMessageSearchOpen ? (
               <div className="message-toolbar">
@@ -1649,7 +2212,16 @@ export function ChatWorkspace() {
                 </Tooltip>
               </div>
             ) : null}
-            {data.messagesQuery.isError ? (
+            {data.offlineReadMode || data.queuedOutboxCount ? (
+              <div className="offline-read-banner" role="status">
+                <span>{data.offlineReadMode ? "Dang hien thi du lieu da luu offline." : "Ket noi da san sang."}</span>
+                {data.queuedOutboxCount ? <strong>{data.queuedOutboxCount} tin dang cho gui</strong> : null}
+                {data.queuedOutboxCount ? (
+                  <button onClick={() => void data.flushOutbox()} type="button">Gui lai</button>
+                ) : null}
+              </div>
+            ) : null}
+            {data.messagesQuery.isError && !selectedChatChannel.messages.length ? (
               <ErrorState
                 action={
                   <Button onClick={() => void data.messagesQuery.refetch()} size="sm" variant="secondary">
@@ -1667,6 +2239,7 @@ export function ChatWorkspace() {
                 currentUserId={currentUser.id}
                 editingBody={editingBody}
                 editingMessageId={editingMessageId}
+                focusedMessageId={focusedMessageId}
                 hasOlderMessages={data.hasOlderMessages}
                 isEditingPending={data.editMessageMutation.isPending}
                 isLoadingOlderMessages={data.isLoadingOlderMessages}
@@ -1703,7 +2276,17 @@ export function ChatWorkspace() {
             {!canSendMessage ? (
               <div className="permission-note">Tài khoản hiện tại chưa có quyền gửi tin nhắn trong cuộc trò chuyện này.</div>
             ) : null}
-            <div className="composer-wrap">
+            <div
+              className={isComposerDragActive ? "composer-wrap composer-wrap--drag-active" : "composer-wrap"}
+              onDragLeave={handleComposerDragLeave}
+              onDragOver={handleComposerDragOver}
+              onDrop={handleComposerDrop}
+            >
+              {isComposerDragActive ? (
+                <div className="composer-drop-hint" aria-hidden="true">
+                  Thả file để đính kèm
+                </div>
+              ) : null}
               {uploadQueue.items.length ? (
                 <UploadQueue
                   disabled={data.sendMessageMutation.isPending}
@@ -1716,7 +2299,18 @@ export function ChatWorkspace() {
               <form className="composer" onSubmit={handleSendMessage}>
                 {isRecording ? (
                   <div className="recording-status" role="status">
-                    <span /> Đang ghi {formatRecordingTime(recordingSeconds)}
+                    <span className="recording-status__dot" />
+                    <strong>{isRecordingPaused ? "Đã tạm dừng" : `Đang ghi ${formatRecordingTime(recordingSeconds)}`}</strong>
+                    <button
+                      aria-label={isRecordingPaused ? "Tiếp tục ghi âm" : "Tạm dừng ghi âm"}
+                      onClick={isRecordingPaused ? handleResumeRecording : handlePauseRecording}
+                      type="button"
+                    >
+                      {isRecordingPaused ? <Play size={14} /> : <Pause size={14} />}
+                    </button>
+                    <button aria-label="Hủy ghi âm" onClick={handleCancelRecording} type="button">
+                      <X size={14} />
+                    </button>
                   </div>
                 ) : null}
                 <Tooltip className="composer-leading-tooltip" label="Thêm nội dung">
@@ -1725,12 +2319,34 @@ export function ChatWorkspace() {
                   </Button>
                 </Tooltip>
                 <div className="composer-input-group">
+                  {activeMentionToken && mentionSuggestions.length ? (
+                    <div className="mention-suggestions" role="listbox" aria-label="Gợi ý nhắc tên">
+                      {mentionSuggestions.map((member) => (
+                        <button
+                          aria-label={`Nhắc tên ${mentionMemberName(member)}`}
+                          aria-selected="false"
+                          key={member.user_id}
+                          onClick={() => handleInsertMention(member)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          role="option"
+                          type="button"
+                        >
+                          <Avatar name={mentionMemberName(member)} size="sm" src={member.avatar_url ?? undefined} />
+                          <span>
+                            <strong>{mentionMemberName(member)}</strong>
+                            <small>{member.username ? `@${member.username}` : member.email ?? "Thành viên"}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   <input
                     aria-label="Nhập tin nhắn"
                     disabled={data.sendMessageMutation.isPending || !canSendMessage}
                     onChange={(event) => handleDraftChange(event.target.value)}
                     onPaste={handleComposerPaste}
                     placeholder={composerPlaceholder}
+                    ref={composerInputRef}
                     value={draft}
                   />
                 </div>
@@ -1751,7 +2367,7 @@ export function ChatWorkspace() {
                   <Button
                     aria-label="Gửi hình ảnh"
                     disabled={data.sendMessageMutation.isPending || !canUploadFile}
-                    onClick={() => imageInputRef.current?.click()}
+                    onClick={() => void handlePickUploadFiles("image")}
                     type="button"
                     variant="icon"
                   >
@@ -1762,7 +2378,7 @@ export function ChatWorkspace() {
                   <Button
                     aria-label="Đính kèm file"
                     disabled={data.sendMessageMutation.isPending || !canUploadFile}
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => void handlePickUploadFiles("file")}
                     type="button"
                     variant="icon"
                   >
@@ -1781,9 +2397,9 @@ export function ChatWorkspace() {
                     {isRecording ? <StopCircle size={20} /> : <Mic size={20} />}
                   </Button>
                 </Tooltip>
-                <input className="visually-hidden" multiple onChange={handleFileChange} ref={fileInputRef} type="file" />
+                <input accept={uploadAcceptList.join(",")} className="visually-hidden" multiple onChange={handleFileChange} ref={fileInputRef} type="file" />
                 <input
-                  accept="image/*"
+                  accept={imageUploadAcceptList.join(",")}
                   className="visually-hidden"
                   multiple
                   onChange={handleFileChange}
@@ -1893,12 +2509,15 @@ function WorkspaceSectionPage({
   canManageBots,
   canManageCronjobs,
   canManageDepartments,
+  canManageTickets,
   canManageWebhooks,
+  canOpenAdmin,
   canUseOrderBilling,
   canUseOrderBot,
   channels,
   contacts,
   currentUser,
+  desktopVersionStatus,
   departments,
   files,
   friendSearchQuery,
@@ -1910,8 +2529,12 @@ function WorkspaceSectionPage({
   isLoadingFiles,
   isMutatingChannelMembership,
   isUpdatingProfile,
+  isAutoStartEnabled,
+  isAutoStartLoading,
   joinRequestsByChannelId,
+  notificationPreferences,
   onApproveChannelJoin,
+  onAutoStartChange,
   onChannelSelect,
   onCreateDepartment,
   onDownloadFile,
@@ -1920,6 +2543,7 @@ function WorkspaceSectionPage({
   onRequestChannelJoin,
   onFriendSearchChange,
   onProfileSubmit,
+  onNotificationPreferencesChange,
   onSecondaryContactAction,
   onStartConversation,
   onThemeToggle,
@@ -1931,12 +2555,15 @@ function WorkspaceSectionPage({
   canManageBots: boolean;
   canManageCronjobs: boolean;
   canManageDepartments: boolean;
+  canManageTickets: boolean;
   canManageWebhooks: boolean;
+  canOpenAdmin: boolean;
   canUseOrderBilling: boolean;
   canUseOrderBot: boolean;
   channels: ChatChannel[];
   contacts: ContactResult[];
   currentUser: ChatUser;
+  desktopVersionStatus: DesktopVersionStatus;
   departments: Department[];
   files: FileItem[];
   friendSearchQuery: string;
@@ -1948,8 +2575,12 @@ function WorkspaceSectionPage({
   isLoadingFiles: boolean;
   isMutatingChannelMembership: boolean;
   isUpdatingProfile: boolean;
+  isAutoStartEnabled: boolean;
+  isAutoStartLoading: boolean;
   joinRequestsByChannelId: Map<string, ChannelMember[]>;
+  notificationPreferences: NotificationPreferences;
   onApproveChannelJoin: (channelId: string, userId: string) => void;
+  onAutoStartChange: (enabled: boolean) => void;
   onChannelSelect: (channelId: string) => void;
   onCreateDepartment: (input: CreateDepartmentPayload) => void;
   onDownloadFile: (file: FileItem) => void;
@@ -1962,6 +2593,7 @@ function WorkspaceSectionPage({
     display_name?: string;
     phone_number?: string | null;
   }) => void;
+  onNotificationPreferencesChange: (preferences: NotificationPreferences) => void;
   onSecondaryContactAction: (contact: ContactResult) => void;
   onStartConversation: (contact: ContactResult) => void;
   onThemeToggle: () => void;
@@ -2020,11 +2652,29 @@ function WorkspaceSectionPage({
     return <FilesPage files={files} isLoading={isLoadingFiles} onDownloadFile={onDownloadFile} />;
   }
 
+  if (activeRailItem === "tickets") {
+    return (
+      <TicketsPage
+        canManage={canManageTickets}
+        channels={channels}
+        workspaceId={workspaceId}
+        workspaceMembers={workspaceMembers}
+      />
+    );
+  }
+
   if (activeRailItem === "settings") {
     return (
       <SettingsPage
         currentUser={currentUser}
+        desktopVersionStatus={desktopVersionStatus}
+        isAutoStartEnabled={isAutoStartEnabled}
+        isAutoStartLoading={isAutoStartLoading}
         isUpdatingProfile={isUpdatingProfile}
+        notificationPreferences={notificationPreferences}
+        canOpenAdmin={canOpenAdmin}
+        onAutoStartChange={onAutoStartChange}
+        onNotificationPreferencesChange={onNotificationPreferencesChange}
         onProfileSubmit={onProfileSubmit}
         onThemeToggle={onThemeToggle}
         theme={theme}
@@ -2885,6 +3535,279 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+const legacyTicketStatusOptions: Array<{ label: string; value: TicketStatus }> = [
+  { label: "Má»Ÿ", value: "open" },
+  { label: "Äang chá»", value: "pending" },
+  { label: "ÄÃ£ xá»­ lÃ½", value: "resolved" },
+  { label: "ÄÃ£ Ä‘Ã³ng", value: "closed" }
+];
+
+const legacyTicketPriorityOptions: Array<{ label: string; value: TicketPriority }> = [
+  { label: "Tháº¥p", value: "low" },
+  { label: "BÃ¬nh thÆ°á»ng", value: "normal" },
+  { label: "Cao", value: "high" },
+  { label: "Kháº©n cáº¥p", value: "urgent" }
+];
+
+const ticketStatusText: Record<TicketStatus, string> = {
+  closed: "Da dong",
+  open: "Moi",
+  pending: "Dang cho",
+  resolved: "Da xu ly"
+};
+
+const ticketPriorityText: Record<TicketPriority, string> = {
+  high: "Cao",
+  low: "Thap",
+  normal: "Binh thuong",
+  urgent: "Khan cap"
+};
+
+const ticketStatusOptions = legacyTicketStatusOptions.map((option) => ({
+  ...option,
+  label: ticketStatusText[option.value]
+}));
+
+const ticketPriorityOptions = legacyTicketPriorityOptions.map((option) => ({
+  ...option,
+  label: ticketPriorityText[option.value]
+}));
+
+function TicketsPage({
+  canManage,
+  channels,
+  workspaceId,
+  workspaceMembers
+}: {
+  canManage: boolean;
+  channels: ChatChannel[];
+  workspaceId?: string;
+  workspaceMembers: WorkspaceMember[];
+}) {
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<TicketStatus | "all">("all");
+  const [selectedTicketId, setSelectedTicketId] = useState("");
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [channelId, setChannelId] = useState("");
+  const [priority, setPriority] = useState<TicketPriority>("normal");
+  const [assignedTo, setAssignedTo] = useState("");
+  const [feedback, setFeedback] = useState<{ message: string; tone: "error" | "success" } | null>(null);
+  const ticketStatus = statusFilter === "all" ? "" : statusFilter;
+
+  const ticketsQuery = useQuery({
+    enabled: Boolean(workspaceId),
+    queryFn: () => api.tickets.list(workspaceId as string, { status: ticketStatus, limit: 80 }),
+    queryKey: queryKeys.tickets.all(workspaceId ?? "", ticketStatus)
+  });
+  const tickets = ticketsQuery.data ?? [];
+  const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0];
+  const assignableMembers = workspaceMembers.filter((member) => member.status === "active" || member.status === "muted");
+  const openCount = tickets.filter((ticket) => ticket.status === "open" || ticket.status === "pending").length;
+  const urgentCount = tickets.filter((ticket) => ticket.priority === "urgent" || ticket.priority === "high").length;
+
+  useEffect(() => {
+    if (tickets.length && !tickets.some((ticket) => ticket.id === selectedTicketId)) {
+      setSelectedTicketId(tickets[0].id);
+    }
+  }, [tickets, selectedTicketId]);
+
+  const createTicketMutation = useMutation({
+    mutationFn: () => api.tickets.create(workspaceId as string, {
+      assigned_to: assignedTo || undefined,
+      channel_id: channelId || undefined,
+      description: description.trim(),
+      priority,
+      title: title.trim()
+    }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Khong tao duoc ticket."), tone: "error" }),
+    onSuccess: async (ticket) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.tickets.all(workspaceId ?? "", ticketStatus) });
+      setSelectedTicketId(ticket.id);
+      setTitle("");
+      setDescription("");
+      setChannelId("");
+      setPriority("normal");
+      setAssignedTo("");
+      setIsCreateOpen(false);
+      setFeedback({ message: "Da tao ticket.", tone: "success" });
+    }
+  });
+
+  const updateTicketMutation = useMutation({
+    mutationFn: ({ ticket, values }: { ticket: SupportTicket; values: { assigned_to?: string; channel_id?: string; description?: string; priority?: TicketPriority; status?: TicketStatus; title?: string } }) =>
+      api.tickets.update(workspaceId as string, ticket.id, {
+        assigned_to: values.assigned_to ?? undefined,
+        channel_id: values.channel_id ?? undefined,
+        description: values.description,
+        priority: values.priority,
+        status: values.status,
+        title: values.title
+      }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Khong cap nhat duoc ticket."), tone: "error" }),
+    onSuccess: async (ticket) => {
+      setSelectedTicketId(ticket.id);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.tickets.all(workspaceId ?? "", ticketStatus) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.tickets.detail(workspaceId ?? "", ticket.id) })
+      ]);
+      setFeedback({ message: "Da cap nhat ticket.", tone: "success" });
+    }
+  });
+
+  function handleCreateTicket(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!workspaceId || !title.trim()) {
+      return;
+    }
+    createTicketMutation.mutate();
+  }
+
+  return (
+    <div className="workspace-page tickets-page">
+      <header className="workspace-page__header tickets-page__header">
+        <div>
+          <h1>Ticket</h1>
+        </div>
+        <Button onClick={() => setIsCreateOpen((current) => !current)} size="sm">
+          {isCreateOpen ? <X size={16} /> : <Plus size={16} />}
+          {isCreateOpen ? "Dong" : "Tao ticket"}
+        </Button>
+      </header>
+
+      <section className="ticket-summary-strip">
+        <div><strong>{tickets.length}</strong><small>Ticket trong bo loc</small></div>
+        <div><strong>{openCount}</strong><small>Can xu ly</small></div>
+        <div><strong>{urgentCount}</strong><small>Uu tien cao</small></div>
+        <SegmentedControl
+          aria-label="Loc ticket"
+          onValueChange={(value: TicketStatus | "all") => setStatusFilter(value)}
+          options={[{ label: "Tat ca", value: "all" as const }, ...ticketStatusOptions]}
+          value={statusFilter}
+        />
+      </section>
+
+      {feedback ? (
+        <div className={`bot-feedback bot-feedback--${feedback.tone}`} role="status">
+          <span>{feedback.tone === "success" ? <CheckCircle2 size={17} /> : <Info size={17} />}{feedback.message}</span>
+          <button aria-label="Dong thong bao" onClick={() => setFeedback(null)} type="button"><X size={15} /></button>
+        </div>
+      ) : null}
+
+      {isCreateOpen ? (
+        <form className="ticket-create-form" onSubmit={handleCreateTicket}>
+          <label>Tieu de<input autoFocus onChange={(event) => setTitle(event.target.value)} placeholder="Khach khong truy cap duoc VPS" required value={title} /></label>
+          <label>Kenh lien ket<select onChange={(event) => setChannelId(event.target.value)} value={channelId}>
+            <option value="">Khong gan kenh</option>
+            {channels.map((channel) => <option key={channel.id} value={channel.id}>#{channel.name}</option>)}
+          </select></label>
+          <label>Uu tien<select onChange={(event) => setPriority(event.target.value as TicketPriority)} value={priority}>
+            {ticketPriorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select></label>
+          <label>Nguoi phu trach<select onChange={(event) => setAssignedTo(event.target.value)} value={assignedTo}>
+            <option value="">Chua gan</option>
+            {assignableMembers.map((member) => <option key={member.user_id} value={member.user_id}>{workspaceMemberName(member)}</option>)}
+          </select></label>
+          <label className="ticket-create-form__description">Mo ta<textarea onChange={(event) => setDescription(event.target.value)} placeholder="Tom tat trieu chung, khach hang, dich vu bi anh huong..." value={description} /></label>
+          <Button disabled={createTicketMutation.isPending || !title.trim()} size="sm" type="submit">
+            {createTicketMutation.isPending ? "Dang tao..." : "Tao ticket"}
+          </Button>
+        </form>
+      ) : null}
+
+      <div className="ticket-workspace-grid">
+        <section className="ticket-list-panel">
+          {ticketsQuery.isLoading ? (
+            <PanelSkeleton />
+          ) : ticketsQuery.isError ? (
+            <ErrorState action={<Button onClick={() => void ticketsQuery.refetch()} size="sm" variant="secondary">Thu lai</Button>} description="Khong tai duoc ticket." title="Loi ticket" />
+          ) : tickets.length ? (
+            tickets.map((ticket) => (
+              <button className={ticket.id === selectedTicket?.id ? "ticket-row ticket-row--active" : "ticket-row"} key={ticket.id} onClick={() => setSelectedTicketId(ticket.id)} type="button">
+                <span><Ticket size={18} /></span>
+                <span>
+                  <strong>{ticket.title}</strong>
+                  <small>{cleanTicketChannelLabel(channels, ticket.channel_id)} - {cleanTicketAssigneeLabel(workspaceMembers, ticket.assigned_to)}</small>
+                </span>
+                <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : "slate"}>{ticketPriorityLabel(ticket.priority)}</Badge>
+                <Badge tone={ticket.status === "closed" || ticket.status === "resolved" ? "green" : "blue"}>{ticketStatusLabel(ticket.status)}</Badge>
+              </button>
+            ))
+          ) : (
+            <EmptyState description="Khong co ticket nao trong bo loc hien tai." title="Chua co ticket" />
+          )}
+        </section>
+
+        <aside className="ticket-detail-panel">
+          {selectedTicket ? (
+            <>
+              <header>
+                <span><Ticket size={22} /></span>
+                <div>
+                  <h2>{selectedTicket.title}</h2>
+                  <p>{cleanTicketChannelLabel(channels, selectedTicket.channel_id)} - cap nhat {cleanTicketDate(selectedTicket.updated_at)}</p>
+                </div>
+              </header>
+              <p>{selectedTicket.description || "Chua co mo ta chi tiet."}</p>
+              <div className="ticket-detail-meta">
+                <span><strong>Trang thai</strong><Badge tone="blue">{ticketStatusLabel(selectedTicket.status)}</Badge></span>
+                <span><strong>Uu tien</strong><Badge tone={selectedTicket.priority === "urgent" || selectedTicket.priority === "high" ? "red" : "slate"}>{ticketPriorityLabel(selectedTicket.priority)}</Badge></span>
+                <span><strong>Phu trach</strong><small>{cleanTicketAssigneeLabel(workspaceMembers, selectedTicket.assigned_to)}</small></span>
+                <span><strong>Tao luc</strong><small>{cleanTicketDate(selectedTicket.created_at)}</small></span>
+              </div>
+              {canManage ? (
+                <div className="ticket-detail-actions">
+                  <select aria-label="Trang thai ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { status: event.target.value as TicketStatus } })} value={selectedTicket.status}>
+                    {ticketStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <select aria-label="Uu tien ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { priority: event.target.value as TicketPriority } })} value={selectedTicket.priority}>
+                    {ticketPriorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <select aria-label="Nguoi phu trach ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { assigned_to: event.target.value || "" } })} value={selectedTicket.assigned_to ?? ""}>
+                    <option value="">Chua gan</option>
+                    {assignableMembers.map((member) => <option key={member.user_id} value={member.user_id}>{workspaceMemberName(member)}</option>)}
+                  </select>
+                  <Button disabled={updateTicketMutation.isPending || selectedTicket.status === "closed"} onClick={() => updateTicketMutation.mutate({ ticket: selectedTicket, values: { status: "closed" } })} size="sm">
+                    Dong ticket
+                  </Button>
+                </div>
+              ) : (
+                <small>Ban co the tao va theo doi ticket; cap nhat lifecycle can quyen <code>ticket.manage</code>.</small>
+              )}
+            </>
+          ) : (
+            <EmptyState description="Chon mot ticket de xem lifecycle va nguoi phu trach." title="Chua chon ticket" />
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function ticketStatusLabel(status: TicketStatus) {
+  return ticketStatusOptions.find((option) => option.value === status)?.label ?? status;
+}
+
+function ticketPriorityLabel(priority: TicketPriority) {
+  return ticketPriorityOptions.find((option) => option.value === priority)?.label ?? priority;
+}
+function cleanTicketChannelLabel(channels: ChatChannel[], channelId?: string | null) {
+  const channel = channels.find((item) => item.id === channelId);
+  return channel ? `#${channel.name}` : "Chua gan kenh";
+}
+
+function cleanTicketAssigneeLabel(members: WorkspaceMember[], userId?: string | null) {
+  const member = members.find((item) => item.user_id === userId);
+  return member ? workspaceMemberName(member) : "Chua gan";
+}
+
+function cleanTicketDate(value?: string | null) {
+  if (!value) return "Chua co";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
+}
+
 function FilesPage({
   files,
   isLoading,
@@ -2933,7 +3856,10 @@ function FilesPage({
                   <td>
                     <div className="workspace-data-table__identity">
                       <span className={`file-icon file-icon--${file.tone}`}><FileText size={18} /></span>
-                      <span><strong>{file.name}</strong></span>
+                      <span>
+                        <strong>{file.name}</strong>
+                        {fileSecurityLabel(file.status) ? <small className={`file-security file-security--${fileSecurityTone(file.status)}`}>{fileSecurityLabel(file.status)}</small> : null}
+                      </span>
                     </div>
                   </td>
                   <td className="workspace-data-table__description">{file.mimeType || "Không xác định"}</td>
@@ -2961,14 +3887,28 @@ function FilesPage({
 }
 
 function SettingsPage({
+  canOpenAdmin,
   currentUser,
+  desktopVersionStatus,
+  isAutoStartEnabled,
+  isAutoStartLoading,
   isUpdatingProfile,
+  notificationPreferences,
+  onAutoStartChange,
+  onNotificationPreferencesChange,
   onProfileSubmit,
   onThemeToggle,
   theme
 }: {
+  canOpenAdmin: boolean;
   currentUser: ChatUser;
+  desktopVersionStatus: DesktopVersionStatus;
+  isAutoStartEnabled: boolean;
+  isAutoStartLoading: boolean;
   isUpdatingProfile: boolean;
+  notificationPreferences: NotificationPreferences;
+  onAutoStartChange: (enabled: boolean) => void;
+  onNotificationPreferencesChange: (preferences: NotificationPreferences) => void;
   onProfileSubmit: (input: {
     avatar_url?: string | null;
     display_name?: string;
@@ -3051,6 +3991,10 @@ function SettingsPage({
     });
   }
 
+  function handleOpenAdminPanel() {
+    void getPlatformServices().links.openExternal(adminPanelUrl());
+  }
+
   return (
     <div className="workspace-page settings-page">
       <div className="settings-grid">
@@ -3102,6 +4046,18 @@ function SettingsPage({
           </div>
           <p>Tài khoản của bạn được bảo vệ trong phiên làm việc hiện tại.</p>
         </section>
+        {canOpenAdmin ? (
+          <section className="settings-card settings-card--admin-link">
+            <div>
+              <Monitor size={22} />
+              <h2>Admin Panel</h2>
+            </div>
+            <p>Mo bang quan tri day du tren trinh duyet ngoai.</p>
+            <Button onClick={handleOpenAdminPanel} size="sm" type="button" variant="secondary">
+              <Share2 size={15} /> Mo Admin Panel
+            </Button>
+          </section>
+        ) : null}
         <section className="settings-card settings-card--appearance">
           <div>
             {theme === "dark" ? <Moon size={22} /> : <Sun size={22} />}
@@ -3111,6 +4067,103 @@ function SettingsPage({
           <Button onClick={onThemeToggle} size="sm" variant="secondary">
             Chuyển chế độ
           </Button>
+        </section>
+        <section className={`settings-card settings-card--desktop-version settings-card--desktop-version-${desktopVersionStatus.status}`}>
+          <div>
+            <Cloud size={22} />
+            <h2>Phien ban desktop</h2>
+          </div>
+          <p>{desktopVersionStatus.label}</p>
+          {desktopVersionStatus.detail ? <small className="settings-card__muted">{desktopVersionStatus.detail}</small> : null}
+          <div className="desktop-version-actions">
+            <Badge tone={desktopVersionBadgeTone(desktopVersionStatus.status)}>
+              {desktopVersionStatus.status === "unsupported"
+                ? "Can cap nhat"
+                : desktopVersionStatus.status === "update_available"
+                  ? "Co ban moi"
+                  : desktopVersionStatus.status === "offline"
+                    ? "Chua kiem tra"
+                    : desktopVersionStatus.status === "checking"
+                      ? "Dang kiem tra"
+                      : "Tuong thich"}
+            </Badge>
+            {desktopVersionStatus.updateUrl ? (
+              <Button
+                onClick={() => void getPlatformServices().links.openExternal(desktopVersionStatus.updateUrl as string)}
+                size="sm"
+                type="button"
+                variant={desktopVersionStatus.status === "unsupported" ? "primary" : "secondary"}
+              >
+                <Share2 size={15} /> Mo trang cap nhat
+              </Button>
+            ) : null}
+          </div>
+        </section>
+        <section className="settings-card settings-card--notifications">
+          <div>
+            <Bell size={22} />
+            <h2>Thông báo desktop</h2>
+          </div>
+          <SegmentedControl
+            aria-label="Chế độ thông báo"
+            onValueChange={(value: NotificationMode) => onNotificationPreferencesChange({ ...notificationPreferences, mode: value })}
+            options={notificationModeOptions}
+            value={notificationPreferences.mode}
+          />
+          <label className="settings-toggle-row">
+            <span>
+              <strong>Hiển thị nội dung xem trước</strong>
+              <small>{notificationPreferences.preview ? "Thông báo native hiện tiêu đề và nội dung." : "Thông báo native chỉ báo có tin mới."}</small>
+            </span>
+            <input
+              checked={notificationPreferences.preview}
+              onChange={(event) => onNotificationPreferencesChange({ ...notificationPreferences, preview: event.target.checked })}
+              type="checkbox"
+            />
+          </label>
+          <label className="settings-toggle-row">
+            <span>
+              <strong>Không làm phiền theo giờ</strong>
+              <small>Không phát native notification trong khoảng giờ đã chọn.</small>
+            </span>
+            <input
+              checked={notificationPreferences.quietHours}
+              onChange={(event) => onNotificationPreferencesChange({ ...notificationPreferences, quietHours: event.target.checked })}
+              type="checkbox"
+            />
+          </label>
+          <div className="settings-time-row">
+            <label>
+              Bắt đầu
+              <input
+                disabled={!notificationPreferences.quietHours}
+                onChange={(event) => onNotificationPreferencesChange({ ...notificationPreferences, quietStart: event.target.value })}
+                type="time"
+                value={notificationPreferences.quietStart}
+              />
+            </label>
+            <label>
+              Kết thúc
+              <input
+                disabled={!notificationPreferences.quietHours}
+                onChange={(event) => onNotificationPreferencesChange({ ...notificationPreferences, quietEnd: event.target.value })}
+                type="time"
+                value={notificationPreferences.quietEnd}
+              />
+            </label>
+          </div>
+          <label className="settings-toggle-row">
+            <span>
+              <strong>Tự khởi động cùng hệ điều hành</strong>
+              <small>Mặc định tắt; chỉ áp dụng cho bản desktop.</small>
+            </span>
+            <input
+              checked={isAutoStartEnabled}
+              disabled={isAutoStartLoading}
+              onChange={(event) => onAutoStartChange(event.target.checked)}
+              type="checkbox"
+            />
+          </label>
         </section>
         <section className="settings-card settings-card--sessions">
           <div className="sessions-heading">
@@ -3924,6 +4977,7 @@ function TypingDots({ label }: { label: string }) {
 }
 
 function ChatHeader({
+  callStatus = "idle",
   channel,
   isDetailPanelOpen = false,
   isFavorite = false,
@@ -3931,10 +4985,13 @@ function ChatHeader({
   isSearchOpen,
   members = [],
   onMarkUnread,
+  onStartAudioCall,
+  onStartVideoCall,
   onToggleDetailPanel,
   onToggleFavorite,
   onToggleSearch
 }: {
+  callStatus?: WebRtcCallState["status"];
   channel: ChatChannel;
   isDetailPanelOpen?: boolean;
   isFavorite?: boolean;
@@ -3942,11 +4999,15 @@ function ChatHeader({
   isSearchOpen: boolean;
   members?: ChannelMember[];
   onMarkUnread?: () => void;
+  onStartAudioCall?: () => void;
+  onStartVideoCall?: () => void;
   onToggleDetailPanel?: () => void;
   onToggleFavorite?: () => void;
   onToggleSearch: () => void;
 }) {
   const [openPopover, setOpenPopover] = useState<"members" | "more" | null>(null);
+  const canShowCallActions = Boolean(onStartAudioCall || onStartVideoCall);
+  const callDisabled = !onStartAudioCall || (callStatus !== "idle" && callStatus !== "ended" && callStatus !== "error");
 
   useEffect(() => setOpenPopover(null), [channel.id]);
 
@@ -4017,6 +5078,38 @@ function ChatHeader({
             <Search size={19} />
           </Button>
         </Tooltip>
+        {canShowCallActions ? (
+          <>
+            <Tooltip label={callDisabled ? "Cuoc goi dang dien ra" : "Goi thoai"}>
+              <Button
+                aria-label="Goi thoai"
+                disabled={callDisabled}
+                onClick={() => {
+                  setOpenPopover(null);
+                  onStartAudioCall?.();
+                }}
+                type="button"
+                variant="icon"
+              >
+                <Phone size={19} />
+              </Button>
+            </Tooltip>
+            <Tooltip label={callDisabled ? "Cuoc goi dang dien ra" : "Goi video"}>
+              <Button
+                aria-label="Goi video"
+                disabled={callDisabled || !onStartVideoCall}
+                onClick={() => {
+                  setOpenPopover(null);
+                  onStartVideoCall?.();
+                }}
+                type="button"
+                variant="icon"
+              >
+                <Video size={19} />
+              </Button>
+            </Tooltip>
+          </>
+        ) : null}
         <Tooltip label={isDetailPanelOpen ? "Ẩn thông tin cuộc trò chuyện" : "Hiện thông tin cuộc trò chuyện"}>
           <Button
             aria-label={isDetailPanelOpen ? "Ẩn thông tin cuộc trò chuyện" : "Hiện thông tin cuộc trò chuyện"}
@@ -4074,6 +5167,142 @@ function ChatHeader({
       </div>
     </header>
   );
+}
+
+function CallPanel({
+  callState,
+  isCameraOff,
+  isMuted,
+  localStream,
+  onAccept,
+  onEnd,
+  onReject,
+  onToggleCamera,
+  onToggleMute,
+  remoteStream
+}: {
+  callState: WebRtcCallState;
+  isCameraOff: boolean;
+  isMuted: boolean;
+  localStream: MediaStream | null;
+  onAccept: () => void;
+  onEnd: () => void;
+  onReject: () => void;
+  onToggleCamera: () => void;
+  onToggleMute: () => void;
+  remoteStream: MediaStream | null;
+}) {
+  if (callState.status === "idle") {
+    return null;
+  }
+
+  const canControlCall = callState.status === "outgoing" || callState.status === "connecting" || callState.status === "active";
+  const isVideo = callState.mode === "video";
+  const showVideo = isVideo && canControlCall;
+
+  return (
+    <section className={`call-panel call-panel--${callState.status}`} role="status">
+      <div className="call-panel__summary">
+        <span className="call-panel__badge">
+          {isVideo ? <Video size={18} /> : <Phone size={18} />}
+        </span>
+        <div>
+          <strong>{callPanelTitle(callState)}</strong>
+          <small>{callPanelSubtitle(callState)}</small>
+        </div>
+      </div>
+      {showVideo ? (
+        <div className="call-panel__video-grid">
+          <MediaStreamVideo label={callState.peerName || "Nguoi goi"} stream={remoteStream} />
+          <MediaStreamVideo label="Ban" muted stream={localStream} />
+        </div>
+      ) : null}
+      <div className="call-panel__actions">
+        {callState.status === "incoming" ? (
+          <>
+            <Button className="call-panel__button call-panel__button--accept" onClick={onAccept} size="sm" variant="secondary">
+              <Phone size={16} />
+              Nhan
+            </Button>
+            <Button className="call-panel__button call-panel__button--end" onClick={onReject} size="sm" variant="secondary">
+              <PhoneOff size={16} />
+              Tu choi
+            </Button>
+          </>
+        ) : null}
+        {canControlCall ? (
+          <>
+            <Button className={isMuted ? "call-panel__button call-panel__button--active" : "call-panel__button"} onClick={onToggleMute} size="sm" variant="secondary">
+              {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+              {isMuted ? "Bat mic" : "Tat mic"}
+            </Button>
+            {isVideo ? (
+              <Button className={isCameraOff ? "call-panel__button call-panel__button--active" : "call-panel__button"} onClick={onToggleCamera} size="sm" variant="secondary">
+                {isCameraOff ? <VideoOff size={16} /> : <Video size={16} />}
+                {isCameraOff ? "Bat camera" : "Tat camera"}
+              </Button>
+            ) : null}
+            <Button className="call-panel__button call-panel__button--end" onClick={onEnd} size="sm" variant="secondary">
+              <PhoneOff size={16} />
+              Ket thuc
+            </Button>
+          </>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function MediaStreamVideo({
+  label,
+  muted = false,
+  stream
+}: {
+  label: string;
+  muted?: boolean;
+  stream: MediaStream | null;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (videoRef.current && videoRef.current.srcObject !== stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return (
+    <div className={stream ? "call-panel__video" : "call-panel__video call-panel__video--empty"}>
+      {stream ? <video autoPlay muted={muted} playsInline ref={videoRef} /> : <span>{label}</span>}
+      <small>{label}</small>
+    </div>
+  );
+}
+
+function callPanelTitle(callState: WebRtcCallState): string {
+  if (callState.status === "incoming") {
+    return "Cuoc goi den";
+  }
+  if (callState.status === "outgoing") {
+    return "Dang goi";
+  }
+  if (callState.status === "connecting") {
+    return "Dang ket noi";
+  }
+  if (callState.status === "active") {
+    return "Dang trong cuoc goi";
+  }
+  if (callState.status === "error") {
+    return "Khong the thuc hien cuoc goi";
+  }
+  return "Cuoc goi da ket thuc";
+}
+
+function callPanelSubtitle(callState: WebRtcCallState): string {
+  if (callState.error) {
+    return callState.error;
+  }
+  const modeLabel = callState.mode === "video" ? "Video" : "Thoai";
+  return [modeLabel, callState.peerName].filter(Boolean).join(" - ");
 }
 
 function ChannelAccessView({
@@ -4301,6 +5530,7 @@ function MessageTimeline({
   currentUserId,
   editingBody,
   editingMessageId,
+  focusedMessageId,
   hasOlderMessages,
   isEditingPending,
   isLoadingOlderMessages,
@@ -4327,6 +5557,7 @@ function MessageTimeline({
   currentUserId: string;
   editingBody: string;
   editingMessageId: string | null;
+  focusedMessageId: string | null;
   hasOlderMessages: boolean;
   isEditingPending: boolean;
   isLoadingOlderMessages: boolean;
@@ -4337,7 +5568,7 @@ function MessageTimeline({
   onDownloadAttachment: (attachment: MessageAttachmentItem) => void;
   onForwardMessage: (messageId: string) => void;
   onResolveAttachment: (fileId: string) => Promise<Blob>;
-  onLoadOlderMessages: () => void;
+  onLoadOlderMessages: () => Promise<unknown> | void;
   onOpenThread: (messageId: string) => void;
   onSearchResultSelect: (message: ChatMessage) => void;
   onStartEdit: (message: ChatMessage) => void;
@@ -4351,7 +5582,10 @@ function MessageTimeline({
   workspaceMembers: WorkspaceMember[];
 }) {
   const lastMessageId = messages.at(-1)?.id;
+  const timelineRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const olderLoadRequestedRef = useRef(false);
+  const olderScrollAnchorRef = useRef<number | null>(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const memberByUserId = useMemo(
     () => new Map<MessageAuthorLookupMember["user_id"], MessageAuthorLookupMember>(
@@ -4370,19 +5604,71 @@ function MessageTimeline({
       return;
     }
 
-    bottomRef.current?.scrollIntoView({ behavior: messages.length > 1 ? "smooth" : "auto", block: "end" });
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     const timeout = window.setTimeout(() => {
       bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
     }, 120);
 
     return () => window.clearTimeout(timeout);
-  }, [lastMessageId, messages.length]);
+  }, [lastMessageId]);
+
+  useEffect(() => {
+    if (!isLoadingOlderMessages) {
+      olderLoadRequestedRef.current = false;
+    }
+  }, [isLoadingOlderMessages]);
+
+  useLayoutEffect(() => {
+    const scrollAnchor = olderScrollAnchorRef.current;
+    const timeline = timelineRef.current;
+
+    if (isLoadingOlderMessages || scrollAnchor === null || !timeline) {
+      return;
+    }
+
+    timeline.scrollTop = Math.max(0, timeline.scrollHeight - scrollAnchor);
+    olderScrollAnchorRef.current = null;
+  }, [isLoadingOlderMessages, messages.length]);
+
+  useEffect(() => {
+    if (!focusedMessageId) {
+      return;
+    }
+    const target = timelineRef.current?.querySelector<HTMLElement>(`[data-message-id="${cssEscape(focusedMessageId)}"]`);
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusedMessageId, messages]);
+
+  function requestOlderMessages(source?: HTMLDivElement | null) {
+    if (!hasOlderMessages || isLoadingOlderMessages || olderLoadRequestedRef.current) {
+      return;
+    }
+
+    const timeline = source ?? timelineRef.current;
+    olderLoadRequestedRef.current = true;
+    olderScrollAnchorRef.current = timeline ? timeline.scrollHeight - timeline.scrollTop : null;
+    const result = onLoadOlderMessages();
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+      void (result as PromiseLike<unknown>).then(
+        () => undefined,
+        () => {
+          olderLoadRequestedRef.current = false;
+          olderScrollAnchorRef.current = null;
+        }
+      );
+    }
+  }
+
+  function handleTimelineScroll(event: UIEvent<HTMLDivElement>) {
+    if (event.currentTarget.scrollTop <= 96) {
+      requestOlderMessages(event.currentTarget);
+    }
+  }
 
   if (!messages.length) {
     return (
-      <div className="message-timeline">
+      <div className="message-timeline" onScroll={handleTimelineScroll} ref={timelineRef}>
         {hasOlderMessages ? (
-          <Button disabled={isLoadingOlderMessages} onClick={onLoadOlderMessages} size="sm" variant="secondary">
+          <Button disabled={isLoadingOlderMessages} onClick={() => requestOlderMessages()} size="sm" variant="secondary">
             {isLoadingOlderMessages ? "Đang tải..." : "Tải tin nhắn cũ"}
           </Button>
         ) : null}
@@ -4392,9 +5678,9 @@ function MessageTimeline({
   }
 
   return (
-    <div className="message-timeline">
+    <div className="message-timeline" onScroll={handleTimelineScroll} ref={timelineRef}>
       {hasOlderMessages ? (
-        <Button className="load-older-button" disabled={isLoadingOlderMessages} onClick={onLoadOlderMessages} size="sm" variant="secondary">
+        <Button className="load-older-button" disabled={isLoadingOlderMessages} onClick={() => requestOlderMessages()} size="sm" variant="secondary">
           {isLoadingOlderMessages ? "Đang tải..." : "Tải tin nhắn cũ"}
         </Button>
       ) : null}
@@ -4424,9 +5710,27 @@ function MessageTimeline({
       {messages.map((message) => {
         const hasReactions = Boolean(message.reactions?.length);
         const messageAuthor = resolveRenderedMessageAuthor(message, memberByUserId);
+        if (message.isSystem) {
+          const SystemIcon = message.systemTone === "announcement" ? Bell : Info;
+          return (
+            <article
+              className={`message-system-row message-system-row--${message.systemTone ?? "system"}${focusedMessageId === message.id ? " message-system-row--focused" : ""}`}
+              data-message-id={message.id}
+              key={message.id}
+            >
+              <span className="message-system-row__icon"><SystemIcon size={15} /></span>
+              <div className="message-system-row__body">
+                <strong>{message.systemTone === "announcement" ? "Thong bao" : "He thong"}</strong>
+                <MessageBody body={message.body} />
+              </div>
+              <time>{message.sentAt}</time>
+            </article>
+          );
+        }
         return (
         <article
-          className={`${message.isMine ? "message-row message-row--local" : "message-row"}${isImageOnlyMessage(message) ? " message-row--media-only" : ""}${hasReactions ? " message-row--has-reactions" : ""}`}
+          className={`${message.isMine ? "message-row message-row--local" : "message-row"}${isImageOnlyMessage(message) ? " message-row--media-only" : ""}${hasReactions ? " message-row--has-reactions" : ""}${focusedMessageId === message.id ? " message-row--focused" : ""}`}
+          data-message-id={message.id}
           key={message.id}
         >
           <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} />
@@ -4540,7 +5844,7 @@ function MessageTimeline({
                       </span>
                       <span>
                         <strong>{attachment.name}</strong>
-                        <small>{attachment.size ?? attachment.mimeType ?? "File đính kèm"}</small>
+                        <small>{fileSecurityLabel(attachment.status) ?? attachment.size ?? attachment.mimeType ?? "File đính kèm"}</small>
                       </span>
                     </button>
                   )
@@ -4667,6 +5971,315 @@ function parseDateMs(value?: string | null) {
   }
   const timestamp = new Date(value).getTime();
   return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+type DesktopDeepLinkTarget = {
+  channelId?: string;
+  kind?: "channel" | "dm";
+  messageId?: string;
+  section?: string;
+  workspaceId?: string;
+};
+
+function parseDesktopDeepLink(value: string): DesktopDeepLinkTarget | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "webtui:") {
+      return null;
+    }
+
+    const host = url.host.toLowerCase();
+    const segments = url.pathname.split("/").filter(Boolean);
+    const workspaceId = url.searchParams.get("workspace") || url.searchParams.get("workspace_id") || segments[0] || "";
+    const section = url.searchParams.get("section") || (host === "section" ? segments[1] : "");
+    const kindParam = url.searchParams.get("kind");
+    const kind = kindParam === "dm" || host === "dm" ? "dm" : "channel";
+    const channelId =
+      url.searchParams.get("target") ||
+      url.searchParams.get("channel") ||
+      url.searchParams.get("channel_id") ||
+      (host === "chat" ? segments[1] : segments[0]) ||
+      "";
+    const messageId = url.searchParams.get("message") || url.searchParams.get("message_id") || "";
+
+    return {
+      channelId,
+      kind,
+      messageId,
+      section,
+      workspaceId
+    };
+  } catch {
+    return null;
+  }
+}
+
+function notificationPreferencesStorageKey(workspaceId: string): string {
+  return `vpsttt:notification-preferences:${workspaceId}`;
+}
+
+function desktopVersionBadgeTone(status: DesktopVersionStatus["status"]): "green" | "orange" | "red" | "slate" {
+  if (status === "unsupported") {
+    return "red";
+  }
+  if (status === "update_available") {
+    return "orange";
+  }
+  if (status === "current") {
+    return "green";
+  }
+  return "slate";
+}
+
+function parseNotificationPreferences(value: string | null): NotificationPreferences {
+  if (!value) {
+    return defaultNotificationPreferences;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<NotificationPreferences>;
+    return normalizeNotificationPreferences(parsed);
+  } catch {
+    return defaultNotificationPreferences;
+  }
+}
+
+function mapNotificationPreference(preference: NotificationPreference): NotificationPreferences {
+  return normalizeNotificationPreferences({
+    mode: preference.mode,
+    preview: preference.preview,
+    quietEnd: preference.quiet_end,
+    quietHours: preference.quiet_hours,
+    quietStart: preference.quiet_start
+  });
+}
+
+function toNotificationPreferenceInput(workspaceId: string, preference: NotificationPreferences): NotificationPreferenceInput {
+  return {
+    mode: preference.mode,
+    preview: preference.preview,
+    quiet_end: preference.quietEnd,
+    quiet_hours: preference.quietHours,
+    quiet_start: preference.quietStart,
+    workspace_id: workspaceId
+  };
+}
+
+function normalizeNotificationPreferences(preferences: Partial<NotificationPreferences>): NotificationPreferences {
+  return {
+    mode: preferences.mode === "mentions" || preferences.mode === "muted" ? preferences.mode : "all",
+    preview: typeof preferences.preview === "boolean" ? preferences.preview : defaultNotificationPreferences.preview,
+    quietEnd: isTimeValue(preferences.quietEnd) ? preferences.quietEnd : defaultNotificationPreferences.quietEnd,
+    quietHours: typeof preferences.quietHours === "boolean" ? preferences.quietHours : defaultNotificationPreferences.quietHours,
+    quietStart: isTimeValue(preferences.quietStart) ? preferences.quietStart : defaultNotificationPreferences.quietStart
+  };
+}
+
+function shouldShowDesktopNotification(notification: NotificationItem, preferences: NotificationPreferences): boolean {
+  if (preferences.mode === "muted") {
+    return false;
+  }
+  if (preferences.mode === "mentions" && !isMentionNotification(notification)) {
+    return false;
+  }
+  if (preferences.quietHours && isWithinQuietHours(preferences.quietStart, preferences.quietEnd)) {
+    return false;
+  }
+  return true;
+}
+
+function isMentionNotification(notification: NotificationItem): boolean {
+  const type = notification.type.toLowerCase();
+  return type.includes("mention") || type.includes("tag");
+}
+
+function isWithinQuietHours(start: string, end: string, now = new Date()): boolean {
+  const startMinutes = timeValueToMinutes(start);
+  const endMinutes = timeValueToMinutes(end);
+  if (startMinutes === null || endMinutes === null || startMinutes === endMinutes) {
+    return false;
+  }
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  return startMinutes < endMinutes
+    ? currentMinutes >= startMinutes && currentMinutes < endMinutes
+    : currentMinutes >= startMinutes || currentMinutes < endMinutes;
+}
+
+function isTimeValue(value: unknown): value is string {
+  return typeof value === "string" && /^\d{2}:\d{2}$/.test(value) && timeValueToMinutes(value) !== null;
+}
+
+function timeValueToMinutes(value: string): number | null {
+  const [hourValue, minuteValue] = value.split(":");
+  const hour = Number(hourValue);
+  const minute = Number(minuteValue);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return hour * 60 + minute;
+}
+
+function cssEscape(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return value.replace(/["\\]/g, "\\$&");
+}
+
+function resolveMentionToken(value: string): { query: string; start: number } | null {
+  const match = value.match(/(^|\s)@([^\s@]{0,32})$/u);
+  if (!match || typeof match.index !== "number") {
+    return null;
+  }
+
+  return {
+    query: match[2] ?? "",
+    start: match.index + (match[1]?.length ?? 0)
+  };
+}
+
+function buildMentionSuggestions(
+  members: Array<ChannelMember | WorkspaceMember>,
+  currentUserId: string,
+  query: string
+): Array<ChannelMember | WorkspaceMember> {
+  const normalizedQuery = query.trim().toLowerCase();
+  const seen = new Set<string>();
+
+  return members
+    .filter((member) => {
+      if (!member.user_id || member.user_id === currentUserId || seen.has(member.user_id)) {
+        return false;
+      }
+      seen.add(member.user_id);
+      if (!normalizedQuery) {
+        return true;
+      }
+      return mentionMemberSearchText(member).includes(normalizedQuery);
+    })
+    .slice(0, 6);
+}
+
+function mentionMemberName(member: ChannelMember | WorkspaceMember): string {
+  return member.display_name || member.username || member.email || member.user_id || "Thành viên";
+}
+
+function mentionMemberSearchText(member: ChannelMember | WorkspaceMember): string {
+  return [member.display_name, member.username, member.email, member.user_id].filter(Boolean).join(" ").toLowerCase();
+}
+
+function collectMentionedUserIds(body: string, members: Array<ChannelMember | WorkspaceMember>): string[] {
+  const normalizedBody = body.toLowerCase();
+  const seen = new Set<string>();
+  const mentionedUserIds: string[] = [];
+
+  for (const member of members) {
+    if (!member.user_id || seen.has(member.user_id)) {
+      continue;
+    }
+
+    const candidates = [
+      mentionMemberName(member),
+      member.username,
+      member.email
+    ].filter(Boolean) as string[];
+    const isMentioned = candidates.some((candidate) => normalizedBody.includes(`@${candidate.toLowerCase()}`));
+    if (!isMentioned) {
+      continue;
+    }
+
+    seen.add(member.user_id);
+    mentionedUserIds.push(member.user_id);
+  }
+
+  return mentionedUserIds;
+}
+
+function validateUploadFiles(files: File[], imageOnly = false): {
+  accepted: File[];
+  rejected: Array<{ file: File; reason: string }>;
+} {
+  const accepted: File[] = [];
+  const rejected: Array<{ file: File; reason: string }> = [];
+
+  for (const file of files) {
+    const reason = validateUploadFile(file, imageOnly);
+    if (reason) {
+      rejected.push({ file, reason });
+    } else {
+      accepted.push(file);
+    }
+  }
+
+  return { accepted, rejected };
+}
+
+function validateUploadFile(file: File, imageOnly: boolean): string | null {
+  const name = file.name.trim();
+  const mimeType = normalizedUploadMimeType(file);
+
+  if (!name) {
+    return "Tên file không được để trống.";
+  }
+  if ([...name].length > 255) {
+    return `${name} có tên dài quá 255 ký tự.`;
+  }
+  if (file.size <= 0) {
+    return `${name} không có dữ liệu.`;
+  }
+  if (file.size > maxUploadSizeBytes) {
+    return `${name} vượt quá giới hạn ${formatFileSize(maxUploadSizeBytes)}.`;
+  }
+  if (imageOnly && !mimeType.startsWith("image/")) {
+    return `${name} không phải là ảnh.`;
+  }
+  if (!isAllowedUploadMimeType(mimeType)) {
+    return `${name} có định dạng không được hỗ trợ.`;
+  }
+
+  return null;
+}
+
+function normalizedUploadMimeType(file: File): string {
+  const browserMimeType = file.type.toLowerCase().split(";")[0]?.trim();
+  return browserMimeType || uploadMimeTypeFromName(file.name);
+}
+
+function uploadMimeTypeFromName(name: string): string {
+  const extension = name.split(".").at(-1)?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    gif: "image/gif",
+    jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    json: "application/json",
+    m4a: "audio/mp4",
+    mp3: "audio/mpeg",
+    ogg: "audio/ogg",
+    pdf: "application/pdf",
+    png: "image/png",
+    ppt: "application/vnd.ms-powerpoint",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    txt: "text/plain",
+    wav: "audio/wav",
+    webm: "audio/webm",
+    webp: "image/webp",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    zip: "application/zip"
+  };
+
+  return map[extension] ?? "application/octet-stream";
+}
+
+function isAllowedUploadMimeType(mimeType: string): boolean {
+  if (mimeType.startsWith("image/") || mimeType.startsWith("text/")) {
+    return true;
+  }
+
+  return uploadAcceptList.some((accept) => accept === mimeType);
 }
 
 type MessageAuthorLookupMember = Pick<ChannelMember | WorkspaceMember, "avatar_url" | "display_name" | "email" | "status" | "user_id" | "username">;
@@ -4978,15 +6591,12 @@ function formatRecordingTime(totalSeconds: number): string {
 }
 
 function preferredVoiceMimeType() {
-  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
-    return "";
-  }
-  return [
+  return getPlatformServices().media.getSupportedAudioMimeType([
     "audio/webm;codecs=opus",
     "audio/ogg;codecs=opus",
     "audio/mp4",
     "audio/webm"
-  ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+  ]);
 }
 
 function voiceFileExtension(mimeType: string) {
@@ -5197,7 +6807,7 @@ function RightDetailPanel({
                 <span>
                   <strong>{file.name}</strong>
                   <small>
-                    {file.size} - {file.updatedAt}
+                    {fileSecurityLabel(file.status) ?? `${file.size} - ${file.updatedAt}`}
                   </small>
                 </span>
               </button>
@@ -5241,6 +6851,47 @@ function formatFileSize(size: number): string {
   }
 
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function fileSecurityLabel(status?: string): string | null {
+  switch (status?.trim().toLowerCase()) {
+    case "scanning":
+    case "pending_scan":
+    case "pending":
+      return "Đang quét bảo mật";
+    case "quarantine":
+    case "quarantined":
+    case "blocked":
+      return "File đang bị cách ly";
+    case "infected":
+      return "File không an toàn";
+    default:
+      return null;
+  }
+}
+
+function fileSecurityTone(status?: string): "danger" | "warning" {
+  const normalized = status?.trim().toLowerCase();
+  return normalized === "infected" || normalized === "blocked" || normalized === "quarantine" || normalized === "quarantined"
+    ? "danger"
+    : "warning";
+}
+
+async function verifyBlobChecksum(blob: Blob, expectedSha256: string): Promise<boolean> {
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    return true;
+  }
+
+  const expected = expectedSha256.trim().toLowerCase();
+  if (!expected) {
+    return true;
+  }
+
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  const actual = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return actual === expected;
 }
 
 function contactResultFromRequest(request: ContactRequest, data: ChatWorkspaceData): ContactResult {
@@ -5402,9 +7053,21 @@ function slugify(value: string): string {
     .slice(0, 64);
 }
 
-function railItemFromRoute(pathname: string): RailItemId {
-  const section = parseChatRoute(pathname)?.sectionRef;
+function railItemFromRoute(pathname: string, searchParams?: { get: (name: string) => string | null }): RailItemId {
+  const section = parseChatRoute(pathname, searchParams)?.sectionRef;
   return railItems.some((item) => item.id === section) ? section as RailItemId : "messages";
+}
+
+function shouldOpenExternally(link: HTMLAnchorElement): boolean {
+  try {
+    const url = new URL(link.href);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+    return link.target === "_blank" || url.origin !== window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 function BrandedQRCode({ alt, className = "", src }: { alt: string; className?: string; src: string }) {
@@ -5416,6 +7079,14 @@ function BrandedQRCode({ alt, className = "", src }: { alt: string; className?: 
       </span>
     </span>
   );
+}
+
+function adminPanelUrl(): string {
+  try {
+    return `${new URL(runtimeEnvironment.apiBaseUrl).origin}/admin`;
+  } catch {
+    return "https://api.vpsttt.com/admin";
+  }
 }
 
 function stripDisplayedQRURL(body: string) {
@@ -5431,6 +7102,7 @@ function canAccessRailItem(itemId: RailItemId, can: (permission: string) => bool
     case "departments":
       return can("workspace.manage");
     case "tickets":
+      return can("ticket.view");
     case "files":
       return can("admin.view");
     case "bots":

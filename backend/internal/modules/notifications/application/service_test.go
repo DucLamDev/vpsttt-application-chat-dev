@@ -13,6 +13,8 @@ import (
 type fakeNotificationRepo struct {
 	mentionParams MentionParams
 	mentionCalled bool
+	preference    notificationsdomain.NotificationPreference
+	upsertCalled  bool
 }
 
 func (r *fakeNotificationRepo) CreateMentionNotifications(_ context.Context, params MentionParams) error {
@@ -25,6 +27,16 @@ func (r *fakeNotificationRepo) ListForUser(context.Context, ListParams) ([]notif
 	return nil, nil
 }
 
+func (r *fakeNotificationRepo) GetPreference(context.Context, string, string) (notificationsdomain.NotificationPreference, error) {
+	if r.preference.CreatedAt.IsZero() {
+		r.preference.CreatedAt = time.Now()
+	}
+	if r.preference.UpdatedAt.IsZero() {
+		r.preference.UpdatedAt = r.preference.CreatedAt
+	}
+	return r.preference, nil
+}
+
 func (r *fakeNotificationRepo) MarkRead(context.Context, string, string) (notificationsdomain.Notification, error) {
 	return notificationsdomain.Notification{}, nil
 }
@@ -35,6 +47,18 @@ func (r *fakeNotificationRepo) MarkAllRead(context.Context, string, string) erro
 
 func (r *fakeNotificationRepo) ProcessPendingJobs(context.Context, int) (int, error) {
 	return 0, nil
+}
+
+func (r *fakeNotificationRepo) UpsertPreference(_ context.Context, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error) {
+	r.preference = preference
+	r.upsertCalled = true
+	if r.preference.CreatedAt.IsZero() {
+		r.preference.CreatedAt = time.Now()
+	}
+	if r.preference.UpdatedAt.IsZero() {
+		r.preference.UpdatedAt = r.preference.CreatedAt
+	}
+	return r.preference, nil
 }
 
 func TestHandleCreatesMentionNotificationsFromMessageCreatedEvent(t *testing.T) {
@@ -70,6 +94,52 @@ func TestHandleCreatesMentionNotificationsFromMessageCreatedEvent(t *testing.T) 
 	}
 	if len(repo.mentionParams.MentionedUserIDs) != 2 {
 		t.Fatalf("mentioned_user_ids = %#v", repo.mentionParams.MentionedUserIDs)
+	}
+}
+
+func TestUpsertPreferenceValidatesAndStoresDesktopPolicy(t *testing.T) {
+	repo := &fakeNotificationRepo{}
+	service := NewService(repo)
+	preview := false
+	quietHours := true
+
+	preference, err := service.UpsertPreference(context.Background(), PreferenceInput{
+		UserID:      "user-1",
+		WorkspaceID: "workspace-1",
+		Mode:        "mentions",
+		Preview:     &preview,
+		QuietHours:  &quietHours,
+		QuietStart:  "21:30",
+		QuietEnd:    "06:45",
+	})
+	if err != nil {
+		t.Fatalf("UpsertPreference() error = %v", err)
+	}
+	if !repo.upsertCalled {
+		t.Fatal("UpsertPreference() phai luu preference")
+	}
+	if preference.Mode != "mentions" || preference.Preview || !preference.QuietHours {
+		t.Fatalf("preference khong dung: %#v", preference)
+	}
+	if repo.preference.QuietStart != "21:30" || repo.preference.QuietEnd != "06:45" {
+		t.Fatalf("quiet hours khong dung: %#v", repo.preference)
+	}
+}
+
+func TestUpsertPreferenceRejectsInvalidMode(t *testing.T) {
+	repo := &fakeNotificationRepo{}
+	service := NewService(repo)
+
+	_, err := service.UpsertPreference(context.Background(), PreferenceInput{
+		UserID:      "user-1",
+		WorkspaceID: "workspace-1",
+		Mode:        "everything",
+	})
+	if err == nil {
+		t.Fatal("UpsertPreference() phai tra loi voi mode khong hop le")
+	}
+	if repo.upsertCalled {
+		t.Fatal("UpsertPreference() khong duoc ghi repo khi input sai")
 	}
 }
 

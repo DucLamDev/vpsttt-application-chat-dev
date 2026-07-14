@@ -131,6 +131,7 @@ export type Message = {
 
 export type SendMessageInput = {
   parent_id?: Id;
+  client_message_id?: string;
   kind?: string;
   body: string;
   metadata?: JsonObject;

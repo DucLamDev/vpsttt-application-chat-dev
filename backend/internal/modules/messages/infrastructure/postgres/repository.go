@@ -59,6 +59,16 @@ WHERE workspace_id = $1::uuid
 		return messagesdomain.Message{}, fmt.Errorf("message send repair direct channel members: %w", err)
 	}
 
+	if params.ClientMessageID != "" {
+		existing, err := r.findByClientMessageID(ctx, tx, params)
+		if err == nil {
+			return existing, nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return messagesdomain.Message{}, fmt.Errorf("message send check idempotency: %w", err)
+		}
+	}
+
 	row := tx.QueryRow(ctx, `
 INSERT INTO messages (workspace_id, channel_id, sender_id, parent_id, thread_root_id, kind, body, metadata)
 SELECT c.workspace_id, c.id, $3::uuid, NULLIF($4, '')::uuid, NULLIF($5, '')::uuid, $6, $7, $8::jsonb
@@ -76,6 +86,10 @@ RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, paren
 `, params.WorkspaceID, params.ChannelID, params.SenderID, params.ParentID, threadRootID, params.Kind, params.Body, string(params.Metadata))
 	message, err := scanMessage(row)
 	if err != nil {
+		if params.ClientMessageID != "" && isUniqueViolation(err) {
+			_ = tx.Rollback(ctx)
+			return r.findByClientMessageID(ctx, r.pool, params)
+		}
 		if errors.Is(err, messagesdomain.ErrMessageNotFound) {
 			return messagesdomain.Message{}, messagesdomain.ErrChannelNotFound
 		}
@@ -120,6 +134,36 @@ RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, paren
 		return withEmptyMessageRelations(message), nil
 	}
 	return hydrated, nil
+}
+
+func (r *Repository) findByClientMessageID(ctx context.Context, querier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, params messagesapp.SendParams) (messagesdomain.Message, error) {
+	var messageID string
+	if err := querier.QueryRow(ctx, `
+SELECT id::text
+FROM messages
+WHERE workspace_id = $1::uuid
+  AND channel_id = $2::uuid
+  AND sender_id = $3::uuid
+  AND metadata ->> 'client_message_id' = $4
+  AND deleted_at IS NULL
+ORDER BY created_at DESC
+LIMIT 1
+`, params.WorkspaceID, params.ChannelID, params.SenderID, params.ClientMessageID).Scan(&messageID); err != nil {
+		return messagesdomain.Message{}, err
+	}
+	return r.Get(ctx, messagesapp.MessageRef{
+		WorkspaceID: params.WorkspaceID,
+		ChannelID:   params.ChannelID,
+		MessageID:   messageID,
+		ActorUserID: params.SenderID,
+	})
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func withEmptyMessageRelations(message messagesdomain.Message) messagesdomain.Message {

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "WebTui Chat",
+  "version": "0.1.0",
+  "identifier": "com.vpsttt.webtui.chat",
+  "build": {
+    "beforeDevCommand": "npm --workspace @webtui/web run dev",
+    "beforeBuildCommand": "npm --workspace @webtui/web run build:desktop",
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../../web/out"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "WebTui Chat",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' https://api.vpsttt.com wss://api.vpsttt.com http://localhost:* ws://localhost:* stun: turn:; img-src 'self' data: blob: https: asset: http://asset.localhost; media-src 'self' data: blob: mediastream: asset: http://asset.localhost; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' https://accounts.google.com;"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["webtui"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "copyright": "Copyright VPSTTT",
+    "icon": [
+      "../../web/public/brand/logo_webtui.png"
+    ],
+    "macOS": {
+      "infoPlist": "Info.plist"
+    }
+  }
+}

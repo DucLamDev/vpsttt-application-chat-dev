@@ -122,3 +122,42 @@ func TestHandleCommandBroadcastsTypingState(t *testing.T) {
 		t.Fatal("typing event was not broadcast")
 	}
 }
+
+func TestHandleCommandBroadcastsCallSignal(t *testing.T) {
+	manager := platformws.NewManager()
+	handler := NewHandler(manager, nil)
+	sender := &platformws.Client{ID: "sender", UserID: "user-a", Send: make(chan platformws.Event, 2)}
+	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", Send: make(chan platformws.Event, 2)}
+	if err := manager.Register(sender); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Register(receiver); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Unregister(sender.ID)
+	defer manager.Unregister(receiver.ID)
+
+	room := "workspace:workspace-1:channel:channel-1"
+	manager.Join(room, sender.ID)
+	manager.Join(room, receiver.ID)
+	handler.handleCommand(sender, clientCommand{
+		Type: "CallOffer",
+		Room: room,
+		Payload: map[string]any{
+			"call_id": "call-1",
+			"mode":    "video",
+		},
+	})
+
+	select {
+	case event := <-receiver.Send:
+		if event.Type != "CallOffer" || event.UserID != sender.UserID || event.Room != room {
+			t.Fatalf("unexpected call event: %#v", event)
+		}
+		if event.Payload["call_id"] != "call-1" || event.Payload["user_id"] != sender.UserID {
+			t.Fatalf("unexpected call payload: %#v", event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("call signal was not broadcast")
+	}
+}

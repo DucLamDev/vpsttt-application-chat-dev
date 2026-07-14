@@ -7,6 +7,8 @@ import (
 
 var ErrNotificationNotFound = errors.New("không tìm thấy thông báo")
 
+var ErrNotificationPreferenceUnavailable = errors.New("notification preference unavailable")
+
 type Notification struct {
 	ID          string
 	UserID      string
@@ -20,4 +22,16 @@ type Notification struct {
 	ReadAt      *time.Time
 	DeliveredAt *time.Time
 	CreatedAt   time.Time
+}
+
+type NotificationPreference struct {
+	UserID      string
+	WorkspaceID string
+	Mode        string
+	Preview     bool
+	QuietHours  bool
+	QuietStart  string
+	QuietEnd    string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }

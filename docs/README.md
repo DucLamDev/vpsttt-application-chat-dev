@@ -21,6 +21,16 @@ Tài liệu dự án WebTui Chat được viết bằng tiếng Việt có dấu
 ## Kế hoạch triển khai
 
 - [Kế hoạch hoàn thiện backend](planning/backend-roadmap.md)
+- [Kế hoạch Desktop App Tauri](planning/desktop-tauri-roadmap.md)
+- [Desktop App Phase D0 Completion](planning/desktop-phase-d0-completion.md)
+- [Desktop App Phase D1-D2 Completion](planning/desktop-phase-d1-d2-completion.md)
+- [Desktop App Phase D3-D4 Completion](planning/desktop-phase-d3-d4-completion.md)
+- [Desktop App Phase D5 Completion](planning/desktop-phase-d5-completion.md)
+- [Desktop App Phase D6 Completion](planning/desktop-phase-d6-completion.md)
+- [Desktop App Phase D7 Completion](planning/desktop-phase-d7-completion.md)
+- [Desktop App Phase D8 Completion](planning/desktop-phase-d8-completion.md)
+- [Desktop App Phase D9 Completion](planning/desktop-phase-d9-completion.md)
+- [Desktop App Phase D10 Completion](planning/desktop-phase-d10-completion.md)
 - [Deploy production lên VPS](deploy/vps-production.md)
 - [CI/CD từng bước với GitHub Actions và Docker Compose](deploy/cicd.md)
 

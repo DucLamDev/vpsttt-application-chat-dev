@@ -10,6 +10,13 @@ export type HealthStatus = {
 
 export type VersionInfo = {
   app: string;
+  clients?: {
+    desktop?: {
+      minimum_version?: string;
+      recommended_version?: string;
+      update_url?: string;
+    };
+  };
   env: string;
   version: string;
 };

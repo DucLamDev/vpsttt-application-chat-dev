@@ -2,6 +2,7 @@ import {
   createRuntimeEnvironment,
   createWebTuiApiClient
 } from "@webtui/api-client";
+import { getPlatformServices } from "@webtui/chat-core";
 import { useAuthStore } from "@/features/auth/auth-store";
 import { clearMediaObjectUrlCache } from "@/features/chat/model/media-cache";
 
@@ -11,15 +12,18 @@ import { clearMediaObjectUrlCache } from "@/features/chat/model/media-cache";
 // local/staging frontend build.
 export const runtimeEnvironment = createRuntimeEnvironment({
   NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+  NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
   NEXT_PUBLIC_WS_BASE_URL: process.env.NEXT_PUBLIC_WS_BASE_URL,
   NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
-  NEXT_PUBLIC_DEFAULT_LOCALE: process.env.NEXT_PUBLIC_DEFAULT_LOCALE
+  NEXT_PUBLIC_DEFAULT_LOCALE: process.env.NEXT_PUBLIC_DEFAULT_LOCALE,
+  NEXT_PUBLIC_RELEASE_CHANNEL: process.env.NEXT_PUBLIC_RELEASE_CHANNEL
 });
 
 let refreshRequest: Promise<string | null> | null = null;
 
 export const api = createWebTuiApiClient({
   baseUrl: runtimeEnvironment.apiBaseUrl,
+  fetcher: getPlatformServices().fetcher,
   getAccessToken: () => useAuthStore.getState().accessToken,
   onUnauthorized: () => {
     clearMediaObjectUrlCache();

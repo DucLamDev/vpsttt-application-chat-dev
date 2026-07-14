@@ -40,7 +40,8 @@ export const queryKeys = {
       ["messages", workspaceId, channelId, messageId, "thread"] as const
   },
   notifications: {
-    list: (workspaceId?: string) => ["notifications", workspaceId ?? "all"] as const
+    list: (workspaceId?: string) => ["notifications", workspaceId ?? "all"] as const,
+    preferences: (workspaceId: string) => ["notifications", workspaceId, "preferences"] as const
   },
   orderBot: {
     status: (workspaceId: string) => ["order-bot", workspaceId, "status"] as const
@@ -72,6 +73,10 @@ export const queryKeys = {
     me: (workspaceId?: string) => ["rbac", "me", workspaceId] as const,
     permissions: ["rbac", "permissions"] as const,
     roles: (workspaceId?: string) => ["rbac", "roles", workspaceId ?? "global"] as const
+  },
+  tickets: {
+    all: (workspaceId: string, status = "") => ["tickets", workspaceId, status] as const,
+    detail: (workspaceId: string, ticketId: string) => ["tickets", workspaceId, ticketId] as const
   },
   users: {
     all: (query?: string, status?: string) => ["users", query ?? "", status ?? ""] as const,

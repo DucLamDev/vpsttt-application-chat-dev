@@ -25,6 +25,18 @@ import {
   type MessageSearchFilters
 } from "./use-message-timeline";
 import { useNotificationPresence } from "./use-notification-presence";
+import {
+  createClientMessageId,
+  enqueueOutbox,
+  isLikelyOfflineError,
+  readOutbox,
+  readWorkspaceChatCache,
+  removeOutboxItem,
+  updateOutboxItem,
+  writeWorkspaceChatCache,
+  type MessageOutboxEntry,
+  type WorkspaceChatCache
+} from "../model/offline-cache";
 import type {
   ChannelTone,
   ChatChannel,
@@ -45,12 +57,15 @@ const contactRefetchMs = 30_000;
 
 export type SendMessagePayload = {
   body: string;
+  clientMessageId?: string;
+  mentionedUserIds?: string[];
   uploads: UploadQueueItem[];
 };
 
 export type SendMessageResult = {
   failedUploadNames: string[];
   message: Awaited<ReturnType<typeof api.messages.send>>;
+  queued?: boolean;
 };
 
 export type CreateChannelPayload = Pick<CreateChannelInput, "description" | "name" | "slug" | "type">;
@@ -74,6 +89,7 @@ export { mapAuthUser } from "./use-message-timeline";
 export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspaceDataOptions = {}) {
   const queryClient = useQueryClient();
   const lastMarkedReadRef = useRef("");
+  const isFlushingOutboxRef = useRef(false);
   const [isViewportActive, setIsViewportActive] = useState(() =>
     typeof document === "undefined" ? true : document.visibilityState === "visible" && document.hasFocus()
   );
@@ -82,9 +98,25 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   const searchParams = useSearchParams();
   const workspaceContext = useWorkspaceContext();
   const { workspaceId } = workspaceContext;
-  const parsedRoute = parseChatRoute(pathname);
+  const [cachedChat, setCachedChat] = useState<WorkspaceChatCache | null>(null);
+  const [outboxItems, setOutboxItems] = useState<MessageOutboxEntry[]>([]);
+  const parsedRoute = parseChatRoute(pathname, searchParams);
   const legacyChannelId = searchParams.get("channel") ?? "";
   const friendSearchQuery = options.friendSearchQuery?.trim() ?? "";
+
+  useEffect(() => {
+    let disposed = false;
+    void readOutbox()
+      .then((items) => {
+        if (!disposed) {
+          setOutboxItems(items);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   const channelsQuery = useQuery({
     enabled: Boolean(workspaceId),
@@ -92,9 +124,27 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     queryKey: queryKeys.channels.all(workspaceId),
     refetchInterval: contactRefetchMs
   });
+  useEffect(() => {
+    let disposed = false;
+    if (!workspaceId) {
+      setCachedChat(null);
+      return undefined;
+    }
+    void readWorkspaceChatCache(workspaceId)
+      .then((cache) => {
+        if (!disposed) {
+          setCachedChat(cache);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [workspaceId]);
+  const channelSource = channelsQuery.data?.length ? channelsQuery.data : cachedChat?.channels ?? [];
   const channels = useMemo(
-    () => (channelsQuery.data ?? []).map(mapChannel).filter((channel) => channel.type !== "direct"),
-    [channelsQuery.data]
+    () => channelSource.map(mapChannel).filter((channel) => channel.type !== "direct"),
+    [channelSource]
   );
 
   const notificationPresence = useNotificationPresence({
@@ -109,8 +159,20 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     queryKey: queryKeys.channels.directConversations(workspaceId),
     refetchInterval: contactRefetchMs
   });
+  const directConversationSource = directConversationsQuery.data?.length
+    ? directConversationsQuery.data
+    : cachedChat?.directConversations ?? [];
+  useEffect(() => {
+    if (!workspaceId || !channelsQuery.data?.length) {
+      return;
+    }
+    void writeWorkspaceChatCache(workspaceId, {
+      channels: channelsQuery.data,
+      directConversations: directConversationsQuery.data ?? cachedChat?.directConversations ?? []
+    }).catch(() => undefined);
+  }, [cachedChat?.directConversations, channelsQuery.data, directConversationsQuery.data, workspaceId]);
   const directConversationSummaries = useQueries({
-    queries: (directConversationsQuery.data ?? []).map((conversation) => {
+    queries: directConversationSource.map((conversation) => {
       const channelId = conversation.channel_id ?? conversation.id;
       return {
         enabled: Boolean(workspaceId && channelId && !conversation.last_message),
@@ -124,7 +186,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   });
   const directConversations = useMemo(
     () =>
-      (directConversationsQuery.data ?? [])
+      directConversationSource
         .map((item, index) =>
           mapDirectConversation(
             item,
@@ -134,7 +196,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
           )
         )
         .filter(Boolean) as DirectConversation[],
-    [currentUser.id, directConversationSummaries, directConversationsQuery.data, notificationPresence.presenceByUserId]
+    [currentUser.id, directConversationSource, directConversationSummaries, notificationPresence.presenceByUserId]
   );
   const requestedChannelId = useMemo(() => {
     if (legacyChannelId) {
@@ -225,8 +287,18 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     enabled: Boolean(workspaceId),
     workspaceId
   });
+  const selectedOutboxMessages = useMemo(() => {
+    if (!workspaceId || !selectedChannelId) {
+      return [];
+    }
+    const existingIds = new Set(messageTimeline.messages.map((message) => message.id));
+    return outboxItems
+      .filter((item) => item.workspaceId === workspaceId && item.channelId === selectedChannelId)
+      .filter((item) => !existingIds.has(`local-${item.clientMessageId}`))
+      .map((item) => outboxEntryToChatMessage(item, currentUser));
+  }, [currentUser, messageTimeline.messages, outboxItems, selectedChannelId, workspaceId]);
   const selectedChannelWithMessages = selectedChannelId
-    ? { ...(selectedChannel ?? placeholderChannel(selectedChannelId)), messages: messageTimeline.messages }
+    ? { ...(selectedChannel ?? placeholderChannel(selectedChannelId)), messages: [...messageTimeline.messages, ...selectedOutboxMessages] }
     : null;
   const managedChannelIds = channels.filter((channel) => channel.canManage).map((channel) => channel.id);
   const joinRequestQueries = useQueries({
@@ -295,6 +367,14 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
       );
     },
     [canAccessSelectedChannel, messageTimeline.messages]
+  );
+  const offlineReadMode = Boolean(
+    workspaceContext.offlineReadMode ||
+      messageTimeline.isOfflineReadMode ||
+      (cachedChat && (
+        (channelsQuery.isError && isLikelyOfflineError(channelsQuery.error)) ||
+        (directConversationsQuery.isError && isLikelyOfflineError(directConversationsQuery.error))
+      ))
   );
 
   const createChannelMutation = useMutation({
@@ -384,21 +464,53 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         throw new Error("Hãy chọn kênh trước khi gửi.");
       }
 
+      const clientMessageId = input.clientMessageId || createClientMessageId();
+      input.clientMessageId = clientMessageId;
       const uploads = input.uploads.filter((item) => item.status === "queued" || item.status === "failed");
       const messageBody = input.body || uploadMessageFallback(uploads);
       const isVoiceMessage = Boolean(uploads.length && !input.body && uploads.every((upload) => upload.isAudio));
-      const sentMessage = await api.messages.send(workspaceId, selectedChannelId, {
-        body: messageBody,
-        kind: isVoiceMessage ? "file" : "text",
-        ...(uploads.length
-          ? {
-              metadata: {
-                has_attachments: true,
-                ...(isVoiceMessage ? { message_type: "voice" } : {})
-              }
-            }
-          : {})
-      });
+      let sentMessage: ApiMessage;
+      try {
+        sentMessage = await api.messages.send(workspaceId, selectedChannelId, {
+          body: messageBody,
+          client_message_id: clientMessageId,
+          kind: isVoiceMessage ? "file" : "text",
+          ...(input.mentionedUserIds?.length ? { mentioned_user_ids: input.mentionedUserIds } : {}),
+          metadata: {
+            client_message_id: clientMessageId,
+            ...(uploads.length
+              ? {
+                  has_attachments: true,
+                  ...(isVoiceMessage ? { message_type: "voice" } : {})
+                }
+              : {})
+          }
+        });
+        await removeOutboxItem(clientMessageId).catch(() => undefined);
+      } catch (error) {
+        if (!uploads.length && messageBody && isLikelyOfflineError(error)) {
+          const entry = await enqueueOutbox({
+            body: messageBody,
+            channelId: selectedChannelId,
+            clientMessageId,
+            mentionedUserIds: input.mentionedUserIds,
+            workspaceId
+          });
+          setOutboxItems(await readOutbox().catch(() => [entry]));
+          return {
+            failedUploadNames: [],
+            message: createOptimisticMessage({
+              body: messageBody,
+              channelId: selectedChannelId,
+              clientMessageId,
+              currentUser,
+              workspaceId
+            }),
+            queued: true
+          };
+        }
+        throw error;
+      }
 
       const attachedFiles: NonNullable<ApiMessage["attachments"]> = [];
       const failedUploadNames: string[] = [];
@@ -463,6 +575,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
       }
 
       const uploads = input.uploads.filter((item) => item.status === "queued" || item.status === "failed");
+      input.clientMessageId = input.clientMessageId || createClientMessageId();
       const body = input.body || uploadMessageFallback(uploads);
       if (!body) {
         return undefined;
@@ -475,6 +588,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         attachments: uploads.map((upload) => uploadToOptimisticAttachment(upload)),
         body,
         channelId: selectedChannelId,
+        clientMessageId: input.clientMessageId,
         currentUser,
         workspaceId
       });
@@ -486,13 +600,19 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         previous
       };
     },
-    onError: (_error, _input, context) => {
+    onError: (error, input, context) => {
+      if (input.uploads.length === 0 && isLikelyOfflineError(error)) {
+        return;
+      }
       if (context?.previous) {
         queryClient.setQueryData(messageTimelineKey(workspaceId, selectedChannelId), context.previous);
       }
     },
     onSuccess: async (result, input, context) => {
       mergeMessageIntoTimeline(queryClient, workspaceId, selectedChannelId, result.message, context?.optimisticId);
+      if (!result.queued && input.clientMessageId) {
+        setOutboxItems(await readOutbox().catch(() => []));
+      }
       queryClient.setQueryData<ApiDirectConversation[]>(
         queryKeys.channels.directConversations(workspaceId),
         (current) => updateDirectConversationLastMessage(current, selectedChannelId, result.message)
@@ -508,6 +628,75 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
       }
     }
   });
+
+  const flushOutbox = useCallback(async () => {
+    if (isFlushingOutboxRef.current || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+      return;
+    }
+    isFlushingOutboxRef.current = true;
+    try {
+      const items = await readOutbox();
+      for (const item of items) {
+        try {
+          await updateOutboxItem(item.clientMessageId, { attempts: item.attempts + 1, lastError: undefined });
+          const message = await api.messages.send(item.workspaceId, item.channelId, {
+            body: item.body,
+            client_message_id: item.clientMessageId,
+            kind: "text",
+            ...(item.mentionedUserIds?.length ? { mentioned_user_ids: item.mentionedUserIds } : {}),
+            metadata: {
+              client_message_id: item.clientMessageId
+            }
+          });
+          await removeOutboxItem(item.clientMessageId);
+          mergeMessageIntoTimeline(queryClient, item.workspaceId, item.channelId, message, `local-${item.clientMessageId}`);
+          queryClient.setQueryData<ApiDirectConversation[]>(
+            queryKeys.channels.directConversations(item.workspaceId),
+            (current) => updateDirectConversationLastMessage(current, item.channelId, message)
+          );
+          queryClient.setQueryData<ApiChannel[]>(queryKeys.channels.all(item.workspaceId), (current) =>
+            updateChannelAfterOwnMessage(current, item.channelId, message)
+          );
+        } catch (error) {
+          await updateOutboxItem(item.clientMessageId, {
+            attempts: item.attempts + 1,
+            lastError: error instanceof Error ? error.message : "Send failed."
+          }).catch(() => undefined);
+          if (isLikelyOfflineError(error)) {
+            break;
+          }
+        }
+      }
+      setOutboxItems(await readOutbox().catch(() => []));
+    } finally {
+      isFlushingOutboxRef.current = false;
+    }
+  }, [queryClient]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      void flushOutbox();
+      if (workspaceId && selectedChannelId) {
+        void queryClient.invalidateQueries({ queryKey: messageTimelineKey(workspaceId, selectedChannelId) });
+      }
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [flushOutbox, queryClient, selectedChannelId, workspaceId]);
+
+  useEffect(() => {
+    if (realtime.status !== "connected") {
+      return;
+    }
+    void flushOutbox();
+    if (workspaceId && selectedChannelId) {
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: messageTimelineKey(workspaceId, selectedChannelId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.channels.directConversations(workspaceId) })
+      ]);
+    }
+  }, [flushOutbox, queryClient, realtime.status, selectedChannelId, workspaceId]);
 
   const downloadMutation = useMutation({
     mutationFn: (file: FileItem) => api.files.download(workspaceId, file.id)
@@ -689,6 +878,10 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     notifications: notificationPresence.notifications.map(mapNotification),
     notificationsQuery: notificationPresence.notificationsQuery,
     openPrivateSessionMutation,
+    offlineReadMode,
+    outboxItems,
+    queuedOutboxCount: outboxItems.length,
+    flushOutbox,
     presenceByUserId: notificationPresence.presenceByUserId,
     presenceQuery: notificationPresence.presenceQuery,
     pinnedMessages: messageTimeline.pinnedMessages,
@@ -741,6 +934,26 @@ function uploadMessageFallback(uploads: UploadQueueItem[]): string {
   }
 
   return `Đã gửi ${uploads.length} file`;
+}
+
+function outboxEntryToChatMessage(entry: MessageOutboxEntry, currentUser: ChatUser): ChatChannel["messages"][number] {
+  return {
+    author: currentUser,
+    body: entry.body,
+    id: `local-${entry.clientMessageId}`,
+    isLocal: true,
+    isMine: true,
+    isPending: true,
+    rawChannelId: entry.channelId,
+    rawCreatedAt: entry.createdAt,
+    rawSenderId: currentUser.id,
+    sentAt: formatOutboxTime(entry.createdAt)
+  };
+}
+
+function formatOutboxTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
 
 function uploadToOptimisticAttachment(upload: UploadQueueItem): NonNullable<ApiMessage["attachments"]>[number] {
@@ -939,11 +1152,13 @@ function mapFile(file: FileObject): FileItem {
   const mimeType = file.mime_type;
 
   return {
+    checksumSha256: file.checksum_sha256,
     downloadUrl: file.download_url ?? file.url,
     id: file.id,
     mimeType,
     name,
     size: formatFileSize(file.byte_size ?? file.size_bytes ?? file.size),
+    status: file.status,
     tone: mimeType?.includes("pdf") ? "red" : mimeType?.startsWith("image/") ? "green" : "slate",
     updatedAt: formatRelative(file.updated_at ?? file.created_at)
   };

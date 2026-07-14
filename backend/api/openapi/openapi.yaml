@@ -30,6 +30,49 @@ paths:
       responses:
         "200":
           description: Thông tin phiên bản
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionInfo"
+  /desktop/releases/{channel}/{target}/{arch}/{current_version}:
+    get:
+      security: []
+      summary: Manifest signed updater cho desktop app
+      description: Tra manifest Tauri updater da publish theo channel/target/arch. Tra 204 khi chua cau hinh hoac chua co ban moi.
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [stable, beta]
+        - name: target
+          in: path
+          required: true
+          schema:
+            type: string
+            example: windows-x86_64
+        - name: arch
+          in: path
+          required: true
+          schema:
+            type: string
+            example: x86_64
+        - name: current_version
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 0.1.0
+      responses:
+        "200":
+          description: Manifest co ban cap nhat signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesktopUpdaterManifest"
+        "204":
+          description: Khong co ban cap nhat hoac chua cau hinh manifest
   /metrics:
     get:
       security: []
@@ -341,6 +384,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceID"
         - $ref: "#/components/parameters/ChannelID"
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+            maxLength: 128
+          description: Optional client-generated key for retry-safe message sends.
         - $ref: "#/components/parameters/MessageID"
       requestBody:
         required: true
@@ -772,6 +821,54 @@ paths:
                             type: array
                             items:
                               $ref: "#/components/schemas/Notification"
+  /api/v1/notifications/preferences:
+    get:
+      summary: Notification preferences cua user hien tai
+      parameters:
+        - name: workspace_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Notification preferences
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/NotificationPreference"
+    put:
+      summary: Cap nhat notification preferences cua user hien tai
+      parameters:
+        - name: workspace_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPreferenceRequest"
+      responses:
+        "200":
+          description: Notification preferences da cap nhat
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/NotificationPreference"
   /api/v1/notifications/{notification_id}/read:
     put:
       summary: Đánh dấu một thông báo là đã đọc
@@ -930,6 +1027,80 @@ paths:
       responses:
         "201":
           description: Message tích hợp đã được gửi
+  /api/v1/workspaces/{workspace_id}/tickets:
+    get:
+      summary: List workspace tickets
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, pending, resolved, closed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Ticket list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Ticket"
+    post:
+      summary: Create workspace ticket
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTicketRequest"
+      responses:
+        "201":
+          description: Ticket created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ticket"
+  /api/v1/workspaces/{workspace_id}/tickets/{ticket_id}:
+    get:
+      summary: Get workspace ticket
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/TicketID"
+      responses:
+        "200":
+          description: Ticket detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ticket"
+    patch:
+      summary: Update workspace ticket lifecycle
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/TicketID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTicketRequest"
+      responses:
+        "200":
+          description: Ticket updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ticket"
   /api/v1/workspaces/{workspace_id}/bots:
     get:
       summary: Danh sách bot trong workspace
@@ -1330,6 +1501,13 @@ components:
       schema:
         type: string
         format: uuid
+    TicketID:
+      name: ticket_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     BackupJobID:
       name: backup_job_id
       in: path
@@ -1364,6 +1542,56 @@ components:
         details:
           type: object
           additionalProperties: true
+    VersionInfo:
+      type: object
+      properties:
+        app:
+          type: string
+        env:
+          type: string
+        version:
+          type: string
+        clients:
+          type: object
+          properties:
+            desktop:
+              $ref: "#/components/schemas/DesktopVersionPolicy"
+    DesktopVersionPolicy:
+      type: object
+      properties:
+        minimum_version:
+          type: string
+          description: Minimum desktop app version allowed by this backend contract.
+        recommended_version:
+          type: string
+          description: Recommended desktop app version for the current release channel.
+        update_url:
+          type: string
+          format: uri
+    DesktopUpdaterManifest:
+      type: object
+      required: [version, platforms]
+      properties:
+        version:
+          type: string
+        notes:
+          type: string
+        pub_date:
+          type: string
+          format: date-time
+        platforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/DesktopUpdaterPlatform"
+    DesktopUpdaterPlatform:
+      type: object
+      required: [signature, url]
+      properties:
+        signature:
+          type: string
+        url:
+          type: string
+          format: uri
     SendMessageRequest:
       type: object
       required: [body]
@@ -1372,6 +1600,10 @@ components:
           type: string
           format: uuid
           description: Tin nhắn cha khi reply thread.
+        client_message_id:
+          type: string
+          maxLength: 128
+          description: Optional client-generated idempotency key. Also stored in metadata.
         kind:
           type: string
           default: text
@@ -1470,6 +1702,54 @@ components:
         created_at:
           type: string
           format: date-time
+    NotificationPreference:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          enum: [all, mentions, muted]
+        preview:
+          type: boolean
+        quiet_hours:
+          type: boolean
+        quiet_start:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        quiet_end:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NotificationPreferenceRequest:
+      type: object
+      required: [workspace_id, mode, preview, quiet_hours, quiet_start, quiet_end]
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          enum: [all, mentions, muted]
+        preview:
+          type: boolean
+        quiet_hours:
+          type: boolean
+        quiet_start:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        quiet_end:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
     PresenceHeartbeatRequest:
       type: object
       required: [device_id]
@@ -1675,6 +1955,91 @@ components:
           type: integer
         file:
           $ref: "#/components/schemas/File"
+    Ticket:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        channel_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [open, pending, resolved, closed]
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        created_by:
+          type: string
+          format: uuid
+          nullable: true
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateTicketRequest:
+      type: object
+      required: [title]
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 160
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        assigned_to:
+          type: string
+          format: uuid
+    UpdateTicketRequest:
+      type: object
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+          maxLength: 160
+        description:
+          type: string
+        status:
+          type: string
+          enum: [open, pending, resolved, closed]
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
     SaveCronJobRequest:
       type: object
       required: [name, schedule, runner, payload]

@@ -1,12 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@webtui/api-client";
 import { createPermissionSet, hasPermission, type PermissionCode } from "@webtui/types";
 import { api } from "@/lib/api";
 import { buildChatRoute, parseChatRoute } from "@/lib/chat-route";
+import {
+  isLikelyOfflineError,
+  readWorkspaceShellCache,
+  writeWorkspaceShellCache,
+  type WorkspaceShellCache
+} from "@/features/chat/model/offline-cache";
 
 export type PermissionValue = PermissionCode | string;
 
@@ -14,16 +20,32 @@ export function useWorkspaceContext() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const parsedRoute = parseChatRoute(pathname);
+  const parsedRoute = parseChatRoute(pathname, searchParams);
   const legacyWorkspaceId = searchParams.get("workspace") ?? "";
   const requestedWorkspaceRef = parsedRoute?.workspaceRef || legacyWorkspaceId;
+  const [cachedShell, setCachedShell] = useState<WorkspaceShellCache | null>(null);
 
   const workspacesQuery = useQuery({
     queryFn: () => api.workspaces.listMine(),
     queryKey: queryKeys.workspaces.all
   });
 
-  const workspaces = workspacesQuery.data ?? [];
+  useEffect(() => {
+    let disposed = false;
+    void readWorkspaceShellCache(requestedWorkspaceRef)
+      .then((cache) => cache ?? readWorkspaceShellCache(""))
+      .then((cache) => {
+        if (!disposed) {
+          setCachedShell(cache);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [requestedWorkspaceRef]);
+
+  const workspaces = workspacesQuery.data?.length ? workspacesQuery.data : cachedShell?.workspaces ?? [];
   const requestedWorkspace = workspaces.find(
     (workspace) => workspace.id === requestedWorkspaceRef || workspace.slug.toLowerCase() === requestedWorkspaceRef.toLowerCase()
   );
@@ -37,7 +59,9 @@ export function useWorkspaceContext() {
   });
 
   const selectedWorkspace =
-    workspaceQuery.data ?? workspaces.find((workspace) => workspace.id === resolvedWorkspaceId) ?? null;
+    workspaceQuery.data ??
+    workspaces.find((workspace) => workspace.id === resolvedWorkspaceId) ??
+    (cachedShell?.selectedWorkspace?.id === resolvedWorkspaceId ? cachedShell.selectedWorkspace : null);
   const workspaceId = selectedWorkspace?.id ?? resolvedWorkspaceId;
 
   const permissionsQuery = useQuery({
@@ -59,9 +83,47 @@ export function useWorkspaceContext() {
     queryKey: queryKeys.workspaces.settings(workspaceId)
   });
 
+  const permissions = permissionsQuery.data ?? cachedShell?.permissions ?? [];
+  const members = membersQuery.data ?? cachedShell?.members ?? [];
+  const settings = settingsQuery.data ?? cachedShell?.settings ?? [];
+  const offlineReadMode = Boolean(cachedShell && (
+    (workspacesQuery.isError && isLikelyOfflineError(workspacesQuery.error)) ||
+    (workspaceQuery.isError && isLikelyOfflineError(workspaceQuery.error)) ||
+    (permissionsQuery.isError && isLikelyOfflineError(permissionsQuery.error)) ||
+    (membersQuery.isError && isLikelyOfflineError(membersQuery.error))
+  ));
+
+  useEffect(() => {
+    if (!workspacesQuery.data?.length) {
+      return;
+    }
+    const snapshot: WorkspaceShellCache = {
+      members: membersQuery.data ?? cachedShell?.members ?? [],
+      permissions: permissionsQuery.data ?? cachedShell?.permissions ?? [],
+      selectedWorkspace,
+      settings: settingsQuery.data ?? cachedShell?.settings ?? [],
+      workspaces: workspacesQuery.data
+    };
+    void Promise.all([
+      writeWorkspaceShellCache(requestedWorkspaceRef, snapshot),
+      writeWorkspaceShellCache(selectedWorkspace?.slug || selectedWorkspace?.id || "", snapshot),
+      writeWorkspaceShellCache("", snapshot)
+    ]).catch(() => undefined);
+  }, [
+    cachedShell?.members,
+    cachedShell?.permissions,
+    cachedShell?.settings,
+    membersQuery.data,
+    permissionsQuery.data,
+    requestedWorkspaceRef,
+    selectedWorkspace,
+    settingsQuery.data,
+    workspacesQuery.data
+  ]);
+
   const permissionCodes = useMemo(
-    () => createPermissionSet(permissionsQuery.data ?? []),
-    [permissionsQuery.data]
+    () => createPermissionSet(permissions),
+    [permissions]
   );
 
   const can = useCallback(
@@ -85,14 +147,15 @@ export function useWorkspaceContext() {
 
   return {
     can,
-    members: membersQuery.data ?? [],
+    members,
     membersQuery,
+    offlineReadMode,
     permissionCodes,
-    permissions: permissionsQuery.data ?? [],
+    permissions,
     permissionsQuery,
     selectedWorkspace,
     setWorkspaceId,
-    settings: settingsQuery.data ?? [],
+    settings,
     settingsQuery,
     workspaceQuery,
     workspaceId,

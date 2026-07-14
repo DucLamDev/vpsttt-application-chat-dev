@@ -1,0 +1,32 @@
+[package]
+name = "webtui_desktop"
+version = "0.1.0"
+description = "WebTui Chat desktop host"
+authors = ["VPSTTT"]
+edition = "2021"
+license = "UNLICENSED"
+rust-version = "1.77"
+
+[lib]
+name = "webtui_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "webtui_desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+keyring = "3"
+tauri = { version = "2", features = [] }
+tauri-plugin-autostart = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-http = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-updater = "2"

@@ -17,8 +17,8 @@ import (
 )
 
 type Handler struct {
-	manager *platformws.Manager
-	tokens  *sharedauth.Manager
+	manager    *platformws.Manager
+	tokens     *sharedauth.Manager
 	authorizer RoomAuthorizer
 }
 
@@ -27,8 +27,17 @@ type RoomAuthorizer interface {
 }
 
 type clientCommand struct {
-	Type string `json:"type"`
-	Room string `json:"room"`
+	Type    string         `json:"type"`
+	Room    string         `json:"room"`
+	Payload map[string]any `json:"payload"`
+}
+
+var callSignalTypes = map[string]struct{}{
+	"CallOffer":        {},
+	"CallAnswer":       {},
+	"CallIceCandidate": {},
+	"CallRejected":     {},
+	"CallEnded":        {},
 }
 
 func NewHandler(manager *platformws.Manager, tokens *sharedauth.Manager, authorizers ...RoomAuthorizer) *Handler {
@@ -202,6 +211,25 @@ func (h *Handler) handleCommand(client *platformws.Client, command clientCommand
 			Payload: map[string]any{
 				"user_id": client.UserID,
 			},
+		})
+	default:
+		eventType := strings.TrimSpace(command.Type)
+		if _, ok := callSignalTypes[eventType]; !ok {
+			return
+		}
+		if !h.manager.IsMember(room, client.ID) {
+			return
+		}
+		payload := command.Payload
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		payload["user_id"] = client.UserID
+		_ = h.manager.Broadcast(context.Background(), room, platformws.Event{
+			Type:    eventType,
+			Room:    room,
+			UserID:  client.UserID,
+			Payload: payload,
 		})
 	}
 }

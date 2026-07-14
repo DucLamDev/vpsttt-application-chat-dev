@@ -53,6 +53,7 @@ type SendInput struct {
 	WorkspaceID      string
 	ChannelID        string
 	ParentID         string
+	ClientMessageID  string
 	Kind             string
 	Body             string
 	Metadata         json.RawMessage
@@ -64,6 +65,7 @@ type SendParams struct {
 	ChannelID        string
 	SenderID         string
 	ParentID         string
+	ClientMessageID  string
 	Kind             string
 	Body             string
 	Metadata         []byte
@@ -302,12 +304,21 @@ func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error)
 	if err != nil {
 		return MessageDTO{}, err
 	}
+	clientMessageID := normalizeClientMessageID(input.ClientMessageID)
+	if clientMessageID != "" {
+		metadata, err = withClientMessageID(metadata, clientMessageID)
+		if err != nil {
+			return MessageDTO{}, err
+		}
+	}
 
+	sendStartedAt := time.Now().UTC()
 	message, err := s.repo.Send(ctx, SendParams{
 		WorkspaceID:      strings.TrimSpace(input.WorkspaceID),
 		ChannelID:        strings.TrimSpace(input.ChannelID),
 		SenderID:         strings.TrimSpace(input.ActorUserID),
 		ParentID:         strings.TrimSpace(input.ParentID),
+		ClientMessageID:  clientMessageID,
 		Kind:             kind,
 		Body:             body,
 		Metadata:         metadata,
@@ -317,6 +328,7 @@ func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error)
 		return MessageDTO{}, mapMessageError(err)
 	}
 	dto := toMessageDTO(message)
+	isDuplicateRetry := clientMessageID != "" && message.CreatedAt.Before(sendStartedAt)
 	slog.Info("Message service da luu tin nhan nguoi dung",
 		"workspace_id", dto.WorkspaceID,
 		"channel_id", dto.ChannelID,
@@ -326,6 +338,9 @@ func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error)
 		"body_len", len([]rune(body)),
 		"auto_responder_count", len(s.autoResponders),
 	)
+	if isDuplicateRetry {
+		return dto, nil
+	}
 	s.publishRealtime(ctx, "MessageCreated", dto)
 	if kind == "text" {
 		s.runAutoResponders(ctx, botauto.MessageInput{
@@ -768,6 +783,28 @@ func normalizeMetadata(value json.RawMessage) ([]byte, error) {
 		return nil, apperrors.BadRequest("VALIDATION_ERROR", "Metadata của tin nhắn không phải JSON hợp lệ.")
 	}
 	return []byte(value), nil
+}
+
+func normalizeClientMessageID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 128 {
+		return value[:128]
+	}
+	return value
+}
+
+func withClientMessageID(metadata []byte, clientMessageID string) ([]byte, error) {
+	var payload map[string]any
+	if len(metadata) == 0 {
+		payload = map[string]any{}
+	} else if err := json.Unmarshal(metadata, &payload); err != nil {
+		return nil, apperrors.BadRequest("VALIDATION_ERROR", "Metadata cua tin nhan khong phai JSON object hop le.")
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	payload["client_message_id"] = clientMessageID
+	return json.Marshal(payload)
 }
 
 func normalizeMentions(body string, ids []string) []string {

@@ -23,14 +23,16 @@ function message(id: string, createdAt: string, body = id): Message {
 }
 
 function timeline(messages: Message[]): InfiniteData<MessagePage> {
+  return timelinePages([messages]);
+}
+
+function timelinePages(pages: Message[][]): InfiniteData<MessagePage> {
   return {
-    pageParams: [undefined],
-    pages: [
-      {
-        messages,
-        meta: {}
-      }
-    ]
+    pageParams: pages.map((_, index) => (index === 0 ? undefined : `cursor-${index}`)),
+    pages: pages.map((messages) => ({
+      messages,
+      meta: {}
+    }))
   };
 }
 
@@ -95,6 +97,26 @@ describe("message cache helpers", () => {
     const next = upsertMessageInPages(current, message("msg-1", "2026-07-09T01:00:01Z", "Đã gửi"), "local-1");
 
     expect(next.pages[0].messages).toEqual([message("msg-1", "2026-07-09T01:00:01Z", "Đã gửi")]);
+  });
+
+  it("updates realtime messages in older pages without duplicating them", () => {
+    const current = timelinePages([
+      [message("msg-3", "2026-07-09T03:00:00Z")],
+      [message("msg-2", "2026-07-09T02:00:00Z")]
+    ]);
+    const pinned = { ...message("msg-2", "2026-07-09T02:00:00Z", "Đã ghim"), pinned_at: "2026-07-09T04:00:00Z" };
+
+    const next = upsertMessageInPages(current, pinned);
+
+    expect(next.pages[0].messages.map((item) => item.id)).toEqual(["msg-3"]);
+    expect(next.pages[1].messages).toEqual([pinned]);
+  });
+
+  it("creates an initial page when realtime arrives before history", () => {
+    const next = upsertMessageInPages(undefined, message("msg-1", "2026-07-09T01:00:00Z"));
+
+    expect(next.pageParams).toEqual([undefined]);
+    expect(next.pages[0].messages.map((item) => item.id)).toEqual(["msg-1"]);
   });
 
   it("updates and removes messages without changing other pages", () => {

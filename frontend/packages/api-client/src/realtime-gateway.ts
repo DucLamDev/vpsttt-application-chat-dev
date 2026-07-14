@@ -17,6 +17,7 @@ export type RealtimeServerEvent<TPayload = unknown> = {
 };
 
 export type RealtimeCommand = {
+  payload?: unknown;
   room: string;
   type: "join" | "leave" | string;
 };

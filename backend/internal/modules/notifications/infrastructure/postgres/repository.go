@@ -57,6 +57,33 @@ RETURNING id::text
 	return nil
 }
 
+func (r *Repository) GetPreference(ctx context.Context, userID string, workspaceID string) (notificationsdomain.NotificationPreference, error) {
+	row := r.pool.QueryRow(ctx, `
+WITH member AS (
+    SELECT $1::uuid AS user_id, $2::uuid AS workspace_id
+    WHERE EXISTS (
+        SELECT 1
+        FROM workspace_members wm
+        WHERE wm.user_id = $1::uuid
+          AND wm.workspace_id = $2::uuid
+          AND wm.status IN ('active', 'muted')
+    )
+)
+SELECT m.user_id::text, m.workspace_id::text,
+       COALESCE(np.mode, 'all'),
+       COALESCE(np.preview, true),
+       COALESCE(np.quiet_hours, false),
+       COALESCE(np.quiet_start::text, '22:00'),
+       COALESCE(np.quiet_end::text, '07:00'),
+       COALESCE(np.created_at, now()),
+       COALESCE(np.updated_at, now())
+FROM member m
+LEFT JOIN notification_preferences np
+  ON np.user_id = m.user_id AND np.workspace_id = m.workspace_id
+`, userID, workspaceID)
+	return scanNotificationPreference(row)
+}
+
 func (r *Repository) ListForUser(ctx context.Context, params notificationsapp.ListParams) ([]notificationsdomain.Notification, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT id::text, user_id::text, workspace_id::text, channel_id::text, message_id::text,
@@ -103,6 +130,36 @@ WHERE user_id = $1::uuid
   AND read_at IS NULL
 `, userID, workspaceID)
 	return err
+}
+
+func (r *Repository) UpsertPreference(ctx context.Context, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error) {
+	row := r.pool.QueryRow(ctx, `
+WITH member AS (
+    SELECT $1::uuid AS user_id, $2::uuid AS workspace_id
+    WHERE EXISTS (
+        SELECT 1
+        FROM workspace_members wm
+        WHERE wm.user_id = $1::uuid
+          AND wm.workspace_id = $2::uuid
+          AND wm.status IN ('active', 'muted')
+    )
+),
+upserted AS (
+    INSERT INTO notification_preferences (user_id, workspace_id, mode, preview, quiet_hours, quiet_start, quiet_end)
+    SELECT user_id, workspace_id, $3, $4, $5, $6, $7
+    FROM member
+    ON CONFLICT (user_id, workspace_id) DO UPDATE SET
+        mode = EXCLUDED.mode,
+        preview = EXCLUDED.preview,
+        quiet_hours = EXCLUDED.quiet_hours,
+        quiet_start = EXCLUDED.quiet_start,
+        quiet_end = EXCLUDED.quiet_end
+    RETURNING user_id::text, workspace_id::text, mode, preview, quiet_hours, quiet_start::text, quiet_end::text, created_at, updated_at
+)
+SELECT user_id, workspace_id, mode, preview, quiet_hours, quiet_start, quiet_end, created_at, updated_at
+FROM upserted
+`, preference.UserID, preference.WorkspaceID, preference.Mode, preference.Preview, preference.QuietHours, preference.QuietStart, preference.QuietEnd)
+	return scanNotificationPreference(row)
 }
 
 func (r *Repository) ProcessPendingJobs(ctx context.Context, limit int) (int, error) {
@@ -158,6 +215,27 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'desktop', $4::jsonb)
 
 type rowScanner interface {
 	Scan(dest ...any) error
+}
+
+func scanNotificationPreference(row rowScanner) (notificationsdomain.NotificationPreference, error) {
+	var preference notificationsdomain.NotificationPreference
+	if err := row.Scan(
+		&preference.UserID,
+		&preference.WorkspaceID,
+		&preference.Mode,
+		&preference.Preview,
+		&preference.QuietHours,
+		&preference.QuietStart,
+		&preference.QuietEnd,
+		&preference.CreatedAt,
+		&preference.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return notificationsdomain.NotificationPreference{}, notificationsdomain.ErrNotificationPreferenceUnavailable
+		}
+		return notificationsdomain.NotificationPreference{}, err
+	}
+	return preference, nil
 }
 
 func scanNotification(row rowScanner) (notificationsdomain.Notification, error) {

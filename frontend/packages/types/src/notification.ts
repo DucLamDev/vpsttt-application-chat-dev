@@ -14,3 +14,26 @@ export type Notification = {
   delivered_at?: ISODateTime | null;
   created_at: ISODateTime;
 };
+
+export type NotificationPreferenceMode = "all" | "mentions" | "muted";
+
+export type NotificationPreference = {
+  user_id: Id;
+  workspace_id: Id;
+  mode: NotificationPreferenceMode;
+  preview: boolean;
+  quiet_hours: boolean;
+  quiet_start: string;
+  quiet_end: string;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+};
+
+export type NotificationPreferenceInput = {
+  workspace_id: Id;
+  mode: NotificationPreferenceMode;
+  preview: boolean;
+  quiet_hours: boolean;
+  quiet_start: string;
+  quiet_end: string;
+};

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -27,6 +27,7 @@ import {
   uniqueMessages,
   updateMessageInPages
 } from "../model/message-cache";
+import { isLikelyOfflineError, readTimelineCache, writeTimelineCache } from "../model/offline-cache";
 
 export {
   mergeMessageIntoTimeline,
@@ -93,6 +94,7 @@ export function useMessageTimeline({
   const timelineKey = messageTimelineKey(workspaceId, channelId);
   const cleanSearchQuery = searchQuery.trim();
   const searchFilterKey = JSON.stringify(searchFilters);
+  const [cachedApiMessages, setCachedApiMessages] = useState<ApiMessage[]>([]);
 
   const messagesQuery = useInfiniteQuery<
     MessagePage,
@@ -113,10 +115,44 @@ export function useMessageTimeline({
     queryKey: timelineKey
   });
 
-  const apiMessages = useMemo(
+  const remoteApiMessages = useMemo(
     () => sortMessagesAscending(uniqueMessages(messagesQuery.data?.pages.flatMap((page) => page.messages) ?? [])),
     [messagesQuery.data?.pages]
   );
+  const apiMessages = useMemo(
+    () => sortMessagesAscending(uniqueMessages(remoteApiMessages.length ? remoteApiMessages : cachedApiMessages)),
+    [cachedApiMessages, remoteApiMessages]
+  );
+  const offlineReadMode = Boolean(
+    cachedApiMessages.length > 0 &&
+      remoteApiMessages.length === 0 &&
+      (messagesQuery.isError || (typeof navigator !== "undefined" && navigator.onLine === false))
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    if (!workspaceId || !channelId) {
+      setCachedApiMessages([]);
+      return undefined;
+    }
+    void readTimelineCache(workspaceId, channelId)
+      .then((messages) => {
+        if (!disposed) {
+          setCachedApiMessages(messages);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [channelId, workspaceId]);
+
+  useEffect(() => {
+    if (!workspaceId || !channelId || !remoteApiMessages.length) {
+      return;
+    }
+    void writeTimelineCache(workspaceId, channelId, remoteApiMessages).catch(() => undefined);
+  }, [channelId, remoteApiMessages, workspaceId]);
   const attachmentMessageIds = useMemo(
     () => apiMessages.filter((message) => !message.id.startsWith("local-") && !message.deleted_at).map((message) => message.id),
     [apiMessages]
@@ -314,6 +350,7 @@ export function useMessageTimeline({
     forwardMessageMutation,
     hasOlderMessages: Boolean(messagesQuery.hasNextPage),
     isLoadingOlderMessages: messagesQuery.isFetchingNextPage,
+    isOfflineReadMode: offlineReadMode || (messagesQuery.isError && isLikelyOfflineError(messagesQuery.error)),
     loadOlderMessages: () => messagesQuery.fetchNextPage(),
     messages,
     messagesQuery,
@@ -371,10 +408,18 @@ export function mapMessage(
   canManageMessages = false
 ): ChatMessage {
   const botAuthor = mapBotMessageAuthor(message);
+  const systemTone = resolveSystemMessageTone(message);
+  const systemAuthor = systemTone
+    ? {
+        id: systemTone === "announcement" ? "system:announcement" : "system",
+        name: systemTone === "announcement" ? "Thong bao" : "He thong",
+        status: "offline" as const
+      }
+    : null;
   const author =
-    botAuthor ?? mapMessageAuthor(message.author ?? message.user, fallbackAuthor, message.sender_id ?? message.author_id);
-  const senderId = botAuthor?.id ?? message.sender_id ?? message.author_id ?? author.id;
-  const isOwner = !botAuthor && (senderId === fallbackAuthor.id || author.id === fallbackAuthor.id);
+    systemAuthor ?? botAuthor ?? mapMessageAuthor(message.author ?? message.user, fallbackAuthor, message.sender_id ?? message.author_id);
+  const senderId = systemAuthor?.id ?? botAuthor?.id ?? message.sender_id ?? message.author_id ?? author.id;
+  const isOwner = !systemAuthor && !botAuthor && (senderId === fallbackAuthor.id || author.id === fallbackAuthor.id);
   const attachments = mapMessageAttachments(message.attachments);
   const qrImageUrl = botAuthor ? messageQRImageURL(message) : undefined;
   const isLocal = message.id.startsWith("local-");
@@ -387,8 +432,8 @@ export function mapMessage(
     attachments,
     author,
     body: message.deleted_at ? "Tin nhắn đã bị xóa." : message.body,
-    canDelete: !message.deleted_at && !isLocal && canTargetMessageAPI && (isOwner || canManageMessages),
-    canEdit: !message.deleted_at && isOwner,
+    canDelete: !systemAuthor && !message.deleted_at && !isLocal && canTargetMessageAPI && (isOwner || canManageMessages),
+    canEdit: !systemAuthor && !message.deleted_at && isOwner,
     editedAt: message.edited_at ? formatTime(message.edited_at) : undefined,
     id: message.id,
     isDeleted: Boolean(message.deleted_at),
@@ -397,19 +442,37 @@ export function mapMessage(
     isMine: isOwner,
     isLocal,
     isPending: isLocal,
+    isSystem: Boolean(systemTone),
     isVoice,
     rawChannelId: message.channel_id,
     rawCreatedAt: message.created_at ?? message.sent_at,
     rawSenderId: senderId,
     qrImageUrl,
     qrReference: botAuthor && typeof message.metadata?.reference === "string" ? message.metadata.reference.trim() : undefined,
-    reactions: message.reactions?.map((reaction) => ({
+    reactions: systemTone ? undefined : message.reactions?.map((reaction) => ({
       count: reaction.count ?? reaction.user_ids?.length ?? 0,
       emoji: reaction.emoji,
       reactedByMe: reaction.reacted_by_me
     })),
-    sentAt: formatTime(message.created_at ?? message.sent_at)
+    sentAt: formatTime(message.created_at ?? message.sent_at),
+    systemTone
   };
+}
+
+function resolveSystemMessageTone(message: ApiMessage): "announcement" | "system" | undefined {
+  const kind = (message.kind ?? "").trim().toLowerCase();
+  const metadataType = typeof message.metadata?.type === "string" ? message.metadata.type.trim().toLowerCase() : "";
+  const metadataMessageType =
+    typeof message.metadata?.message_type === "string" ? message.metadata.message_type.trim().toLowerCase() : "";
+  const variants = new Set([kind, metadataType, metadataMessageType]);
+
+  if (variants.has("announcement") || message.metadata?.announcement === true) {
+    return "announcement";
+  }
+  if (variants.has("system") || variants.has("system_message")) {
+    return "system";
+  }
+  return undefined;
 }
 
 function messageQRImageURL(message: ApiMessage): string | undefined {
@@ -478,6 +541,7 @@ function mapMessageAttachments(attachments?: MessageAttachment[]): MessageAttach
       const isVideo = Boolean(mimeType?.startsWith("video/"));
 
       return {
+        checksumSha256: file?.checksum_sha256,
         fileId,
         id: attachment.id ?? `${fileId}-${index}`,
         isAudio,
@@ -487,6 +551,7 @@ function mapMessageAttachments(attachments?: MessageAttachment[]): MessageAttach
         name,
         previewUrl: url,
         size: formatFileSize(size),
+        status: file?.status,
         tone: fileTone(mimeType),
         url
       };
@@ -498,10 +563,12 @@ export function createOptimisticMessage(params: {
   attachments?: ApiMessage["attachments"];
   body: string;
   channelId: string;
+  clientMessageId?: string;
   currentUser: ChatUser;
   workspaceId: string;
 }): ApiMessage {
   const now = new Date().toISOString();
+  const metadata = params.clientMessageId ? { client_message_id: params.clientMessageId } : undefined;
 
   return {
     author: {
@@ -514,8 +581,9 @@ export function createOptimisticMessage(params: {
     body: params.body,
     channel_id: params.channelId,
     created_at: now,
-    id: `local-${Date.now()}`,
+    id: params.clientMessageId ? `local-${params.clientMessageId}` : `local-${Date.now()}`,
     kind: "text",
+    metadata,
     sender_id: params.currentUser.id,
     updated_at: now,
     workspace_id: params.workspaceId

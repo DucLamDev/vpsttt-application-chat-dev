@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const openApiSource = readFileSync(resolve(repoRoot, "backend/api/openapi/openapi.yaml"), "utf8");
 const openApiPaths = new Set(
-  [...openApiSource.matchAll(/^ {2}(\/api\/v1\/[^:\n]+):/gm)].map((match) => match[1])
+  [...openApiSource.matchAll(/^ {2}(\/(?:api\/v1\/[^:\n]+|version|desktop\/releases\/[^:\n]+)):/gm)].map((match) => match[1])
 );
 
 const desktopMvpPaths = [
+  "/version",
+  "/desktop/releases/{channel}/{target}/{arch}/{current_version}",
   "/api/v1/ws",
   "/api/v1/auth/login",
   "/api/v1/auth/refresh",
@@ -28,11 +30,14 @@ const desktopMvpPaths = [
   "/api/v1/workspaces/{workspace_id}/messages/search",
   "/api/v1/workspaces/{workspace_id}/files",
   "/api/v1/notifications",
+  "/api/v1/notifications/preferences",
   "/api/v1/notifications/read-all",
   "/api/v1/workspaces/{workspace_id}/presence",
   "/api/v1/workspaces/{workspace_id}/presence/heartbeat",
   "/api/v1/workspaces/{workspace_id}/departments",
   "/api/v1/workspaces/{workspace_id}/bots",
+  "/api/v1/workspaces/{workspace_id}/tickets",
+  "/api/v1/workspaces/{workspace_id}/tickets/{ticket_id}",
   "/api/v1/workspaces/{workspace_id}/cronjobs"
 ] as const;
 
@@ -54,5 +59,13 @@ describe("desktop OpenAPI contract", () => {
     const declaredOrderBotPaths = orderBotPaths.filter((path) => openApiPaths.has(path));
 
     expect([0, orderBotPaths.length]).toContain(declaredOrderBotPaths.length);
+  });
+
+  it("documents desktop version compatibility policy", () => {
+    expect(openApiSource).toContain("DesktopVersionPolicy");
+    expect(openApiSource).toContain("DesktopUpdaterManifest");
+    expect(openApiSource).toContain("minimum_version");
+    expect(openApiSource).toContain("recommended_version");
+    expect(openApiSource).toContain("update_url");
   });
 });

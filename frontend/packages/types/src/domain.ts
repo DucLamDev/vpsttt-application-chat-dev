@@ -54,6 +54,8 @@ export type PermissionCode =
 
 export type RuntimeEnvironment = {
   apiBaseUrl: string;
+  appVersion: string;
+  releaseChannel: "beta" | "stable" | string;
   wsBaseUrl: string;
   appName: string;
   locale: string;

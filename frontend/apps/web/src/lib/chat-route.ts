@@ -1,3 +1,5 @@
+import { getPlatformServices } from "@webtui/chat-core";
+
 export type ParsedChatRoute = {
   kind?: "channel" | "dm";
   sectionRef?: string;
@@ -5,10 +7,18 @@ export type ParsedChatRoute = {
   workspaceRef: string;
 };
 
-export function parseChatRoute(pathname: string): ParsedChatRoute | null {
+type ChatRouteSearchParams = {
+  get: (name: string) => string | null;
+};
+
+export function parseChatRoute(pathname: string, searchParams?: ChatRouteSearchParams): ParsedChatRoute | null {
   const segments = pathname.split("/").filter(Boolean).map(safeDecode);
   if (segments[0] !== "chat" || !segments[1]) {
     return null;
+  }
+  const desktopQueryRoute = parseDesktopQueryRoute(segments, searchParams);
+  if (desktopQueryRoute) {
+    return desktopQueryRoute;
   }
   const kind = segments[2] === "channel" || segments[2] === "dm" ? segments[2] : undefined;
   return {
@@ -20,10 +30,22 @@ export function parseChatRoute(pathname: string): ParsedChatRoute | null {
 }
 
 export function buildWorkspaceSectionRoute(workspaceRef: string, sectionRef: string) {
+  if (shouldUseDesktopQueryRoute()) {
+    const params = new URLSearchParams({ section: sectionRef, workspace: workspaceRef });
+    return `/chat/desktop?${params.toString()}`;
+  }
   return `${buildChatRoute(workspaceRef)}/${encodeURIComponent(sectionRef)}`;
 }
 
 export function buildChatRoute(workspaceRef: string, kind?: "channel" | "dm", targetRef?: string) {
+  if (shouldUseDesktopQueryRoute()) {
+    const params = new URLSearchParams({ workspace: workspaceRef });
+    if (kind && targetRef) {
+      params.set("kind", kind);
+      params.set("target", targetRef);
+    }
+    return `/chat/desktop?${params.toString()}`;
+  }
   const base = `/chat/${encodeURIComponent(workspaceRef)}`;
   return kind && targetRef ? `${base}/${kind}/${encodeURIComponent(targetRef)}` : base;
 }
@@ -56,4 +78,26 @@ function safeDecode(value: string) {
   } catch {
     return value;
   }
+}
+
+function parseDesktopQueryRoute(
+  segments: string[],
+  searchParams?: ChatRouteSearchParams
+): ParsedChatRoute | null {
+  if (segments[1] !== "desktop" || !searchParams) {
+    return null;
+  }
+  const workspaceRef = searchParams.get("workspace");
+  if (!workspaceRef) {
+    return null;
+  }
+  const kindValue = searchParams.get("kind");
+  const kind = kindValue === "channel" || kindValue === "dm" ? kindValue : undefined;
+  const targetRef = kind ? searchParams.get("target") || undefined : undefined;
+  const sectionRef = !kind ? searchParams.get("section") || undefined : undefined;
+  return { kind, sectionRef, targetRef, workspaceRef };
+}
+
+function shouldUseDesktopQueryRoute() {
+  return getPlatformServices().lifecycle.isDesktop;
 }

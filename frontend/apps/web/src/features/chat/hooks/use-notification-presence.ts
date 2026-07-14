@@ -3,12 +3,14 @@
 import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@webtui/api-client";
+import { getPlatformServices } from "@webtui/chat-core";
 import type { Notification, Presence, PresenceHeartbeatInput } from "@webtui/types";
 import { api } from "@/lib/api";
 
 const heartbeatMs = 30_000;
 const notificationFallbackMs = 10_000;
 const deviceIdStorageKey = "webtui-device-id";
+let cachedDeviceId: string | null = null;
 
 export type NotificationPresenceOptions = {
   currentUserId: string;
@@ -63,7 +65,7 @@ export function useNotificationPresence({
     }
 
     let cancelled = false;
-    const deviceId = getBrowserDeviceId();
+    const deviceId = getPlatformDeviceId();
     const socketId = `${deviceId}:${currentUserId}`;
 
     async function sendHeartbeat(status: "online" | "away" | "offline") {
@@ -154,14 +156,25 @@ function upsertPresence(queryClient: ReturnType<typeof useQueryClient>, workspac
   });
 }
 
-function getBrowserDeviceId() {
+function getPlatformDeviceId() {
   if (typeof window === "undefined") {
     return "web-server";
   }
+  if (cachedDeviceId) {
+    return cachedDeviceId;
+  }
 
-  const existing = window.localStorage.getItem(deviceIdStorageKey);
+  const existing = getPlatformServices().storage.getItem(deviceIdStorageKey);
   if (existing) {
-    return existing;
+    if (!(existing instanceof Promise)) {
+      cachedDeviceId = existing;
+      return existing;
+    }
+    void existing.then((value) => {
+      if (value) {
+        cachedDeviceId = value;
+      }
+    });
   }
 
   const next =
@@ -169,6 +182,7 @@ function getBrowserDeviceId() {
       ? crypto.randomUUID()
       : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-  window.localStorage.setItem(deviceIdStorageKey, next);
+  void getPlatformServices().storage.setItem(deviceIdStorageKey, next, "persistent");
+  cachedDeviceId = next;
   return next;
 }

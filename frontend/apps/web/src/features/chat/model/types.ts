@@ -32,6 +32,7 @@ export type ChatMessage = {
   isForwarded?: boolean;
   isBot?: boolean;
   isPending?: boolean;
+  isSystem?: boolean;
   isVoice?: boolean;
   reactions?: Array<{ emoji: string; count: number; reactedByMe?: boolean }>;
   metrics?: ChatMetric[];
@@ -43,11 +44,13 @@ export type ChatMessage = {
   rawSenderId?: string | null;
   qrImageUrl?: string;
   qrReference?: string;
+  systemTone?: "announcement" | "system";
 };
 
 export type MessageAttachmentItem = {
   fileId: string;
   id: string;
+  checksumSha256?: string | null;
   isAudio?: boolean;
   isImage?: boolean;
   isVideo?: boolean;
@@ -55,6 +58,7 @@ export type MessageAttachmentItem = {
   name: string;
   previewUrl?: string;
   size?: string;
+  status?: string;
   tone: "green" | "red" | "slate";
   url?: string;
 };
@@ -104,11 +108,13 @@ export type MediaItem = {
 };
 
 export type FileItem = {
+  checksumSha256?: string | null;
   id: string;
   downloadUrl?: string;
   mimeType?: string;
   name: string;
   size: string;
+  status?: string;
   updatedAt: string;
   tone: "green" | "red" | "slate";
 };

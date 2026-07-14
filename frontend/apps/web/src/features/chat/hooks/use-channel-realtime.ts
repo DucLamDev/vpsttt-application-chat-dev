@@ -14,9 +14,38 @@ import {
 } from "./use-message-timeline";
 
 type RealtimeMessagePayload = {
+  call?: CallSignalPayload;
+  call_id?: string;
+  candidate?: RTCIceCandidateInit;
+  channel_id?: string;
+  mode?: CallMode;
+  reason?: string;
+  sdp?: RTCSessionDescriptionInit;
   contact_request?: unknown;
   message?: ApiMessage;
   user_id?: string;
+};
+
+export type CallMode = "audio" | "video";
+
+export type CallSignalType = "CallOffer" | "CallAnswer" | "CallIceCandidate" | "CallRejected" | "CallEnded";
+
+export type CallSignalPayload = {
+  call_id: string;
+  candidate?: RTCIceCandidateInit;
+  channel_id?: string;
+  mode?: CallMode;
+  reason?: string;
+  sdp?: RTCSessionDescriptionInit;
+};
+
+export type RealtimeCallSignal = {
+  payload: CallSignalPayload;
+  room: string;
+  sequence: number;
+  timestamp?: string;
+  type: CallSignalType;
+  userId: string;
 };
 
 export type ChannelRealtimeOptions = {
@@ -44,6 +73,9 @@ export function useChannelRealtime({
   const socketRef = useRef<WebSocket | null>(null);
   const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const [lastCallSignal, setLastCallSignal] = useState<RealtimeCallSignal | null>(null);
+  const callSignalSequenceRef = useRef(0);
+  const [lifecycleVersion, setLifecycleVersion] = useState(0);
   const room = workspaceId && channelId ? messageRoomName(workspaceId, channelId) : "";
   const channelIdsKey = [...new Set(channelIds.filter(Boolean))].sort().join("|");
   const rooms = useMemo(
@@ -54,6 +86,55 @@ export function useChannelRealtime({
   useEffect(() => {
     setTypingUserIds([]);
   }, [room]);
+
+  useEffect(() => {
+    if (!enabled || !workspaceId || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const invalidateRealtimeQueries = () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channels.directConversations(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notifications.list(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.presence.list(workspaceId) });
+      for (const id of channelIdsKey.split("|")) {
+        if (id) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.messages.channel(workspaceId, id) });
+        }
+      }
+    };
+
+    const handleResume = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return;
+      }
+      invalidateRealtimeQueries();
+      setLifecycleVersion((version) => version + 1);
+    };
+
+    const handleOffline = () => {
+      setConnection({
+        retryAttempt,
+        room: room || null,
+        status: "offline"
+      });
+    };
+
+    window.addEventListener("online", handleResume);
+    window.addEventListener("focus", handleResume);
+    window.addEventListener("offline", handleOffline);
+    document.addEventListener("visibilitychange", handleResume);
+
+    return () => {
+      window.removeEventListener("online", handleResume);
+      window.removeEventListener("focus", handleResume);
+      window.removeEventListener("offline", handleOffline);
+      document.removeEventListener("visibilitychange", handleResume);
+    };
+  }, [channelIdsKey, enabled, queryClient, retryAttempt, room, setConnection, workspaceId]);
 
   useEffect(() => {
     if (!enabled || !workspaceId || !accessToken || typeof WebSocket === "undefined") {
@@ -173,6 +254,32 @@ export function useChannelRealtime({
         return;
       }
 
+      if (isCallSignalType(event.type)) {
+        const userId = event.user_id || event.payload?.user_id || "";
+        if (!userId || userId === currentUserId || !event.room) {
+          return;
+        }
+        const payload = normalizeCallSignalPayload(event.payload);
+        if (!payload?.call_id) {
+          return;
+        }
+        callSignalSequenceRef.current += 1;
+        setLastCallSignal({
+          payload,
+          room: event.room,
+          sequence: callSignalSequenceRef.current,
+          timestamp: event.timestamp,
+          type: event.type,
+          userId
+        });
+        setConnection({
+          lastEventAt: new Date().toISOString(),
+          room: room || null,
+          status: "connected"
+        });
+        return;
+      }
+
       if (
         event.type === "ContactRequestCreated" ||
         event.type === "ContactRequestUpdated" ||
@@ -210,6 +317,7 @@ export function useChannelRealtime({
       } else if (event.type === "MessageCreated" || event.type === "MessageUpdated" || event.type === "ReactionChanged") {
         mergeMessageIntoTimeline(queryClient, workspaceId, eventChannelId, message);
       } else if (event.type === "MessagePinned" || event.type === "MessageUnpinned") {
+        mergeMessageIntoTimeline(queryClient, workspaceId, eventChannelId, message);
         void queryClient.invalidateQueries({ queryKey: queryKeys.messages.pins(workspaceId, eventChannelId) });
       }
 
@@ -248,7 +356,7 @@ export function useChannelRealtime({
         status: "offline"
       });
     };
-  }, [accessToken, channelId, currentUserId, enabled, gateway, queryClient, room, rooms, setConnection, workspaceId]);
+  }, [accessToken, channelId, currentUserId, enabled, gateway, lifecycleVersion, queryClient, room, rooms, setConnection, workspaceId]);
 
   const publishTyping = useCallback(
     (active: boolean) => {
@@ -261,8 +369,28 @@ export function useChannelRealtime({
     [gateway, room]
   );
 
+  const publishCallSignal = useCallback(
+    (type: CallSignalType, payload: CallSignalPayload) => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || !room) {
+        return false;
+      }
+      return gateway.send(socket, {
+        payload: {
+          ...payload,
+          channel_id: payload.channel_id || channelId
+        },
+        room,
+        type
+      });
+    },
+    [channelId, gateway, room]
+  );
+
   return {
     lastEventAt,
+    lastCallSignal,
+    publishCallSignal,
     publishTyping,
     retryAttempt,
     room,
@@ -283,4 +411,33 @@ function parseRealtimeEvent(raw: string): RealtimeServerEvent<RealtimeMessagePay
   } catch {
     return null;
   }
+}
+
+function isCallSignalType(type: string): type is CallSignalType {
+  return (
+    type === "CallOffer" ||
+    type === "CallAnswer" ||
+    type === "CallIceCandidate" ||
+    type === "CallRejected" ||
+    type === "CallEnded"
+  );
+}
+
+function normalizeCallSignalPayload(payload: RealtimeMessagePayload | undefined): CallSignalPayload | null {
+  if (!payload) {
+    return null;
+  }
+  const nested = payload.call;
+  const source = nested?.call_id ? nested : payload;
+  if (!source.call_id) {
+    return null;
+  }
+  return {
+    call_id: source.call_id,
+    candidate: source.candidate,
+    channel_id: source.channel_id,
+    mode: source.mode,
+    reason: source.reason,
+    sdp: source.sdp
+  };
 }
