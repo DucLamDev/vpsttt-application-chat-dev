@@ -231,6 +231,21 @@ func (h *Handler) handleCommand(client *platformws.Client, command clientCommand
 			UserID:  client.UserID,
 			Payload: payload,
 		})
+		if targetUserID, ok := payload["target_user_id"].(string); ok {
+			targetUserID = strings.TrimSpace(targetUserID)
+			if targetUserID == "" || targetUserID == client.UserID || h.manager.IsUserMember(room, targetUserID) {
+				return
+			}
+			targetCanJoin := h.authorizer == nil || h.authorizer.CanJoinRoom(context.Background(), targetUserID, room)
+			if targetCanJoin {
+				_ = h.manager.Broadcast(context.Background(), "user:"+targetUserID, platformws.Event{
+					Type:    eventType,
+					Room:    room,
+					UserID:  client.UserID,
+					Payload: payload,
+				})
+			}
+		}
 	}
 }
 

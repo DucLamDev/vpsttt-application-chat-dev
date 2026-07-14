@@ -13,6 +13,7 @@ export type WebRtcCallStatus = "idle" | "incoming" | "outgoing" | "connecting" |
 export type WebRtcCallState = {
   callId?: string;
   error?: string;
+  initiatorUserId?: string;
   mode: CallMode;
   peerName?: string;
   peerUserId?: string;
@@ -20,25 +21,44 @@ export type WebRtcCallState = {
   status: WebRtcCallStatus;
 };
 
+export type WebRtcCallOutcome = {
+  callId: string;
+  direction: "incoming" | "outgoing";
+  durationSeconds?: number;
+  endedAt: number;
+  initiatorUserId: string;
+  mode: CallMode;
+  reason?: string;
+  startedAt?: number;
+  status: "completed" | "missed";
+};
+
 type UseWebRtcCallOptions = {
   channelId?: string;
   channelName?: string;
+  currentUserId: string;
   enabled?: boolean;
   lastSignal: RealtimeCallSignal | null;
+  onCallOutcome?: (outcome: WebRtcCallOutcome) => void;
   peerName?: string;
+  peerUserId?: string;
   sendSignal: (type: CallSignalType, payload: CallSignalPayload) => boolean;
 };
 
 const rtcConfig: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
+const outgoingRingTimeoutMs = 30_000;
 
 export function useWebRtcCall({
   channelId,
   channelName,
+  currentUserId,
   enabled = true,
   lastSignal,
+  onCallOutcome,
   peerName,
+  peerUserId,
   sendSignal
 }: UseWebRtcCallOptions) {
   const [callState, setCallState] = useState<WebRtcCallState>({ mode: "audio", status: "idle" });
@@ -52,6 +72,8 @@ export function useWebRtcCall({
   const pendingOfferRef = useRef<RealtimeCallSignal | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const lastSignalSequenceRef = useRef(0);
+  const loggedOutcomeKeyRef = useRef("");
+  const outgoingRingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callStateRef = useRef<WebRtcCallState>({ mode: "audio", status: "idle" });
 
   useEffect(() => {
@@ -59,6 +81,10 @@ export function useWebRtcCall({
   }, [callState]);
 
   const cleanup = useCallback((nextState?: WebRtcCallState) => {
+    if (outgoingRingTimerRef.current) {
+      clearTimeout(outgoingRingTimerRef.current);
+      outgoingRingTimerRef.current = null;
+    }
     peerRef.current?.close();
     peerRef.current = null;
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -90,12 +116,26 @@ export function useWebRtcCall({
       if (!channelId) {
         return false;
       }
+      const targetUserId = payload.target_user_id ?? callStateRef.current.peerUserId ?? peerUserId;
       return sendSignal(type, {
         ...payload,
-        channel_id: channelId
+        channel_id: channelId,
+        target_user_id: targetUserId
       });
     },
-    [channelId, sendSignal]
+    [channelId, peerUserId, sendSignal]
+  );
+
+  const emitOutcome = useCallback(
+    (outcome: WebRtcCallOutcome) => {
+      const key = `${outcome.callId}:${outcome.status}`;
+      if (loggedOutcomeKeyRef.current === key) {
+        return;
+      }
+      loggedOutcomeKeyRef.current = key;
+      onCallOutcome?.(outcome);
+    },
+    [onCallOutcome]
   );
 
   const createPeer = useCallback(
@@ -136,7 +176,7 @@ export function useWebRtcCall({
         }
         if (peer.connectionState === "failed" || peer.connectionState === "disconnected") {
           setCallState((current) =>
-            current.callId === callId ? { ...current, error: "Ket noi cuoc goi bi gian doan.", status: "error" } : current
+            current.callId === callId ? { ...current, error: "Kết nối cuộc gọi bị gián đoạn.", status: "error" } : current
           );
         }
       };
@@ -148,7 +188,7 @@ export function useWebRtcCall({
 
   const openLocalMedia = useCallback(async (mode: CallMode) => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Thiet bi hien tai khong ho tro camera/micro.");
+      throw new Error("Thiết bị hiện tại không hỗ trợ camera/micro.");
     }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
@@ -179,7 +219,7 @@ export function useWebRtcCall({
   const startCall = useCallback(
     async (mode: CallMode) => {
       if (!enabled || !channelId) {
-        setCallState({ error: "Realtime chua san sang de bat dau cuoc goi.", mode, status: "error" });
+        setCallState({ error: "Realtime chưa sẵn sàng để bắt đầu cuộc gọi.", mode, status: "error" });
         return;
       }
       if (callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error") {
@@ -187,7 +227,9 @@ export function useWebRtcCall({
       }
       const callId = newCallId();
       try {
-        setCallState({ callId, mode, peerName: peerName || channelName, status: "outgoing" });
+        loggedOutcomeKeyRef.current = "";
+        const ringStartedAt = Date.now();
+        setCallState({ callId, initiatorUserId: currentUserId, mode, peerName: peerName || channelName, status: "outgoing" });
         const stream = await openLocalMedia(mode);
         const peer = createPeer(callId, mode);
         attachLocalTracks(peer, stream);
@@ -198,16 +240,39 @@ export function useWebRtcCall({
           mode,
           sdp: toSessionDescriptionInit(peer.localDescription, offer)
         });
+        outgoingRingTimerRef.current = setTimeout(() => {
+          const current = callStateRef.current;
+          if (current.callId !== callId || current.status !== "outgoing") {
+            return;
+          }
+          publish("CallEnded", {
+            call_id: callId,
+            mode,
+            reason: "missed"
+          });
+          emitOutcome({
+            callId,
+            direction: "outgoing",
+            endedAt: Date.now(),
+            initiatorUserId: currentUserId,
+            mode,
+            reason: "no-answer",
+            startedAt: ringStartedAt,
+            status: "missed"
+          });
+          cleanup({ callId, error: "Không có phản hồi.", initiatorUserId: currentUserId, mode, status: "ended" });
+        }, outgoingRingTimeoutMs);
       } catch (error) {
         cleanup({
           callId,
-          error: error instanceof Error ? error.message : "Khong bat dau duoc cuoc goi.",
+          error: error instanceof Error ? error.message : "Không bắt đầu được cuộc gọi.",
+          initiatorUserId: currentUserId,
           mode,
           status: "error"
         });
       }
     },
-    [attachLocalTracks, channelId, channelName, cleanup, createPeer, enabled, openLocalMedia, peerName, publish]
+    [attachLocalTracks, channelId, channelName, cleanup, createPeer, currentUserId, emitOutcome, enabled, openLocalMedia, peerName, publish]
   );
 
   const acceptCall = useCallback(async () => {
@@ -219,7 +284,8 @@ export function useWebRtcCall({
     const callId = signal.payload.call_id;
     const mode = signal.payload.mode ?? "audio";
     try {
-      setCallState({ callId, mode, peerName: peerName || channelName, peerUserId: signal.userId, status: "connecting" });
+      loggedOutcomeKeyRef.current = "";
+      setCallState({ callId, initiatorUserId: signal.userId, mode, peerName: peerName || channelName, peerUserId: signal.userId, status: "connecting" });
       const stream = await openLocalMedia(mode);
       const peer = createPeer(callId, mode);
       attachLocalTracks(peer, stream);
@@ -237,7 +303,8 @@ export function useWebRtcCall({
       publish("CallRejected", { call_id: callId, mode, reason: "media-error" });
       cleanup({
         callId,
-        error: error instanceof Error ? error.message : "Khong tham gia duoc cuoc goi.",
+        error: error instanceof Error ? error.message : "Không tham gia được cuộc gọi.",
+        initiatorUserId: signal.userId,
         mode,
         status: "error"
       });
@@ -262,11 +329,22 @@ export function useWebRtcCall({
       publish("CallEnded", {
         call_id: current.callId,
         mode: current.mode,
-        reason: "ended"
+        reason: current.status === "active" ? "ended" : "missed"
+      });
+      emitOutcome({
+        callId: current.callId,
+        direction: current.initiatorUserId === currentUserId ? "outgoing" : "incoming",
+        durationSeconds: current.status === "active" ? Math.max(1, Math.round((Date.now() - (current.startedAt ?? Date.now())) / 1000)) : 0,
+        endedAt: Date.now(),
+        initiatorUserId: current.initiatorUserId || currentUserId,
+        mode: current.mode,
+        reason: current.status === "active" ? "ended" : "cancelled",
+        startedAt: current.startedAt,
+        status: current.status === "active" ? "completed" : "missed"
       });
     }
-    cleanup({ mode: current.mode, status: "ended" });
-  }, [cleanup, publish]);
+    cleanup({ callId: current.callId, initiatorUserId: current.initiatorUserId, mode: current.mode, status: "ended" });
+  }, [cleanup, currentUserId, emitOutcome, publish]);
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
@@ -315,6 +393,7 @@ export function useWebRtcCall({
         pendingOfferRef.current = lastSignal;
         setCallState({
           callId,
+          initiatorUserId: lastSignal.userId,
           mode,
           peerName: peerName || channelName,
           peerUserId: lastSignal.userId,
@@ -328,6 +407,10 @@ export function useWebRtcCall({
       }
 
       if (lastSignal.type === "CallAnswer" && payload.sdp && peerRef.current) {
+        if (outgoingRingTimerRef.current) {
+          clearTimeout(outgoingRingTimerRef.current);
+          outgoingRingTimerRef.current = null;
+        }
         await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
         await flushPendingCandidates();
         setCallState((current) => ({ ...current, startedAt: current.startedAt ?? Date.now(), status: "active" }));
@@ -344,6 +427,20 @@ export function useWebRtcCall({
       }
 
       if (lastSignal.type === "CallRejected") {
+        const current = callStateRef.current;
+        if (current.initiatorUserId === currentUserId) {
+          emitOutcome({
+            callId,
+            direction: "outgoing",
+            durationSeconds: 0,
+            endedAt: Date.now(),
+            initiatorUserId: currentUserId,
+            mode,
+            reason: payload.reason,
+            startedAt: current.startedAt,
+            status: "missed"
+          });
+        }
         cleanup({ callId, error: rejectionMessage(payload.reason), mode, status: "ended" });
         return;
       }
@@ -354,7 +451,7 @@ export function useWebRtcCall({
     };
 
     void handleSignal();
-  }, [channelId, channelName, cleanup, flushPendingCandidates, lastSignal, peerName, publish]);
+  }, [channelId, channelName, cleanup, currentUserId, emitOutcome, flushPendingCandidates, lastSignal, peerName, publish]);
 
   return {
     acceptCall,
@@ -377,12 +474,12 @@ function newCallId(): string {
 
 function rejectionMessage(reason: string | undefined): string {
   if (reason === "busy") {
-    return "Nguoi nhan dang ban trong cuoc goi khac.";
+    return "Người nhận đang bận trong cuộc gọi khác.";
   }
   if (reason === "declined") {
-    return "Nguoi nhan da tu choi cuoc goi.";
+    return "Người nhận đã từ chối cuộc gọi.";
   }
-  return "Cuoc goi da ket thuc.";
+  return "Cuộc gọi đã kết thúc.";
 }
 
 function toSessionDescriptionInit(

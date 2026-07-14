@@ -1607,6 +1607,7 @@ components:
         kind:
           type: string
           default: text
+          enum: [text, file, event]
         body:
           type: string
         metadata:

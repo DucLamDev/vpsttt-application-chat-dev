@@ -2618,6 +2618,103 @@
   gap: 8px;
 }
 
+.message-row--call {
+  align-items: start;
+  grid-template-columns: auto minmax(0, max-content);
+}
+
+.message-row--call.message-row--local {
+  grid-template-columns: minmax(0, max-content) auto;
+  justify-content: end;
+}
+
+.message-row--call.message-row--local > .ui-avatar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.message-row--call.message-row--local .message-call-card,
+.message-row--call.message-row--local .message-call-time {
+  grid-column: 1;
+}
+
+.message-call-card {
+  background: #ffffff;
+  border: 1px solid #d9e2ef;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+  color: #17233c;
+  display: grid;
+  min-width: 150px;
+  overflow: hidden;
+}
+
+.message-row--local .message-call-card {
+  background: #dff0ff;
+  border-color: #a8d1ff;
+}
+
+.message-call-card strong {
+  font-size: 13px;
+  padding: 12px 12px 2px;
+}
+
+.message-call-card--missed strong {
+  color: #d72128;
+}
+
+.message-call-card span {
+  align-items: center;
+  color: #66738a;
+  display: inline-flex;
+  font-size: 13px;
+  gap: 7px;
+  padding: 5px 12px 10px;
+}
+
+.message-call-card span svg {
+  color: #4f8a74;
+}
+
+.message-call-card--missed span svg {
+  color: #e53935;
+}
+
+.message-call-card button {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #e3e8f0;
+  color: #0068ff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.message-call-card button:hover {
+  background: #f2f7ff;
+}
+
+.message-call-time {
+  align-self: start;
+  background: #c5cad3;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  justify-self: start;
+  margin-left: 48px;
+  margin-top: 4px;
+  padding: 3px 8px;
+}
+
+.message-row--local .message-call-time {
+  justify-self: end;
+  margin-left: 0;
+  margin-right: 48px;
+}
+
 .message-row header {
   align-items: baseline;
   display: flex;
@@ -5658,6 +5755,26 @@
   background: #3b1119;
   border-color: #7f1d1d;
   color: #fecdd3;
+}
+
+[data-theme="dark"] .message-call-card {
+  background: #111827;
+  border-color: #334155;
+  color: #e5edf7;
+}
+
+[data-theme="dark"] .message-row--local .message-call-card {
+  background: #102a4c;
+  border-color: #28517f;
+}
+
+[data-theme="dark"] .message-call-card span {
+  color: #a8b5c8;
+}
+
+[data-theme="dark"] .message-call-card button {
+  border-color: #334155;
+  color: #8fc0ff;
 }
 
 @media (max-width: 1440px) {

@@ -39,13 +39,17 @@ fn secure_entry(key: &str) -> Result<Entry, String> {
         .map_err(|error| format!("secure store entry failed: {error}"))
 }
 
-#[tauri::command]
-fn tray_set_unread_count(app: tauri::AppHandle, count: u32) -> Result<(), String> {
-    let tooltip = if count == 0 {
+fn unread_tooltip(count: u32) -> String {
+    if count == 0 {
         "WebTui Chat".to_string()
     } else {
         format!("WebTui Chat - {count} thong bao chua doc")
-    };
+    }
+}
+
+#[tauri::command]
+fn tray_set_unread_count(app: tauri::AppHandle, count: u32) -> Result<(), String> {
+    let tooltip = unread_tooltip(count);
     if let Some(tray) = app.tray_by_id("main") {
         tray.set_tooltip(Some(&tooltip))
             .map_err(|error| format!("tray tooltip update failed: {error}"))?;
@@ -122,4 +126,19 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run WebTui Chat desktop host");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unread_tooltip;
+
+    #[test]
+    fn unread_tooltip_hides_count_when_zero() {
+        assert_eq!(unread_tooltip(0), "WebTui Chat");
+    }
+
+    #[test]
+    fn unread_tooltip_includes_unread_count() {
+        assert_eq!(unread_tooltip(7), "WebTui Chat - 7 thong bao chua doc");
+    }
 }

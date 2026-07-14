@@ -291,7 +291,7 @@ func (s *Service) Send(ctx context.Context, input SendInput) (MessageDTO, error)
 	if kind == "" {
 		kind = "text"
 	}
-	if kind != "text" && kind != "file" {
+	if kind != "text" && kind != "file" && kind != "event" {
 		return MessageDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Loại tin nhắn chỉ được là text hoặc file/media.")
 	}
 

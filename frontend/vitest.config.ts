@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@webtui/api-client": resolve(rootDir, "packages/api-client/src/index.ts"),
+      "@webtui/chat-core": resolve(rootDir, "packages/chat-core/src/index.ts"),
       "@webtui/icons": resolve(rootDir, "packages/icons/src/index.ts"),
       "@webtui/types": resolve(rootDir, "packages/types/src/index.ts"),
       "@webtui/ui": resolve(rootDir, "packages/ui/src/index.ts")

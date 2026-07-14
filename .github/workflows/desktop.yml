@@ -1,0 +1,112 @@
+name: Desktop
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop.yml"
+      - "frontend/**"
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    paths:
+      - ".github/workflows/desktop.yml"
+      - "frontend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-web:
+    name: Desktop web contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit test
+        run: npm run test:unit
+
+      - name: Build desktop static export
+        run: npm --workspace @webtui/web run build:desktop
+
+      - name: Upload desktop static export
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-web-out
+          path: frontend/apps/web/out
+          if-no-files-found: error
+
+  desktop-native:
+    name: Native desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: desktop-web
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install
+        run: npm ci
+
+      - name: Rust fmt
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust test
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Build desktop bundle
+        run: npm --workspace @webtui/desktop run build
+
+      - name: Upload native bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: webtui-desktop-${{ runner.os }}
+          path: frontend/apps/desktop/src-tauri/target/release/bundle/**
+          if-no-files-found: error

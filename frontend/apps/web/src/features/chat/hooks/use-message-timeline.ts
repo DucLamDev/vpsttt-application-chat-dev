@@ -18,7 +18,7 @@ import type {
   MessageAuthor
 } from "@webtui/types";
 import { api } from "@/lib/api";
-import type { ChatMessage, ChatUser, MessageAttachmentItem } from "../model/types";
+import type { ChatMessage, ChatUser, MessageAttachmentItem, MessageCallEvent } from "../model/types";
 import {
   mergeMessageIntoTimeline,
   messageTimelineKey,
@@ -424,6 +424,7 @@ export function mapMessage(
   const qrImageUrl = botAuthor ? messageQRImageURL(message) : undefined;
   const isLocal = message.id.startsWith("local-");
   const canTargetMessageAPI = uuidLikePattern.test(message.id);
+  const callEvent = resolveCallEvent(message, fallbackAuthor.id);
   const isVoice = message.metadata?.message_type === "voice"
     || (message.kind === "file" && /^Đã gửi(?: \d+)? tin nhắn thoại$/i.test(message.body));
 
@@ -432,8 +433,9 @@ export function mapMessage(
     attachments,
     author,
     body: message.deleted_at ? "Tin nhắn đã bị xóa." : message.body,
-    canDelete: !systemAuthor && !message.deleted_at && !isLocal && canTargetMessageAPI && (isOwner || canManageMessages),
-    canEdit: !systemAuthor && !message.deleted_at && isOwner,
+    canDelete: !callEvent && !systemAuthor && !message.deleted_at && !isLocal && canTargetMessageAPI && (isOwner || canManageMessages),
+    canEdit: !callEvent && !systemAuthor && !message.deleted_at && isOwner,
+    callEvent,
     editedAt: message.edited_at ? formatTime(message.edited_at) : undefined,
     id: message.id,
     isDeleted: Boolean(message.deleted_at),
@@ -449,13 +451,33 @@ export function mapMessage(
     rawSenderId: senderId,
     qrImageUrl,
     qrReference: botAuthor && typeof message.metadata?.reference === "string" ? message.metadata.reference.trim() : undefined,
-    reactions: systemTone ? undefined : message.reactions?.map((reaction) => ({
+    reactions: systemTone || callEvent ? undefined : message.reactions?.map((reaction) => ({
       count: reaction.count ?? reaction.user_ids?.length ?? 0,
       emoji: reaction.emoji,
       reactedByMe: reaction.reacted_by_me
     })),
     sentAt: formatTime(message.created_at ?? message.sent_at),
     systemTone
+  };
+}
+
+function resolveCallEvent(message: ApiMessage, currentUserId: string): MessageCallEvent | undefined {
+  const metadata = message.metadata;
+  const messageType = typeof metadata?.message_type === "string" ? metadata.message_type.trim().toLowerCase() : "";
+  if (message.kind !== "event" || messageType !== "call") {
+    return undefined;
+  }
+
+  const statusValue = typeof metadata?.call_status === "string" ? metadata.call_status.trim().toLowerCase() : "";
+  const modeValue = typeof metadata?.call_mode === "string" ? metadata.call_mode.trim().toLowerCase() : "";
+  const initiatorUserId = typeof metadata?.initiator_user_id === "string" ? metadata.initiator_user_id.trim() : "";
+  const durationValue = typeof metadata?.duration_seconds === "number" ? metadata.duration_seconds : undefined;
+
+  return {
+    direction: initiatorUserId && initiatorUserId === currentUserId ? "outgoing" : "incoming",
+    durationSeconds: typeof durationValue === "number" && Number.isFinite(durationValue) ? Math.max(0, Math.round(durationValue)) : undefined,
+    mode: modeValue === "video" ? "video" : "audio",
+    status: statusValue === "completed" ? "completed" : "missed"
   };
 }
 

@@ -107,11 +107,24 @@ func (m *Manager) IsMember(room string, clientID string) bool {
 	return ok
 }
 
+func (m *Manager) IsUserMember(room string, userID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for clientID := range m.rooms[room] {
+		if client, ok := m.clients[clientID]; ok && client.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Manager) Broadcast(ctx context.Context, room string, event Event) error {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
-	event.Room = room
+	if event.Room == "" {
+		event.Room = room
+	}
 
 	m.mu.RLock()
 	clientIDs := make([]string, 0, len(m.rooms[room]))

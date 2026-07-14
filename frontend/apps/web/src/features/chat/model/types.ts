@@ -44,7 +44,15 @@ export type ChatMessage = {
   rawSenderId?: string | null;
   qrImageUrl?: string;
   qrReference?: string;
+  callEvent?: MessageCallEvent;
   systemTone?: "announcement" | "system";
+};
+
+export type MessageCallEvent = {
+  direction: "incoming" | "outgoing";
+  durationSeconds?: number;
+  mode: "audio" | "video";
+  status: "completed" | "missed";
 };
 
 export type MessageAttachmentItem = {
@@ -79,6 +87,7 @@ export type ChatChannel = {
   privateSessionMode?: boolean;
   memberCount: number;
   messages: ChatMessage[];
+  peerUserId?: string;
   relativeTime: string;
   slug?: string;
   type?: string;

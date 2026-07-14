@@ -21,6 +21,7 @@ type RealtimeMessagePayload = {
   mode?: CallMode;
   reason?: string;
   sdp?: RTCSessionDescriptionInit;
+  target_user_id?: string;
   contact_request?: unknown;
   message?: ApiMessage;
   user_id?: string;
@@ -37,6 +38,7 @@ export type CallSignalPayload = {
   mode?: CallMode;
   reason?: string;
   sdp?: RTCSessionDescriptionInit;
+  target_user_id?: string;
 };
 
 export type RealtimeCallSignal = {
@@ -220,10 +222,18 @@ export function useChannelRealtime({
 
     function handleRealtimeMessage(raw: string) {
       const event = parseRealtimeEvent(raw);
-      const isChannelEvent = Boolean(event) && (!event?.room || rooms.includes(event.room));
+      if (!event) {
+        return;
+      }
+      const callPayload = isCallSignalType(event.type) ? normalizeCallSignalPayload(event.payload) : null;
+      const signalChannelId = callPayload?.channel_id || channelIdFromRoom(event.room);
+      const isKnownCallEvent = Boolean(
+        callPayload && (!signalChannelId || signalChannelId === channelId || channelIdsKey.split("|").includes(signalChannelId))
+      );
+      const isChannelEvent = !event.room || rooms.includes(event.room);
       const isUserEvent = event?.room?.startsWith("user:");
 
-      if (!event || (!isChannelEvent && !isUserEvent)) {
+      if (!isChannelEvent && !isUserEvent && !isKnownCallEvent) {
         return;
       }
 
@@ -259,7 +269,7 @@ export function useChannelRealtime({
         if (!userId || userId === currentUserId || !event.room) {
           return;
         }
-        const payload = normalizeCallSignalPayload(event.payload);
+        const payload = callPayload;
         if (!payload?.call_id) {
           return;
         }
@@ -438,6 +448,15 @@ function normalizeCallSignalPayload(payload: RealtimeMessagePayload | undefined)
     channel_id: source.channel_id,
     mode: source.mode,
     reason: source.reason,
-    sdp: source.sdp
+    sdp: source.sdp,
+    target_user_id: source.target_user_id
   };
+}
+
+function channelIdFromRoom(room?: string): string {
+  if (!room) {
+    return "";
+  }
+  const parts = room.split(":");
+  return parts.length === 4 && parts[0] === "workspace" && parts[2] === "channel" ? parts[3] : "";
 }

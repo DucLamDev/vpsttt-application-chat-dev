@@ -161,3 +161,42 @@ func TestHandleCommandBroadcastsCallSignal(t *testing.T) {
 		t.Fatal("call signal was not broadcast")
 	}
 }
+
+func TestHandleCommandBroadcastsCallSignalToTargetUserRoom(t *testing.T) {
+	manager := platformws.NewManager()
+	handler := NewHandler(manager, nil)
+	sender := &platformws.Client{ID: "sender", UserID: "user-a", Send: make(chan platformws.Event, 2)}
+	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", Send: make(chan platformws.Event, 2)}
+	if err := manager.Register(sender); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Register(receiver); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Unregister(sender.ID)
+	defer manager.Unregister(receiver.ID)
+
+	room := "workspace:workspace-1:channel:channel-1"
+	manager.Join(room, sender.ID)
+	handler.handleCommand(sender, clientCommand{
+		Type: "CallOffer",
+		Room: room,
+		Payload: map[string]any{
+			"call_id":        "call-1",
+			"mode":           "video",
+			"target_user_id": "user-b",
+		},
+	})
+
+	select {
+	case event := <-receiver.Send:
+		if event.Type != "CallOffer" || event.UserID != sender.UserID || event.Room != room {
+			t.Fatalf("unexpected targeted call event: %#v", event)
+		}
+		if event.Payload["call_id"] != "call-1" || event.Payload["target_user_id"] != receiver.UserID {
+			t.Fatalf("unexpected targeted call payload: %#v", event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("targeted call signal was not broadcast")
+	}
+}

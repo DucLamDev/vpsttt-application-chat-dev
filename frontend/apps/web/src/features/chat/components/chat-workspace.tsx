@@ -84,7 +84,7 @@ import {
   type CreateDepartmentPayload,
   useChatWorkspaceData
 } from "../hooks/use-chat-workspace-data";
-import { useWebRtcCall, type WebRtcCallState } from "../hooks/use-webrtc-call";
+import { useWebRtcCall, type WebRtcCallOutcome, type WebRtcCallState } from "../hooks/use-webrtc-call";
 import type {
   ChannelFilter,
   ChatChannel,
@@ -751,17 +751,37 @@ export function ChatWorkspace() {
       description: "Tin nhắn riêng",
       memberCount: 2,
       name: directConversation.user.name,
+      peerUserId: directConversation.user.id,
       userStatus: directConversation.user.status
     };
   }, [data.directConversations, data.selectedChannelWithMessages, selectedChannelMembers, selectedChannelMembersQuery.data]);
   const callControls = useWebRtcCall({
     channelId: data.selectedChannelId,
     channelName: selectedChatChannel?.name,
+    currentUserId: currentUser.id,
     enabled: data.realtime.status === "connected" && selectedChatChannel?.type === "direct" && Boolean(data.selectedChannelId),
     lastSignal: data.realtime.lastCallSignal,
+    onCallOutcome: handleCallOutcome,
     peerName: selectedChatChannel?.name,
+    peerUserId: selectedChatChannel?.peerUserId,
     sendSignal: data.realtime.publishCallSignal
   });
+  useIncomingCallRingtone(callControls.callState.status === "incoming");
+  function handleCallOutcome(outcome: WebRtcCallOutcome) {
+    if (!data.selectedChannelId || selectedChatChannel?.type !== "direct") {
+      return;
+    }
+    data.sendCallEventMutation.mutate({
+      callId: outcome.callId,
+      durationSeconds: outcome.durationSeconds,
+      endedAt: new Date(outcome.endedAt).toISOString(),
+      initiatorUserId: outcome.initiatorUserId,
+      mode: outcome.mode,
+      reason: outcome.reason,
+      startedAt: outcome.startedAt ? new Date(outcome.startedAt).toISOString() : undefined,
+      status: outcome.status
+    });
+  }
   const composerPlaceholder = botComposerPlaceholder(selectedChatChannel);
   const selectedChatFiles = useMemo(() => {
     const fileById = new Map<string, FileItem>();
@@ -965,7 +985,7 @@ export function ChatWorkspace() {
       );
       if (isTimeValue(normalized.quietStart) && isTimeValue(normalized.quietEnd)) {
         void api.notifications.updatePreferences(toNotificationPreferenceInput(data.workspaceId, normalized)).catch(() => {
-          setToast("Khong dong bo duoc cai dat thong bao len may chu.");
+          setToast("Không đồng bộ được cài đặt thông báo lên máy chủ.");
         });
       }
     }
@@ -1522,7 +1542,7 @@ export function ChatWorkspace() {
           typingPublishedRef.current = false;
           uploadQueue.clearAttached();
           if (result.queued) {
-            setToast("Dang offline, tin nhan da duoc luu vao hang cho gui.");
+            setToast("Đang offline, tin nhắn đã được lưu vào hàng chờ gửi.");
             return;
           }
           if (result.failedUploadNames.length) {
@@ -2214,10 +2234,10 @@ export function ChatWorkspace() {
             ) : null}
             {data.offlineReadMode || data.queuedOutboxCount ? (
               <div className="offline-read-banner" role="status">
-                <span>{data.offlineReadMode ? "Dang hien thi du lieu da luu offline." : "Ket noi da san sang."}</span>
-                {data.queuedOutboxCount ? <strong>{data.queuedOutboxCount} tin dang cho gui</strong> : null}
+                <span>{data.offlineReadMode ? "Đang hiển thị dữ liệu đã lưu offline." : "Kết nối đã sẵn sàng."}</span>
+                {data.queuedOutboxCount ? <strong>{data.queuedOutboxCount} tin đang chờ gửi</strong> : null}
                 {data.queuedOutboxCount ? (
-                  <button onClick={() => void data.flushOutbox()} type="button">Gui lai</button>
+                  <button onClick={() => void data.flushOutbox()} type="button">Gửi lại</button>
                 ) : null}
               </div>
             ) : null}
@@ -2255,6 +2275,7 @@ export function ChatWorkspace() {
                 onResolveAttachment={data.downloadAttachment}
                 onLoadOlderMessages={handleLoadOlderMessages}
                 onOpenThread={handleOpenThread}
+                onRetryCall={(mode) => void callControls.startCall(mode)}
                 onSearchResultSelect={(message) => {
                   if (message.rawChannelId && message.rawChannelId !== data.selectedChannelId) {
                     data.setSelectedChannelId(message.rawChannelId);
@@ -3550,17 +3571,17 @@ const legacyTicketPriorityOptions: Array<{ label: string; value: TicketPriority 
 ];
 
 const ticketStatusText: Record<TicketStatus, string> = {
-  closed: "Da dong",
-  open: "Moi",
-  pending: "Dang cho",
-  resolved: "Da xu ly"
+  closed: "Đã đóng",
+  open: "Mới",
+  pending: "Đang chờ",
+  resolved: "Đã xử lý"
 };
 
 const ticketPriorityText: Record<TicketPriority, string> = {
   high: "Cao",
-  low: "Thap",
-  normal: "Binh thuong",
-  urgent: "Khan cap"
+  low: "Thấp",
+  normal: "Bình thường",
+  urgent: "Khẩn cấp"
 };
 
 const ticketStatusOptions = legacyTicketStatusOptions.map((option) => ({
@@ -3621,7 +3642,7 @@ function TicketsPage({
       priority,
       title: title.trim()
     }),
-    onError: (error) => setFeedback({ message: errorMessage(error, "Khong tao duoc ticket."), tone: "error" }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không tạo được ticket."), tone: "error" }),
     onSuccess: async (ticket) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.tickets.all(workspaceId ?? "", ticketStatus) });
       setSelectedTicketId(ticket.id);
@@ -3631,7 +3652,7 @@ function TicketsPage({
       setPriority("normal");
       setAssignedTo("");
       setIsCreateOpen(false);
-      setFeedback({ message: "Da tao ticket.", tone: "success" });
+      setFeedback({ message: "Đã tạo ticket.", tone: "success" });
     }
   });
 
@@ -3645,14 +3666,14 @@ function TicketsPage({
         status: values.status,
         title: values.title
       }),
-    onError: (error) => setFeedback({ message: errorMessage(error, "Khong cap nhat duoc ticket."), tone: "error" }),
+    onError: (error) => setFeedback({ message: errorMessage(error, "Không cập nhật được ticket."), tone: "error" }),
     onSuccess: async (ticket) => {
       setSelectedTicketId(ticket.id);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.tickets.all(workspaceId ?? "", ticketStatus) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.tickets.detail(workspaceId ?? "", ticket.id) })
       ]);
-      setFeedback({ message: "Da cap nhat ticket.", tone: "success" });
+      setFeedback({ message: "Đã cập nhật ticket.", tone: "success" });
     }
   });
 
@@ -3672,18 +3693,18 @@ function TicketsPage({
         </div>
         <Button onClick={() => setIsCreateOpen((current) => !current)} size="sm">
           {isCreateOpen ? <X size={16} /> : <Plus size={16} />}
-          {isCreateOpen ? "Dong" : "Tao ticket"}
+          {isCreateOpen ? "Đóng" : "Tạo ticket"}
         </Button>
       </header>
 
       <section className="ticket-summary-strip">
-        <div><strong>{tickets.length}</strong><small>Ticket trong bo loc</small></div>
-        <div><strong>{openCount}</strong><small>Can xu ly</small></div>
-        <div><strong>{urgentCount}</strong><small>Uu tien cao</small></div>
+        <div><strong>{tickets.length}</strong><small>Ticket trong bộ lọc</small></div>
+        <div><strong>{openCount}</strong><small>Cần xử lý</small></div>
+        <div><strong>{urgentCount}</strong><small>Ưu tiên cao</small></div>
         <SegmentedControl
-          aria-label="Loc ticket"
+          aria-label="Lọc ticket"
           onValueChange={(value: TicketStatus | "all") => setStatusFilter(value)}
-          options={[{ label: "Tat ca", value: "all" as const }, ...ticketStatusOptions]}
+          options={[{ label: "Tất cả", value: "all" as const }, ...ticketStatusOptions]}
           value={statusFilter}
         />
       </section>
@@ -3691,27 +3712,27 @@ function TicketsPage({
       {feedback ? (
         <div className={`bot-feedback bot-feedback--${feedback.tone}`} role="status">
           <span>{feedback.tone === "success" ? <CheckCircle2 size={17} /> : <Info size={17} />}{feedback.message}</span>
-          <button aria-label="Dong thong bao" onClick={() => setFeedback(null)} type="button"><X size={15} /></button>
+          <button aria-label="Đóng thông báo" onClick={() => setFeedback(null)} type="button"><X size={15} /></button>
         </div>
       ) : null}
 
       {isCreateOpen ? (
         <form className="ticket-create-form" onSubmit={handleCreateTicket}>
-          <label>Tieu de<input autoFocus onChange={(event) => setTitle(event.target.value)} placeholder="Khach khong truy cap duoc VPS" required value={title} /></label>
-          <label>Kenh lien ket<select onChange={(event) => setChannelId(event.target.value)} value={channelId}>
-            <option value="">Khong gan kenh</option>
+          <label>Tiêu đề<input autoFocus onChange={(event) => setTitle(event.target.value)} placeholder="Khách không truy cập được VPS" required value={title} /></label>
+          <label>Kênh liên kết<select onChange={(event) => setChannelId(event.target.value)} value={channelId}>
+            <option value="">Không gắn kênh</option>
             {channels.map((channel) => <option key={channel.id} value={channel.id}>#{channel.name}</option>)}
           </select></label>
-          <label>Uu tien<select onChange={(event) => setPriority(event.target.value as TicketPriority)} value={priority}>
+          <label>Ưu tiên<select onChange={(event) => setPriority(event.target.value as TicketPriority)} value={priority}>
             {ticketPriorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select></label>
-          <label>Nguoi phu trach<select onChange={(event) => setAssignedTo(event.target.value)} value={assignedTo}>
-            <option value="">Chua gan</option>
+          <label>Người phụ trách<select onChange={(event) => setAssignedTo(event.target.value)} value={assignedTo}>
+            <option value="">Chưa gắn</option>
             {assignableMembers.map((member) => <option key={member.user_id} value={member.user_id}>{workspaceMemberName(member)}</option>)}
           </select></label>
-          <label className="ticket-create-form__description">Mo ta<textarea onChange={(event) => setDescription(event.target.value)} placeholder="Tom tat trieu chung, khach hang, dich vu bi anh huong..." value={description} /></label>
+          <label className="ticket-create-form__description">Mô tả<textarea onChange={(event) => setDescription(event.target.value)} placeholder="Tóm tắt triệu chứng, khách hàng, dịch vụ bị ảnh hưởng..." value={description} /></label>
           <Button disabled={createTicketMutation.isPending || !title.trim()} size="sm" type="submit">
-            {createTicketMutation.isPending ? "Dang tao..." : "Tao ticket"}
+            {createTicketMutation.isPending ? "Đang tạo..." : "Tạo ticket"}
           </Button>
         </form>
       ) : null}
@@ -3721,7 +3742,7 @@ function TicketsPage({
           {ticketsQuery.isLoading ? (
             <PanelSkeleton />
           ) : ticketsQuery.isError ? (
-            <ErrorState action={<Button onClick={() => void ticketsQuery.refetch()} size="sm" variant="secondary">Thu lai</Button>} description="Khong tai duoc ticket." title="Loi ticket" />
+            <ErrorState action={<Button onClick={() => void ticketsQuery.refetch()} size="sm" variant="secondary">Thử lại</Button>} description="Không tải được ticket." title="Lỗi ticket" />
           ) : tickets.length ? (
             tickets.map((ticket) => (
               <button className={ticket.id === selectedTicket?.id ? "ticket-row ticket-row--active" : "ticket-row"} key={ticket.id} onClick={() => setSelectedTicketId(ticket.id)} type="button">
@@ -3735,7 +3756,7 @@ function TicketsPage({
               </button>
             ))
           ) : (
-            <EmptyState description="Khong co ticket nao trong bo loc hien tai." title="Chua co ticket" />
+            <EmptyState description="Không có ticket nào trong bộ lọc hiện tại." title="Chưa có ticket" />
           )}
         </section>
 
@@ -3746,38 +3767,38 @@ function TicketsPage({
                 <span><Ticket size={22} /></span>
                 <div>
                   <h2>{selectedTicket.title}</h2>
-                  <p>{cleanTicketChannelLabel(channels, selectedTicket.channel_id)} - cap nhat {cleanTicketDate(selectedTicket.updated_at)}</p>
+                  <p>{cleanTicketChannelLabel(channels, selectedTicket.channel_id)} - cập nhật {cleanTicketDate(selectedTicket.updated_at)}</p>
                 </div>
               </header>
-              <p>{selectedTicket.description || "Chua co mo ta chi tiet."}</p>
+              <p>{selectedTicket.description || "Chưa có mô tả chi tiết."}</p>
               <div className="ticket-detail-meta">
-                <span><strong>Trang thai</strong><Badge tone="blue">{ticketStatusLabel(selectedTicket.status)}</Badge></span>
-                <span><strong>Uu tien</strong><Badge tone={selectedTicket.priority === "urgent" || selectedTicket.priority === "high" ? "red" : "slate"}>{ticketPriorityLabel(selectedTicket.priority)}</Badge></span>
-                <span><strong>Phu trach</strong><small>{cleanTicketAssigneeLabel(workspaceMembers, selectedTicket.assigned_to)}</small></span>
-                <span><strong>Tao luc</strong><small>{cleanTicketDate(selectedTicket.created_at)}</small></span>
+                <span><strong>Trạng thái</strong><Badge tone="blue">{ticketStatusLabel(selectedTicket.status)}</Badge></span>
+                <span><strong>Ưu tiên</strong><Badge tone={selectedTicket.priority === "urgent" || selectedTicket.priority === "high" ? "red" : "slate"}>{ticketPriorityLabel(selectedTicket.priority)}</Badge></span>
+                <span><strong>Phụ trách</strong><small>{cleanTicketAssigneeLabel(workspaceMembers, selectedTicket.assigned_to)}</small></span>
+                <span><strong>Tạo lúc</strong><small>{cleanTicketDate(selectedTicket.created_at)}</small></span>
               </div>
               {canManage ? (
                 <div className="ticket-detail-actions">
-                  <select aria-label="Trang thai ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { status: event.target.value as TicketStatus } })} value={selectedTicket.status}>
+                  <select aria-label="Trạng thái ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { status: event.target.value as TicketStatus } })} value={selectedTicket.status}>
                     {ticketStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
-                  <select aria-label="Uu tien ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { priority: event.target.value as TicketPriority } })} value={selectedTicket.priority}>
+                  <select aria-label="Ưu tiên ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { priority: event.target.value as TicketPriority } })} value={selectedTicket.priority}>
                     {ticketPriorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
-                  <select aria-label="Nguoi phu trach ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { assigned_to: event.target.value || "" } })} value={selectedTicket.assigned_to ?? ""}>
-                    <option value="">Chua gan</option>
+                  <select aria-label="Người phụ trách ticket" onChange={(event) => updateTicketMutation.mutate({ ticket: selectedTicket, values: { assigned_to: event.target.value || "" } })} value={selectedTicket.assigned_to ?? ""}>
+                    <option value="">Chưa gắn</option>
                     {assignableMembers.map((member) => <option key={member.user_id} value={member.user_id}>{workspaceMemberName(member)}</option>)}
                   </select>
                   <Button disabled={updateTicketMutation.isPending || selectedTicket.status === "closed"} onClick={() => updateTicketMutation.mutate({ ticket: selectedTicket, values: { status: "closed" } })} size="sm">
-                    Dong ticket
+                    Đóng ticket
                   </Button>
                 </div>
               ) : (
-                <small>Ban co the tao va theo doi ticket; cap nhat lifecycle can quyen <code>ticket.manage</code>.</small>
+                <small>Bạn có thể tạo và theo dõi ticket; cập nhật vòng đời cần quyền <code>ticket.manage</code>.</small>
               )}
             </>
           ) : (
-            <EmptyState description="Chon mot ticket de xem lifecycle va nguoi phu trach." title="Chua chon ticket" />
+            <EmptyState description="Chọn một ticket để xem vòng đời và người phụ trách." title="Chưa chọn ticket" />
           )}
         </aside>
       </div>
@@ -3794,16 +3815,16 @@ function ticketPriorityLabel(priority: TicketPriority) {
 }
 function cleanTicketChannelLabel(channels: ChatChannel[], channelId?: string | null) {
   const channel = channels.find((item) => item.id === channelId);
-  return channel ? `#${channel.name}` : "Chua gan kenh";
+  return channel ? `#${channel.name}` : "Chưa gắn kênh";
 }
 
 function cleanTicketAssigneeLabel(members: WorkspaceMember[], userId?: string | null) {
   const member = members.find((item) => item.user_id === userId);
-  return member ? workspaceMemberName(member) : "Chua gan";
+  return member ? workspaceMemberName(member) : "Chưa gắn";
 }
 
 function cleanTicketDate(value?: string | null) {
-  if (!value) return "Chua co";
+  if (!value) return "Chưa có";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
 }
@@ -4071,21 +4092,21 @@ function SettingsPage({
         <section className={`settings-card settings-card--desktop-version settings-card--desktop-version-${desktopVersionStatus.status}`}>
           <div>
             <Cloud size={22} />
-            <h2>Phien ban desktop</h2>
+            <h2>Phiên bản desktop</h2>
           </div>
           <p>{desktopVersionStatus.label}</p>
           {desktopVersionStatus.detail ? <small className="settings-card__muted">{desktopVersionStatus.detail}</small> : null}
           <div className="desktop-version-actions">
             <Badge tone={desktopVersionBadgeTone(desktopVersionStatus.status)}>
               {desktopVersionStatus.status === "unsupported"
-                ? "Can cap nhat"
+                ? "Cần cập nhật"
                 : desktopVersionStatus.status === "update_available"
-                  ? "Co ban moi"
+                  ? "Có bản mới"
                   : desktopVersionStatus.status === "offline"
-                    ? "Chua kiem tra"
+                    ? "Chưa kiểm tra"
                     : desktopVersionStatus.status === "checking"
-                      ? "Dang kiem tra"
-                      : "Tuong thich"}
+                      ? "Đang kiểm tra"
+                      : "Tương thích"}
             </Badge>
             {desktopVersionStatus.updateUrl ? (
               <Button
@@ -4094,7 +4115,7 @@ function SettingsPage({
                 type="button"
                 variant={desktopVersionStatus.status === "unsupported" ? "primary" : "secondary"}
               >
-                <Share2 size={15} /> Mo trang cap nhat
+                <Share2 size={15} /> Mở trang cập nhật
               </Button>
             ) : null}
           </div>
@@ -5080,9 +5101,9 @@ function ChatHeader({
         </Tooltip>
         {canShowCallActions ? (
           <>
-            <Tooltip label={callDisabled ? "Cuoc goi dang dien ra" : "Goi thoai"}>
+            <Tooltip label={callDisabled ? "Cuộc gọi đang diễn ra" : "Gọi thoại"}>
               <Button
-                aria-label="Goi thoai"
+                aria-label="Gọi thoại"
                 disabled={callDisabled}
                 onClick={() => {
                   setOpenPopover(null);
@@ -5094,9 +5115,9 @@ function ChatHeader({
                 <Phone size={19} />
               </Button>
             </Tooltip>
-            <Tooltip label={callDisabled ? "Cuoc goi dang dien ra" : "Goi video"}>
+            <Tooltip label={callDisabled ? "Cuộc gọi đang diễn ra" : "Gọi video"}>
               <Button
-                aria-label="Goi video"
+                aria-label="Gọi video"
                 disabled={callDisabled || !onStartVideoCall}
                 onClick={() => {
                   setOpenPopover(null);
@@ -5169,6 +5190,61 @@ function ChatHeader({
   );
 }
 
+function useIncomingCallRingtone(active: boolean) {
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    if (!active || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const audioWindow = window as Window & {
+      AudioContext?: typeof AudioContext;
+      webkitAudioContext?: typeof AudioContext;
+    };
+    const AudioContextCtor = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
+    if (!AudioContextCtor) {
+      return undefined;
+    }
+
+    const context = audioContextRef.current ?? new AudioContextCtor();
+    audioContextRef.current = context;
+    let disposed = false;
+
+    const ring = () => {
+      if (disposed) {
+        return;
+      }
+      void context.resume().then(() => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(880, context.currentTime);
+        oscillator.frequency.setValueAtTime(660, context.currentTime + 0.18);
+        gain.gain.setValueAtTime(0.0001, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.16, context.currentTime + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.48);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.5);
+      }).catch(() => undefined);
+    };
+
+    ring();
+    const interval = window.setInterval(ring, 1600);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [active]);
+
+  useEffect(() => () => {
+    void audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
+  }, []);
+}
+
 function CallPanel({
   callState,
   isCameraOff,
@@ -5213,8 +5289,8 @@ function CallPanel({
       </div>
       {showVideo ? (
         <div className="call-panel__video-grid">
-          <MediaStreamVideo label={callState.peerName || "Nguoi goi"} stream={remoteStream} />
-          <MediaStreamVideo label="Ban" muted stream={localStream} />
+          <MediaStreamVideo label={callState.peerName || "Người gọi"} stream={remoteStream} />
+          <MediaStreamVideo label="Bạn" muted stream={localStream} />
         </div>
       ) : null}
       <div className="call-panel__actions">
@@ -5222,11 +5298,11 @@ function CallPanel({
           <>
             <Button className="call-panel__button call-panel__button--accept" onClick={onAccept} size="sm" variant="secondary">
               <Phone size={16} />
-              Nhan
+              Nhận
             </Button>
             <Button className="call-panel__button call-panel__button--end" onClick={onReject} size="sm" variant="secondary">
               <PhoneOff size={16} />
-              Tu choi
+              Từ chối
             </Button>
           </>
         ) : null}
@@ -5234,17 +5310,17 @@ function CallPanel({
           <>
             <Button className={isMuted ? "call-panel__button call-panel__button--active" : "call-panel__button"} onClick={onToggleMute} size="sm" variant="secondary">
               {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
-              {isMuted ? "Bat mic" : "Tat mic"}
+              {isMuted ? "Bật mic" : "Tắt mic"}
             </Button>
             {isVideo ? (
               <Button className={isCameraOff ? "call-panel__button call-panel__button--active" : "call-panel__button"} onClick={onToggleCamera} size="sm" variant="secondary">
                 {isCameraOff ? <VideoOff size={16} /> : <Video size={16} />}
-                {isCameraOff ? "Bat camera" : "Tat camera"}
+                {isCameraOff ? "Bật camera" : "Tắt camera"}
               </Button>
             ) : null}
             <Button className="call-panel__button call-panel__button--end" onClick={onEnd} size="sm" variant="secondary">
               <PhoneOff size={16} />
-              Ket thuc
+              Kết thúc
             </Button>
           </>
         ) : null}
@@ -5280,28 +5356,28 @@ function MediaStreamVideo({
 
 function callPanelTitle(callState: WebRtcCallState): string {
   if (callState.status === "incoming") {
-    return "Cuoc goi den";
+    return "Cuộc gọi đến";
   }
   if (callState.status === "outgoing") {
-    return "Dang goi";
+    return "Đang gọi";
   }
   if (callState.status === "connecting") {
-    return "Dang ket noi";
+    return "Đang kết nối";
   }
   if (callState.status === "active") {
-    return "Dang trong cuoc goi";
+    return "Đang trong cuộc gọi";
   }
   if (callState.status === "error") {
-    return "Khong the thuc hien cuoc goi";
+    return "Không thể thực hiện cuộc gọi";
   }
-  return "Cuoc goi da ket thuc";
+  return "Cuộc gọi đã kết thúc";
 }
 
 function callPanelSubtitle(callState: WebRtcCallState): string {
   if (callState.error) {
     return callState.error;
   }
-  const modeLabel = callState.mode === "video" ? "Video" : "Thoai";
+  const modeLabel = callState.mode === "video" ? "Video" : "Thoại";
   return [modeLabel, callState.peerName].filter(Boolean).join(" - ");
 }
 
@@ -5543,6 +5619,7 @@ function MessageTimeline({
   onResolveAttachment,
   onLoadOlderMessages,
   onOpenThread,
+  onRetryCall,
   onSearchResultSelect,
   onStartEdit,
   onSubmitEdit,
@@ -5570,6 +5647,7 @@ function MessageTimeline({
   onResolveAttachment: (fileId: string) => Promise<Blob>;
   onLoadOlderMessages: () => Promise<unknown> | void;
   onOpenThread: (messageId: string) => void;
+  onRetryCall: (mode: "audio" | "video") => void;
   onSearchResultSelect: (message: ChatMessage) => void;
   onStartEdit: (message: ChatMessage) => void;
   onSubmitEdit: (event: FormEvent<HTMLFormElement>) => void;
@@ -5725,6 +5803,17 @@ function MessageTimeline({
               </div>
               <time>{message.sentAt}</time>
             </article>
+          );
+        }
+        if (message.callEvent) {
+          return (
+            <CallMessageRow
+              focused={focusedMessageId === message.id}
+              key={message.id}
+              message={message}
+              messageAuthor={messageAuthor}
+              onRetryCall={onRetryCall}
+            />
           );
         }
         return (
@@ -5914,6 +6003,70 @@ function MessageTimeline({
       <div ref={bottomRef} aria-hidden="true" />
     </div>
   );
+}
+
+function CallMessageRow({
+  focused,
+  message,
+  messageAuthor,
+  onRetryCall
+}: {
+  focused: boolean;
+  message: ChatMessage;
+  messageAuthor: ChatUser;
+  onRetryCall: (mode: "audio" | "video") => void;
+}) {
+  const callEvent = message.callEvent;
+  if (!callEvent) {
+    return null;
+  }
+
+  const isMissed = callEvent.status === "missed";
+  const CallIcon = isMissed ? PhoneOff : callEvent.mode === "video" ? Video : Phone;
+
+  return (
+    <article
+      className={`${message.isMine ? "message-row message-row--local" : "message-row"} message-row--call${focused ? " message-row--focused" : ""}`}
+      data-message-id={message.id}
+    >
+      <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} />
+      <div className={isMissed ? "message-call-card message-call-card--missed" : "message-call-card"}>
+        <strong>{callMessageTitle(callEvent)}</strong>
+        <span>
+          <CallIcon size={17} />
+          {callMessageDetail(callEvent)}
+        </span>
+        <button onClick={() => onRetryCall(callEvent.mode)} type="button">
+          Gọi lại
+        </button>
+      </div>
+      <time className="message-call-time">{message.sentAt}</time>
+    </article>
+  );
+}
+
+function callMessageTitle(callEvent: NonNullable<ChatMessage["callEvent"]>): string {
+  if (callEvent.status === "missed") {
+    return callEvent.direction === "incoming" ? "Bạn bị nhỡ" : "Cuộc gọi nhỡ";
+  }
+  const modeLabel = callEvent.mode === "video" ? "video" : "thoại";
+  const directionLabel = callEvent.direction === "incoming" ? "đến" : "đi";
+  return `Cuộc gọi ${modeLabel} ${directionLabel}`;
+}
+
+function callMessageDetail(callEvent: NonNullable<ChatMessage["callEvent"]>): string {
+  const modeLabel = callEvent.mode === "video" ? "Cuộc gọi video" : "Cuộc gọi thoại";
+  if (callEvent.status === "missed") {
+    return modeLabel;
+  }
+  return formatCallDurationLabel(callEvent.durationSeconds ?? 0);
+}
+
+function formatCallDurationLabel(durationSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.round(durationSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${minutes} phút ${seconds} giây`;
 }
 
 type MessageReceipt = {

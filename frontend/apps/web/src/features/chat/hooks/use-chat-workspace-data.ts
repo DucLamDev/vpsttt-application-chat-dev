@@ -62,6 +62,17 @@ export type SendMessagePayload = {
   uploads: UploadQueueItem[];
 };
 
+export type SendCallEventPayload = {
+  callId: string;
+  durationSeconds?: number;
+  endedAt: string;
+  initiatorUserId: string;
+  mode: "audio" | "video";
+  reason?: string;
+  startedAt?: string;
+  status: "completed" | "missed";
+};
+
 export type SendMessageResult = {
   failedUploadNames: string[];
   message: Awaited<ReturnType<typeof api.messages.send>>;
@@ -280,6 +291,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   const realtime = useChannelRealtime({
     channelId: selectedChannelId,
     channelIds: [
+      selectedChannelId,
       ...channels.filter((channel) => channel.isMember).map((channel) => channel.id),
       ...directConversations.map((conversation) => conversation.id)
     ],
@@ -629,6 +641,41 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     }
   });
 
+  const sendCallEventMutation = useMutation({
+    mutationFn: (input: SendCallEventPayload) => {
+      if (!workspaceId || !selectedChannelId) {
+        throw new Error("Hãy chọn hội thoại trước khi lưu cuộc gọi.");
+      }
+
+      return api.messages.send(workspaceId, selectedChannelId, {
+        body: callEventBody(input),
+        client_message_id: `call-${input.callId}-${input.status}`,
+        kind: "event",
+        metadata: {
+          call_id: input.callId,
+          call_mode: input.mode,
+          call_status: input.status,
+          duration_seconds: input.durationSeconds ?? 0,
+          ended_at: input.endedAt,
+          initiator_user_id: input.initiatorUserId,
+          message_type: "call",
+          reason: input.reason ?? "",
+          started_at: input.startedAt ?? ""
+        }
+      });
+    },
+    onSuccess: (message) => {
+      mergeMessageIntoTimeline(queryClient, workspaceId, selectedChannelId, message);
+      queryClient.setQueryData<ApiDirectConversation[]>(
+        queryKeys.channels.directConversations(workspaceId),
+        (current) => updateDirectConversationLastMessage(current, selectedChannelId, message)
+      );
+      queryClient.setQueryData<ApiChannel[]>(queryKeys.channels.all(workspaceId), (current) =>
+        updateChannelAfterOwnMessage(current, selectedChannelId, message)
+      );
+    }
+  });
+
   const flushOutbox = useCallback(async () => {
     if (isFlushingOutboxRef.current || (typeof navigator !== "undefined" && navigator.onLine === false)) {
       return;
@@ -895,6 +942,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     setWorkspaceSection,
     searchUsers,
     searchUsersQuery,
+    sendCallEventMutation,
     sendThreadMessageMutation: messageTimeline.sendThreadMessageMutation,
     rejectContactRequestMutation,
     rejectChannelJoinMutation,
@@ -911,6 +959,21 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     updateProfileMutation,
     sendMessageMutation
   };
+}
+
+function callEventBody(input: SendCallEventPayload): string {
+  const modeLabel = input.mode === "video" ? "video" : "thoại";
+  if (input.status === "missed") {
+    return `Cuộc gọi ${modeLabel} bị nhỡ`;
+  }
+  return `Cuộc gọi ${modeLabel} ${formatCallDuration(input.durationSeconds ?? 0)}`;
+}
+
+function formatCallDuration(durationSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.round(durationSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${minutes} phút ${seconds} giây`;
 }
 
 function uploadMessageFallback(uploads: UploadQueueItem[]): string {
@@ -1033,6 +1096,7 @@ function directConversationToChannel(conversation: DirectConversation): ChatChan
     memberCount: 2,
     messages: [],
     name: conversation.user.name,
+    peerUserId: conversation.user.id,
     relativeTime: conversation.relativeTime,
     slug: undefined,
     tone: "purple",

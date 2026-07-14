@@ -300,6 +300,26 @@ func TestSendAcceptsVoiceMediaMessage(t *testing.T) {
 	}
 }
 
+func TestSendAcceptsCallEventMessage(t *testing.T) {
+	repo := &captureSendRepo{}
+	service := NewService(repo, testPermissionChecker{allowed: true})
+
+	message, err := service.Send(context.Background(), SendInput{
+		ActorUserID: "user-1",
+		WorkspaceID: "workspace-1",
+		ChannelID:   "channel-1",
+		Kind:        "event",
+		Body:        "Cuoc goi thoai",
+		Metadata:    []byte(`{"message_type":"call","call_status":"completed"}`),
+	})
+	if err != nil {
+		t.Fatalf("Send() tra loi: %v", err)
+	}
+	if message.Kind != "event" || repo.sent.Kind != "event" {
+		t.Fatalf("kind = %q, muon event", message.Kind)
+	}
+}
+
 func TestParseSearchDateUsesExclusiveEndDate(t *testing.T) {
 	got, err := parseSearchDate("2026-07-10", true)
 	if err != nil {
