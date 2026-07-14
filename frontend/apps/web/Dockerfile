@@ -6,6 +6,7 @@ COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/api-client/package.json packages/api-client/package.json
+COPY packages/chat-core/package.json packages/chat-core/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/icons/package.json packages/icons/package.json
 COPY packages/types/package.json packages/types/package.json

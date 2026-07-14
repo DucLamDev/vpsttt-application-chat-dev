@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@webtui/api-client": "0.1.0",
+    "@webtui/chat-core": "0.1.0",
     "@webtui/icons": "0.1.0",
     "@webtui/types": "0.1.0",
     "@webtui/ui": "0.1.0",
