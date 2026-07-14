@@ -114,10 +114,105 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, '{"system_default": true}'::jsonb)
 		}
 	}
 
+	if err := ensureDefaultBotGuidePins(ctx, tx, workspace.ID, params.OwnerID); err != nil {
+		return workspacesdomain.Workspace{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return workspacesdomain.Workspace{}, err
 	}
 	return workspace, nil
+}
+
+func ensureDefaultBotGuidePins(ctx context.Context, exec commandExecutor, workspaceID string, actorUserID string) error {
+	_, err := exec.Exec(ctx, `
+WITH guide(slug, body) AS (
+    VALUES
+        ('gia-han', 'Kiểm tra dịch vụ sắp hết hạn
+Email: khach@example.com
+Số ngày: 30
+Loại dịch vụ: VPS'),
+        ('ke-toan', 'Tạo QR nạp ví
+Email: khach@example.com
+Số tiền: 200000'),
+        ('ticket', 'Tạo ticket hỗ trợ cho khach@example.com
+VPS #1234 bị mất kết nối, ping timeout và port 22 không truy cập được.'),
+        ('server-alert', 'Server: vps-01
+Lỗi: Mất ping 3 phút
+IP: 192.0.2.10
+Mức độ: critical')
+),
+targets AS (
+    SELECT DISTINCT
+        c.workspace_id,
+        c.id AS channel_id,
+        c.id AS source_channel_id,
+        c.slug::text AS source_slug,
+        guide.body
+    FROM channels c
+    JOIN guide
+      ON guide.slug = c.slug::text
+    WHERE c.workspace_id = $1::uuid
+      AND c.deleted_at IS NULL
+      AND c.status = 'active'
+      AND EXISTS (
+          SELECT 1
+          FROM bot_installations bi
+          WHERE bi.workspace_id = c.workspace_id
+            AND bi.channel_id = c.id
+            AND bi.status = 'active'
+      )
+),
+inserted AS (
+    INSERT INTO messages (workspace_id, channel_id, sender_id, kind, body, metadata)
+    SELECT
+        targets.workspace_id,
+        targets.channel_id,
+        $2::uuid,
+        'text',
+        targets.body,
+        jsonb_build_object(
+            'seed', 'bot_channel_guide',
+            'source_channel_id', targets.source_channel_id::text,
+            'source_slug', targets.source_slug
+        )
+    FROM targets
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM messages m
+        WHERE m.workspace_id = targets.workspace_id
+          AND m.channel_id = targets.channel_id
+          AND m.metadata @> jsonb_build_object(
+              'seed', 'bot_channel_guide',
+              'source_channel_id', targets.source_channel_id::text
+          )
+          AND m.deleted_at IS NULL
+    )
+    RETURNING id, workspace_id, channel_id
+),
+guide_messages AS (
+    SELECT m.id, m.workspace_id, m.channel_id
+    FROM targets
+    JOIN messages m
+      ON m.workspace_id = targets.workspace_id
+     AND m.channel_id = targets.channel_id
+     AND m.metadata @> jsonb_build_object(
+         'seed', 'bot_channel_guide',
+         'source_channel_id', targets.source_channel_id::text
+     )
+     AND m.deleted_at IS NULL
+    UNION
+    SELECT id, workspace_id, channel_id
+    FROM inserted
+)
+INSERT INTO message_pins (workspace_id, channel_id, message_id, pinned_by)
+SELECT workspace_id, channel_id, id, $2::uuid
+FROM guide_messages
+ON CONFLICT (workspace_id, channel_id, message_id)
+DO UPDATE SET pinned_by = EXCLUDED.pinned_by,
+              created_at = message_pins.created_at
+`, workspaceID, actorUserID)
+	return err
 }
 
 func (r *Repository) FindWorkspace(ctx context.Context, workspaceID string) (workspacesdomain.Workspace, error) {
@@ -399,6 +494,10 @@ WHERE wm.workspace_id = $1::uuid AND wm.user_id = $2::uuid
 
 type rowScanner interface {
 	Scan(dest ...any) error
+}
+
+type commandExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
 func scanWorkspace(row rowScanner) (workspacesdomain.Workspace, error) {

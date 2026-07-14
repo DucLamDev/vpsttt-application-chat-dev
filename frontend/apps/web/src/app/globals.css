@@ -4875,14 +4875,11 @@
 }
 
 .message-reaction-control {
-  bottom: -13px;
   display: flex;
-  position: absolute;
-  right: 8px;
-  z-index: 18;
+  position: relative;
 }
 
-.message-row--local .message-reaction-control { left: 8px; right: auto; }
+.message-row--local .message-reaction-control { left: auto; right: auto; }
 
 .chat-app-shell--zalo .message-reaction-control .reaction-add-button {
   background: var(--surface);
@@ -4904,21 +4901,22 @@
   bottom: calc(100% + 7px);
   box-shadow: 0 14px 36px rgb(15 23 42 / 18%);
   display: flex;
-  gap: 2px;
+  gap: 4px;
+  left: 0;
   padding: 5px;
   position: absolute;
-  right: 0;
   width: max-content;
   z-index: 30;
 }
 
-.message-row--local .message-reaction-picker { left: 0; right: auto; }
+.message-row--local .message-reaction-picker { left: auto; right: 0; }
 
 .message-reaction-picker button {
   align-items: center;
   background: transparent;
   border: 0;
   border-radius: 50%;
+  color: #64748b;
   display: flex;
   font-size: 20px;
   height: 34px;
@@ -4928,7 +4926,74 @@
 }
 
 .message-reaction-picker button:hover { background: var(--surface-muted); transform: translateY(-2px) scale(1.12); }
-.chat-app-shell--zalo .reaction-pill { margin-bottom: 4px; }
+.chat-app-shell--zalo .message-row--has-reactions { padding-bottom: 13px; }
+
+.chat-app-shell--zalo .reaction-pill {
+  background: #ffffff;
+  border: 1px solid #dce6f4;
+  bottom: -12px;
+  box-shadow: 0 4px 10px rgb(15 23 42 / 12%);
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  position: absolute;
+  right: 36px;
+  z-index: 17;
+}
+
+.chat-app-shell--zalo .message-reaction-control {
+  bottom: -12px;
+  position: absolute;
+  right: 8px;
+  z-index: 18;
+}
+
+.chat-app-shell--zalo .reaction-pill__item {
+  background: transparent;
+  border-color: transparent;
+  color: #334155;
+  gap: 3px;
+  min-height: 22px;
+  padding: 0 6px 0 4px;
+}
+
+.chat-app-shell--zalo .reaction-pill__item--active {
+  background: #eef4ff;
+  color: #075fce;
+}
+
+.reaction-glyph {
+  align-items: center;
+  border-radius: 50%;
+  display: inline-flex;
+  height: 17px;
+  justify-content: center;
+  width: 17px;
+}
+
+.reaction-glyph__emoji {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.reaction-choice--like { color: #1677ff; }
+.reaction-choice--love { color: #ef4444; }
+.reaction-choice--haha { color: #f59e0b; }
+.reaction-choice--wow { color: #8b5cf6; }
+.reaction-choice--sad { color: #0ea5e9; }
+.reaction-choice--angry { color: #dc2626; }
+
+.reaction-choice--love svg {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.message-reaction-picker__choice.reaction-choice--like { background: #eaf3ff; }
+.message-reaction-picker__choice.reaction-choice--love { background: #fff1f2; }
+.message-reaction-picker__choice.reaction-choice--haha { background: #fff7ed; }
+.message-reaction-picker__choice.reaction-choice--wow { background: #f5f3ff; }
+.message-reaction-picker__choice.reaction-choice--sad { background: #ecfeff; }
+.message-reaction-picker__choice.reaction-choice--angry { background: #fef2f2; }
 
 .chat-app-shell--zalo .send-button.ui-button {
   border-radius: 12px;
@@ -5082,6 +5147,27 @@
 [data-theme="dark"] .message-reaction-picker,
 [data-theme="dark"] .chat-app-shell--zalo .message-actions,
 [data-theme="dark"] .chat-app-shell--zalo .message-reaction-control .reaction-add-button { background: #111827; border-color: #334155; }
+
+[data-theme="dark"] .chat-app-shell--zalo .reaction-pill {
+  background: #111827;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .reaction-pill__item {
+  color: #e5edf7;
+}
+
+[data-theme="dark"] .chat-app-shell--zalo .reaction-pill__item--active {
+  background: #12325b;
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .message-reaction-picker__choice.reaction-choice--like { background: #102a4c; }
+[data-theme="dark"] .message-reaction-picker__choice.reaction-choice--love { background: #3b1119; }
+[data-theme="dark"] .message-reaction-picker__choice.reaction-choice--haha { background: #3b2508; }
+[data-theme="dark"] .message-reaction-picker__choice.reaction-choice--wow { background: #261746; }
+[data-theme="dark"] .message-reaction-picker__choice.reaction-choice--sad { background: #0c3144; }
+[data-theme="dark"] .message-reaction-picker__choice.reaction-choice--angry { background: #3b1111; }
 
 @media (max-width: 1440px) {
   .chat-app-shell--zalo.chat-app-shell--detail-open .detail-panel {
@@ -5413,48 +5499,48 @@
 
 .chat-app-shell--zalo .conversation-row--unread,
 .chat-app-shell--zalo .channel-row--unread {
-  background: #edf4ff;
-  box-shadow: inset 3px 0 0 #1677ff;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .chat-app-shell--zalo .conversation-row--unread:hover,
 .chat-app-shell--zalo .channel-row--unread:hover,
 .chat-app-shell--zalo .conversation-row--unread.conversation-row--active,
-.chat-app-shell--zalo .channel-row--unread.channel-row--active { background: #e3efff; }
+.chat-app-shell--zalo .channel-row--unread.channel-row--active { background: #eef5ff; }
 
 .chat-app-shell--zalo .conversation-row--unread .conversation-row__body strong,
 .chat-app-shell--zalo .channel-row--unread .channel-row__body strong {
-  color: #102a52;
-  font-weight: 750;
+  color: #0f1f36;
+  font-weight: 800;
 }
 
 .chat-app-shell--zalo .conversation-row--unread .conversation-row__body small,
 .chat-app-shell--zalo .channel-row--unread .channel-row__body small {
-  color: #29466e;
-  font-weight: 600;
+  color: #1d2d44;
+  font-weight: 700;
 }
 
 .chat-app-shell--zalo .conversation-row--unread .conversation-row__meta time,
 .chat-app-shell--zalo .channel-row--unread .channel-row__meta time {
-  color: #075dcc;
+  color: #0f1f36;
   font-weight: 700;
 }
 
 .chat-app-shell--zalo .conversation-row__unread-badge,
 .chat-app-shell--zalo .conversation-row__unread-badge.ui-badge--red {
   align-items: center;
-  background: #e53935;
+  background: #c91f28;
   border: 2px solid #ffffff;
   border-radius: 999px;
-  box-shadow: 0 3px 8px rgb(229 57 53 / 28%);
+  box-shadow: none;
   color: #ffffff;
   display: inline-flex;
   font-size: 11px;
-  font-weight: 750;
-  height: 22px;
+  font-weight: 800;
+  height: 20px;
   justify-content: center;
   line-height: 1;
-  min-width: 22px;
+  min-width: 20px;
   padding: 0 5px;
 }
 
@@ -5466,9 +5552,9 @@
 
 [data-theme="dark"] .chat-app-shell--zalo .chat-panel-open-button.ui-button { background: #102a4c; border-color: #28517f; color: #93c5fd; }
 [data-theme="dark"] .chat-app-shell--zalo .conversation-row--unread,
-[data-theme="dark"] .chat-app-shell--zalo .channel-row--unread { background: #10284a; box-shadow: inset 3px 0 0 #60a5fa; }
+[data-theme="dark"] .chat-app-shell--zalo .channel-row--unread { background: #111c2f; box-shadow: none; }
 [data-theme="dark"] .chat-app-shell--zalo .conversation-row--unread:hover,
-[data-theme="dark"] .chat-app-shell--zalo .channel-row--unread:hover { background: #12325b; }
+[data-theme="dark"] .chat-app-shell--zalo .channel-row--unread:hover { background: #17263d; }
 [data-theme="dark"] .chat-app-shell--zalo .conversation-row--unread .conversation-row__body strong,
 [data-theme="dark"] .chat-app-shell--zalo .channel-row--unread .channel-row__body strong { color: #f8fafc; }
 [data-theme="dark"] .chat-app-shell--zalo .conversation-row--unread .conversation-row__body small,

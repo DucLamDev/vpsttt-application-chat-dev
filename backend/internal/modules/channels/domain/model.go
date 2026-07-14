@@ -52,6 +52,19 @@ type DirectConversation struct {
 	CreatedBy        *string
 	ParticipantIDs   []string
 	Participants     []Member
+	LastMessage      *MessageSummary
+	UnreadCount      int
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+type MessageSummary struct {
+	ID          string
+	WorkspaceID string
+	ChannelID   string
+	SenderID    *string
+	Kind        string
+	Body        string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }

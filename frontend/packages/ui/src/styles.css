@@ -236,7 +236,7 @@ a {
 }
 
 .ui-avatar__status--busy {
-  background: var(--accent-orange);
+  background: #98a2b3;
 }
 
 .ui-metric {

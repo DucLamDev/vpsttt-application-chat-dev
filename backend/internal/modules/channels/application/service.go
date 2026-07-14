@@ -186,16 +186,29 @@ type MemberDTO struct {
 }
 
 type DirectConversationDTO struct {
-	ID               string      `json:"id"`
-	WorkspaceID      string      `json:"workspace_id"`
-	ChannelID        string      `json:"channel_id"`
-	ParticipantKey   string      `json:"participant_key"`
-	ConversationType string      `json:"conversation_type"`
-	ParticipantIDs   []string    `json:"participant_ids"`
-	Participants     []MemberDTO `json:"participants"`
-	User             *MemberDTO  `json:"user,omitempty"`
-	CreatedAt        string      `json:"created_at"`
-	UpdatedAt        string      `json:"updated_at"`
+	ID               string             `json:"id"`
+	WorkspaceID      string             `json:"workspace_id"`
+	ChannelID        string             `json:"channel_id"`
+	ParticipantKey   string             `json:"participant_key"`
+	ConversationType string             `json:"conversation_type"`
+	ParticipantIDs   []string           `json:"participant_ids"`
+	Participants     []MemberDTO        `json:"participants"`
+	User             *MemberDTO         `json:"user,omitempty"`
+	LastMessage      *MessageSummaryDTO `json:"last_message,omitempty"`
+	UnreadCount      int                `json:"unread_count"`
+	CreatedAt        string             `json:"created_at"`
+	UpdatedAt        string             `json:"updated_at"`
+}
+
+type MessageSummaryDTO struct {
+	ID          string  `json:"id"`
+	WorkspaceID string  `json:"workspace_id"`
+	ChannelID   string  `json:"channel_id"`
+	SenderID    *string `json:"sender_id,omitempty"`
+	Kind        string  `json:"kind"`
+	Body        string  `json:"body"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 func NewService(repo Repository, checker PermissionChecker) *Service {
@@ -709,8 +722,26 @@ func toDirectDTO(conversation channelsdomain.DirectConversation, actorUserID str
 		ParticipantIDs:   conversation.ParticipantIDs,
 		Participants:     participants,
 		User:             peer,
+		LastMessage:      toMessageSummaryDTO(conversation.LastMessage),
+		UnreadCount:      conversation.UnreadCount,
 		CreatedAt:        formatTime(conversation.CreatedAt),
 		UpdatedAt:        formatTime(conversation.UpdatedAt),
+	}
+}
+
+func toMessageSummaryDTO(message *channelsdomain.MessageSummary) *MessageSummaryDTO {
+	if message == nil {
+		return nil
+	}
+	return &MessageSummaryDTO{
+		ID:          message.ID,
+		WorkspaceID: message.WorkspaceID,
+		ChannelID:   message.ChannelID,
+		SenderID:    message.SenderID,
+		Kind:        message.Kind,
+		Body:        message.Body,
+		CreatedAt:   formatTime(message.CreatedAt),
+		UpdatedAt:   formatTime(message.UpdatedAt),
 	}
 }
 

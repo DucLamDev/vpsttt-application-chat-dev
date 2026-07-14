@@ -802,13 +802,14 @@ function mapDirectConversation(
       avatarUrl: participant.avatar_url ?? undefined,
       id: participant.user_id,
       name: displayName(participant),
-      status: mapPresenceStatus(presenceByUserId.get(participant.user_id)?.status ?? participant.status)
+      status: mapPresenceStatus(presenceByUserId.get(participant.user_id)?.status)
     }
   };
 }
 
 function directConversationToChannel(conversation: DirectConversation): ChatChannel {
   return {
+    avatarUrl: conversation.user.avatarUrl,
     canManage: false,
     departmentId: undefined,
     description: "Tin nhắn riêng",
@@ -823,7 +824,8 @@ function directConversationToChannel(conversation: DirectConversation): ChatChan
     slug: undefined,
     tone: "purple",
     type: "direct",
-    unreadCount: conversation.unreadCount ?? 0
+    unreadCount: conversation.unreadCount ?? 0,
+    userStatus: conversation.user.status
   };
 }
 
@@ -953,7 +955,7 @@ function mapMembersWithPresence(
 ): WorkspaceMember[] {
   return members.map((member) => ({
     ...member,
-    status: mapPresenceStatus(presenceByUserId.get(member.user_id)?.status ?? member.status)
+    status: mapPresenceStatus(presenceByUserId.get(member.user_id)?.status)
   }));
 }
 
@@ -971,15 +973,11 @@ function mapNotification(notification: ApiNotification): NotificationItem {
 }
 
 function mapPresenceStatus(status?: string): PresenceStatus {
-  if (status === "offline") {
-    return "offline";
+  if (status === "online" || status === "active") {
+    return "online";
   }
 
-  if (status === "away" || status === "busy") {
-    return "busy";
-  }
-
-  return "online";
+  return "offline";
 }
 
 function displayName(

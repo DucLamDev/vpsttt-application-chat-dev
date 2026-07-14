@@ -60,6 +60,7 @@ export type MessageAttachmentItem = {
 };
 
 export type ChatChannel = {
+  avatarUrl?: string;
   canManage?: boolean;
   createdBy?: string;
   departmentId?: string;
@@ -77,6 +78,7 @@ export type ChatChannel = {
   relativeTime: string;
   slug?: string;
   type?: string;
+  userStatus?: PresenceStatus;
 };
 
 export type DirectConversation = {

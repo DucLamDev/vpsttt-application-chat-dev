@@ -19,6 +19,7 @@ import {
   useTheme
 } from "@webtui/ui";
 import {
+  Angry,
   Archive,
   Bell,
   Bot,
@@ -27,9 +28,12 @@ import {
   Cloud,
   Edit3,
   FileText,
+  Frown,
   Hash,
+  Heart,
   Image as ImageIcon,
   Info,
+  Laugh,
   LogOut,
   MessageCircle,
   Mic,
@@ -49,11 +53,13 @@ import {
   Settings,
   ShieldCheck,
   Smile,
+  SmilePlus,
   Sparkles,
   StopCircle,
   Star,
   Sun,
   Ticket,
+  ThumbsUp,
   Trash2,
   Users,
   Workflow,
@@ -229,7 +235,14 @@ const detailTabs: Array<{ label: string; value: DetailTab }> = [
   { label: "File", value: "files" }
 ];
 
-const quickReactions = ["👍", "❤️", "😂", "😮", "😢", "😡"] as const;
+const quickReactions = [
+  { className: "reaction-choice--like", emoji: "👍", icon: ThumbsUp, label: "Thích" },
+  { className: "reaction-choice--love", emoji: "❤️", icon: Heart, label: "Yêu thích" },
+  { className: "reaction-choice--haha", emoji: "😂", icon: Laugh, label: "Haha" },
+  { className: "reaction-choice--wow", emoji: "😮", icon: SmilePlus, label: "Ngạc nhiên" },
+  { className: "reaction-choice--sad", emoji: "😢", icon: Frown, label: "Buồn" },
+  { className: "reaction-choice--angry", emoji: "😡", icon: Angry, label: "Giận" }
+] as const;
 
 export function ChatWorkspace() {
   const { logout, user } = useAuth();
@@ -532,12 +545,34 @@ export function ChatWorkspace() {
     }
     return {
       ...data.selectedChannelWithMessages,
+      avatarUrl: directConversation.user.avatarUrl,
       description: "Tin nhắn riêng",
       memberCount: 2,
-      name: directConversation.user.name
+      name: directConversation.user.name,
+      userStatus: directConversation.user.status
     };
   }, [data.directConversations, data.selectedChannelWithMessages, selectedChannelMembers, selectedChannelMembersQuery.data]);
   const composerPlaceholder = botComposerPlaceholder(selectedChatChannel);
+  const selectedChatFiles = useMemo(() => {
+    const fileById = new Map<string, FileItem>();
+    for (const message of selectedChatChannel?.messages ?? []) {
+      for (const attachment of message.attachments ?? []) {
+        if (attachment.isImage || attachment.isAudio || attachment.isVideo || fileById.has(attachment.fileId)) {
+          continue;
+        }
+        fileById.set(attachment.fileId, {
+          downloadUrl: attachment.url,
+          id: attachment.fileId,
+          mimeType: attachment.mimeType,
+          name: attachment.name,
+          size: attachment.size ?? attachment.mimeType ?? "File",
+          tone: attachment.tone,
+          updatedAt: message.sentAt
+        });
+      }
+    }
+    return Array.from(fileById.values());
+  }, [selectedChatChannel?.messages]);
 
   const selectedRailLabel = railItems.find((item) => item.id === activeRailItem)?.label ?? "Tin nhắn";
   const panelTitle =
@@ -569,22 +604,8 @@ export function ChatWorkspace() {
     });
   }
 
-  function handleChannelSelect(channelId: string) {
-    const channel = data.channels.find((item) => item.id === channelId);
-    if (channel?.privateSessionMode) {
-      data.openPrivateSessionMutation.mutate(channelId, {
-        onError: (error) => setToast(error instanceof Error ? error.message : "Không mở được phiên làm việc riêng tư.")
-      });
-      return;
-    }
-    setMessageSidebarTab(data.directConversations.some((conversation) => conversation.id === channelId) ? "conversations" : "channels");
-    data.setSelectedChannelId(channelId);
-    if (manuallyUnreadChatIds.has(channelId)) {
-      const nextUnread = new Set(manuallyUnreadChatIds);
-      nextUnread.delete(channelId);
-      setManuallyUnreadChatIds(nextUnread);
-      persistChatPreferences(favoriteChatIds, nextUnread);
-    }
+  function showMessageWorkspace(tab: MessageSidebarTab) {
+    setMessageSidebarTab(tab);
     setThreadMessageId(null);
     setIsMessageSearchOpen(false);
     setMessageSearchQuery("");
@@ -594,6 +615,25 @@ export function ChatWorkspace() {
     setMessageSearchDateFrom("");
     setMessageSearchDateTo("");
     setActiveRailItem("messages");
+  }
+
+  function handleChannelSelect(channelId: string) {
+    const channel = data.channels.find((item) => item.id === channelId);
+    if (channel?.privateSessionMode) {
+      data.openPrivateSessionMutation.mutate(channelId, {
+        onError: (error) => setToast(error instanceof Error ? error.message : "Không mở được phiên làm việc riêng tư."),
+        onSuccess: () => showMessageWorkspace("channels")
+      });
+      return;
+    }
+    showMessageWorkspace(data.directConversations.some((conversation) => conversation.id === channelId) ? "conversations" : "channels");
+    data.setSelectedChannelId(channelId);
+    if (manuallyUnreadChatIds.has(channelId)) {
+      const nextUnread = new Set(manuallyUnreadChatIds);
+      nextUnread.delete(channelId);
+      setManuallyUnreadChatIds(nextUnread);
+      persistChatPreferences(favoriteChatIds, nextUnread);
+    }
   }
 
   function handleMessageSidebarTabChange(tab: MessageSidebarTab) {
@@ -1776,8 +1816,9 @@ export function ChatWorkspace() {
       {activeRailItem === "messages" && isDetailPanelOpen && (!data.selectedChannel || data.canAccessSelectedChannel) ? (
         <RightDetailPanel
           activeTab={detailTab}
-          files={data.files}
-          isLoading={data.filesQuery.isLoading}
+          files={selectedChatFiles}
+          isDirectChat={selectedChatChannel?.type === "direct"}
+          isLoading={data.messagesQuery.isLoading || data.pinnedMessagesQuery.isLoading}
           isSendingThread={data.sendThreadMessageMutation.isPending}
           isThreadLoading={data.threadQuery.isLoading}
           mediaItems={data.mediaItems}
@@ -2257,14 +2298,34 @@ function ChannelsDirectoryPage({
                     <Badge tone={channel.unreadCount ? "red" : "slate"}>{channel.unreadCount}</Badge>
                   </td>
                   <td>
-                    <Badge tone={channel.isMember ? "green" : channel.membershipStatus === "invited" ? "orange" : "slate"}>
-                      {channel.isMember ? "Đã tham gia" : channel.membershipStatus === "invited" ? "Chờ duyệt" : "Chưa tham gia"}
+                    <Badge
+                      tone={
+                        channel.isMember
+                          ? "green"
+                          : channel.privateSessionMode
+                            ? "blue"
+                            : channel.membershipStatus === "invited"
+                              ? "orange"
+                              : "slate"
+                      }
+                    >
+                      {channel.isMember
+                        ? "Đã tham gia"
+                        : channel.privateSessionMode
+                          ? "Phiên riêng"
+                          : channel.membershipStatus === "invited"
+                            ? "Chờ duyệt"
+                            : "Chưa tham gia"}
                     </Badge>
                   </td>
                   <td>
                     <div className="workspace-data-table__actions workspace-data-table__actions--stacked">
                       {channel.isMember ? (
                         <Button onClick={() => onChannelSelect(channel.id)} size="sm">
+                          <MessageCircle size={16} /> Mở kênh
+                        </Button>
+                      ) : channel.privateSessionMode ? (
+                        <Button disabled={isMutatingMembership} onClick={() => onChannelSelect(channel.id)} size="sm">
                           <MessageCircle size={16} /> Mở kênh
                         </Button>
                       ) : channel.membershipStatus === "invited" ? (
@@ -3892,7 +3953,11 @@ function ChatHeader({
   return (
     <header className="chat-header">
       <div className="chat-title">
-        <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>#</span>
+        {channel.type === "direct" ? (
+          <Avatar name={channel.name} size="lg" src={channel.avatarUrl} status={channel.userStatus} />
+        ) : (
+          <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>#</span>
+        )}
         <div>
           <h1>{channel.name}</h1>
           <p>{channel.description}</p>
@@ -4290,7 +4355,7 @@ function MessageTimeline({
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const memberByUserId = useMemo(
     () => new Map<MessageAuthorLookupMember["user_id"], MessageAuthorLookupMember>(
-      [...workspaceMembers, ...readMembers].map((member) => [member.user_id, member])
+      [...readMembers, ...workspaceMembers].map((member) => [member.user_id, member])
     ),
     [readMembers, workspaceMembers]
   );
@@ -4357,10 +4422,11 @@ function MessageTimeline({
       ) : null}
 
       {messages.map((message) => {
+        const hasReactions = Boolean(message.reactions?.length);
         const messageAuthor = resolveRenderedMessageAuthor(message, memberByUserId);
         return (
         <article
-          className={`${message.isMine ? "message-row message-row--local" : "message-row"}${isImageOnlyMessage(message) ? " message-row--media-only" : ""}`}
+          className={`${message.isMine ? "message-row message-row--local" : "message-row"}${isImageOnlyMessage(message) ? " message-row--media-only" : ""}${hasReactions ? " message-row--has-reactions" : ""}`}
           key={message.id}
         >
           <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} />
@@ -4490,7 +4556,8 @@ function MessageTimeline({
                     onClick={() => onToggleReaction(message, reaction.emoji)}
                     type="button"
                   >
-                    {reaction.emoji} {reaction.count}
+                    <ReactionGlyph emoji={reaction.emoji} />
+                    <span>{reaction.count}</span>
                   </button>
                 ))}
               </div>
@@ -4514,20 +4581,24 @@ function MessageTimeline({
                 </button>
                 {reactionPickerMessageId === message.id ? (
                   <div className="message-reaction-picker" role="menu" aria-label="Chọn cảm xúc">
-                    {quickReactions.map((emoji) => (
-                      <button
-                        aria-label={`Thả cảm xúc ${emoji}`}
-                        key={emoji}
-                        onClick={() => {
-                          onToggleReaction(message, emoji);
-                          setReactionPickerMessageId(null);
-                        }}
-                        role="menuitem"
-                        type="button"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
+                    {quickReactions.map((reaction) => {
+                      const ReactionIcon = reaction.icon;
+                      return (
+                        <button
+                          aria-label={`Thả cảm xúc ${reaction.label}`}
+                          className={`message-reaction-picker__choice ${reaction.className}`}
+                          key={reaction.emoji}
+                          onClick={() => {
+                            onToggleReaction(message, reaction.emoji);
+                            setReactionPickerMessageId(null);
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <ReactionIcon size={20} strokeWidth={2.2} />
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>
@@ -4619,7 +4690,7 @@ function resolveRenderedMessageAuthor(message: ChatMessage, memberByUserId: Map<
     avatarUrl: member.avatar_url ?? message.author.avatarUrl,
     id: member.user_id,
     name: memberDisplayName || message.author.name,
-    status: member.status === "busy" ? "busy" : member.status === "offline" ? "offline" : "online"
+    status: member.status === "online" ? "online" : "offline"
   };
 }
 
@@ -4630,7 +4701,21 @@ function UnreadBadge({ count }: { count: number }) {
 
   return (
     <span aria-label={`${count} tin nhắn chưa đọc`} className="conversation-row__unread-badge">
-      {count > 5 ? "5+" : count}
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+function ReactionGlyph({ emoji, size = 15 }: { emoji: string; size?: number }) {
+  const reaction = quickReactions.find((item) => item.emoji === emoji);
+  if (!reaction) {
+    return <span aria-hidden="true" className="reaction-glyph__emoji">{emoji}</span>;
+  }
+
+  const ReactionIcon = reaction.icon;
+  return (
+    <span aria-hidden="true" className={`reaction-glyph ${reaction.className}`}>
+      <ReactionIcon size={size} strokeWidth={2.35} />
     </span>
   );
 }
@@ -4955,6 +5040,7 @@ function MediaGalleryThumbnail({
 function RightDetailPanel({
   activeTab,
   files,
+  isDirectChat = false,
   isLoading,
   isSendingThread,
   isThreadLoading,
@@ -4971,6 +5057,7 @@ function RightDetailPanel({
 }: {
   activeTab: DetailTab;
   files: FileItem[];
+  isDirectChat?: boolean;
   isLoading: boolean;
   isSendingThread: boolean;
   isThreadLoading: boolean;
@@ -4986,6 +5073,7 @@ function RightDetailPanel({
   threadMessages: ChatMessage[];
 }) {
   const [threadDraft, setThreadDraft] = useState("");
+  const currentChatLabel = isDirectChat ? "Hội thoại này" : "Kênh này";
 
   function handleThreadSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -4998,7 +5086,7 @@ function RightDetailPanel({
   }
 
   return (
-    <aside className={threadMessageId ? "detail-panel detail-panel--thread-open" : "detail-panel"} aria-label="Thông tin kênh">
+    <aside className={threadMessageId ? "detail-panel detail-panel--thread-open" : "detail-panel"} aria-label={isDirectChat ? "Thông tin hội thoại" : "Thông tin kênh"}>
       {threadMessageId ? (
         <section className="thread-panel">
           <header>
@@ -5069,7 +5157,7 @@ function RightDetailPanel({
               </article>
             ))
           ) : (
-            <EmptyState description="Kênh này chưa có tin nhắn được ghim." title="Chưa có tin ghim" />
+            <EmptyState description={`${currentChatLabel} chưa có tin nhắn được ghim.`} title="Chưa có tin ghim" />
           )}
         </section>
       ) : null}
@@ -5088,7 +5176,7 @@ function RightDetailPanel({
               ))}
             </div>
           ) : (
-            <EmptyState description="Chưa có ảnh nào được chia sẻ." title="Chưa có ảnh" />
+            <EmptyState description={`${currentChatLabel} chưa có ảnh nào được chia sẻ.`} title="Chưa có ảnh" />
           )}
         </section>
       ) : null}
@@ -5115,7 +5203,7 @@ function RightDetailPanel({
               </button>
             ))
           ) : (
-            <EmptyState description="Chưa có file nào được chia sẻ." title="Chưa có file" />
+            <EmptyState description={`${currentChatLabel} chưa có file nào được chia sẻ.`} title="Chưa có file" />
           )}
         </section>
       ) : null}

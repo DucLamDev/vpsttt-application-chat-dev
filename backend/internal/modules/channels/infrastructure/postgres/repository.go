@@ -308,6 +308,12 @@ WHERE workspace_id = $1::uuid
 `
 	existing, err := scanChannel(tx.QueryRow(ctx, selectSession, params.WorkspaceID, params.SourceChannelID, params.UserID))
 	if err == nil {
+		if err := ensureActiveChannelMember(ctx, tx, existing.ID, params.UserID); err != nil {
+			return channelsdomain.Channel{}, err
+		}
+		if err := ensureBotChannelGuidePin(ctx, tx, params.WorkspaceID, existing.ID, params.UserID, params.SourceChannelID); err != nil {
+			return channelsdomain.Channel{}, err
+		}
 		return existing, tx.Commit(ctx)
 	}
 	if !errors.Is(err, channelsdomain.ErrChannelNotFound) {
@@ -346,17 +352,102 @@ RETURNING id::text, workspace_id::text, department_id::text, slug::text, name, d
 		return channelsdomain.Channel{}, err
 	}
 
-	if _, err := tx.Exec(ctx, `
-INSERT INTO channel_members (channel_id, user_id, status)
-VALUES ($1::uuid, $2::uuid, 'active')
-ON CONFLICT (channel_id, user_id) DO UPDATE SET status = 'active'
-`, session.ID, params.UserID); err != nil {
+	if err := ensureActiveChannelMember(ctx, tx, session.ID, params.UserID); err != nil {
+		return channelsdomain.Channel{}, err
+	}
+	if err := ensureBotChannelGuidePin(ctx, tx, params.WorkspaceID, session.ID, params.UserID, params.SourceChannelID); err != nil {
 		return channelsdomain.Channel{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return channelsdomain.Channel{}, err
 	}
 	return session, nil
+}
+
+func ensureActiveChannelMember(ctx context.Context, exec commandExecutor, channelID, userID string) error {
+	_, err := exec.Exec(ctx, `
+INSERT INTO channel_members (channel_id, user_id, status)
+VALUES ($1::uuid, $2::uuid, 'active')
+ON CONFLICT (channel_id, user_id) DO UPDATE SET status = 'active'
+`, channelID, userID)
+	return err
+}
+
+func ensureBotChannelGuidePin(ctx context.Context, exec commandExecutor, workspaceID, channelID, userID, sourceChannelID string) error {
+	_, err := exec.Exec(ctx, `
+WITH source AS (
+    SELECT slug::text AS slug
+    FROM channels
+    WHERE workspace_id = $1::uuid
+      AND id = $4::uuid
+      AND deleted_at IS NULL
+),
+guide AS (
+    SELECT
+        source.slug,
+        CASE source.slug
+            WHEN 'gia-han' THEN 'Kiểm tra dịch vụ sắp hết hạn
+Email: khach@example.com
+Số ngày: 30
+Loại dịch vụ: VPS'
+            WHEN 'ke-toan' THEN 'Tạo QR nạp ví
+Email: khach@example.com
+Số tiền: 200000'
+            WHEN 'ticket' THEN 'Tạo ticket hỗ trợ cho khach@example.com
+VPS #1234 bị mất kết nối, ping timeout và port 22 không truy cập được.'
+            WHEN 'server-alert' THEN 'Server: vps-01
+Lỗi: Mất ping 3 phút
+IP: 192.0.2.10
+Mức độ: critical'
+        END AS body
+    FROM source
+    WHERE source.slug IN ('gia-han', 'ke-toan', 'ticket', 'server-alert')
+),
+existing AS (
+    SELECT m.id, m.workspace_id, m.channel_id
+    FROM messages m
+    JOIN guide ON true
+    WHERE m.workspace_id = $1::uuid
+      AND m.channel_id = $2::uuid
+      AND m.metadata @> jsonb_build_object(
+          'seed', 'bot_channel_guide',
+          'source_channel_id', $4::text
+      )
+      AND m.deleted_at IS NULL
+    ORDER BY m.created_at ASC
+    LIMIT 1
+),
+inserted AS (
+    INSERT INTO messages (workspace_id, channel_id, sender_id, kind, body, metadata)
+    SELECT
+        $1::uuid,
+        $2::uuid,
+        $3::uuid,
+        'text',
+        guide.body,
+        jsonb_build_object(
+            'seed', 'bot_channel_guide',
+            'source_channel_id', $4::text,
+            'source_slug', guide.slug
+        )
+    FROM guide
+    WHERE guide.body IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM existing)
+    RETURNING id, workspace_id, channel_id
+),
+guide_message AS (
+    SELECT id, workspace_id, channel_id FROM existing
+    UNION ALL
+    SELECT id, workspace_id, channel_id FROM inserted
+)
+INSERT INTO message_pins (workspace_id, channel_id, message_id, pinned_by)
+SELECT workspace_id, channel_id, id, $3::uuid
+FROM guide_message
+ON CONFLICT (workspace_id, channel_id, message_id)
+DO UPDATE SET pinned_by = EXCLUDED.pinned_by,
+              created_at = message_pins.created_at
+`, workspaceID, channelID, userID, sourceChannelID)
+	return err
 }
 
 func (r *Repository) CreateOrGetDirectConversation(ctx context.Context, params channelsapp.CreateDirectParams) (channelsdomain.DirectConversation, error) {
@@ -478,11 +569,36 @@ SELECT EXISTS (
 func (r *Repository) ListDirectConversations(ctx context.Context, workspaceID string, userID string) ([]channelsdomain.DirectConversation, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT dc.id::text, dc.workspace_id::text, dc.channel_id::text, dc.participant_key, dc.conversation_type,
-       dc.created_by::text, dc.created_at, dc.updated_at
+       dc.created_by::text, dc.created_at, dc.updated_at,
+       lm.id::text, lm.workspace_id::text, lm.channel_id::text, lm.sender_id::text,
+       lm.kind, lm.body, lm.created_at, lm.updated_at,
+       COALESCE(unread.unread_count, 0)
 FROM direct_conversations dc
 JOIN direct_conversation_members dcm ON dcm.direct_conversation_id = dc.id AND dcm.user_id = $2::uuid
+LEFT JOIN channel_members actor_member ON actor_member.channel_id = dc.channel_id AND actor_member.user_id = $2::uuid
+LEFT JOIN LATERAL (
+    SELECT m.id, m.workspace_id, m.channel_id, m.sender_id, m.kind, m.body, m.created_at, m.updated_at
+    FROM messages m
+    WHERE m.workspace_id = dc.workspace_id
+      AND m.channel_id = dc.channel_id
+      AND m.deleted_at IS NULL
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT 1
+) lm ON true
+LEFT JOIN messages read_marker
+  ON read_marker.workspace_id = dc.workspace_id
+ AND read_marker.id = actor_member.last_read_message_id
+LEFT JOIN LATERAL (
+    SELECT count(*)::int AS unread_count
+    FROM messages m
+    WHERE m.workspace_id = dc.workspace_id
+      AND m.channel_id = dc.channel_id
+      AND m.deleted_at IS NULL
+      AND (m.sender_id IS NULL OR m.sender_id <> $2::uuid)
+      AND m.created_at > COALESCE(read_marker.created_at, actor_member.last_read_at, actor_member.joined_at, '-infinity'::timestamptz)
+) unread ON true
 WHERE dc.workspace_id = $1::uuid AND dc.archived_at IS NULL
-ORDER BY dc.updated_at DESC
+ORDER BY COALESCE(lm.created_at, dc.updated_at) DESC, dc.updated_at DESC
 `, workspaceID, userID)
 	if err != nil {
 		return nil, err
@@ -491,7 +607,7 @@ ORDER BY dc.updated_at DESC
 
 	var conversations []channelsdomain.DirectConversation
 	for rows.Next() {
-		conversation, err := scanDirect(rows)
+		conversation, err := scanDirectWithSummary(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -604,6 +720,10 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
+type commandExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
 func scanChannel(row rowScanner) (channelsdomain.Channel, error) {
 	var channel channelsdomain.Channel
 	var departmentID sql.NullString
@@ -685,6 +805,57 @@ func scanDirect(row rowScanner) (channelsdomain.DirectConversation, error) {
 		return channelsdomain.DirectConversation{}, err
 	}
 	conversation.CreatedBy = nullStringPtr(createdBy)
+	return conversation, nil
+}
+
+func scanDirectWithSummary(row rowScanner) (channelsdomain.DirectConversation, error) {
+	var conversation channelsdomain.DirectConversation
+	var createdBy sql.NullString
+	var messageID sql.NullString
+	var messageWorkspaceID sql.NullString
+	var messageChannelID sql.NullString
+	var messageSenderID sql.NullString
+	var messageKind sql.NullString
+	var messageBody sql.NullString
+	var messageCreatedAt sql.NullTime
+	var messageUpdatedAt sql.NullTime
+	if err := row.Scan(
+		&conversation.ID,
+		&conversation.WorkspaceID,
+		&conversation.ChannelID,
+		&conversation.ParticipantKey,
+		&conversation.ConversationType,
+		&createdBy,
+		&conversation.CreatedAt,
+		&conversation.UpdatedAt,
+		&messageID,
+		&messageWorkspaceID,
+		&messageChannelID,
+		&messageSenderID,
+		&messageKind,
+		&messageBody,
+		&messageCreatedAt,
+		&messageUpdatedAt,
+		&conversation.UnreadCount,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return channelsdomain.DirectConversation{}, fmt.Errorf("%w", channelsdomain.ErrChannelNotFound)
+		}
+		return channelsdomain.DirectConversation{}, err
+	}
+	conversation.CreatedBy = nullStringPtr(createdBy)
+	if messageID.Valid && messageCreatedAt.Valid && messageUpdatedAt.Valid {
+		conversation.LastMessage = &channelsdomain.MessageSummary{
+			ID:          messageID.String,
+			WorkspaceID: messageWorkspaceID.String,
+			ChannelID:   messageChannelID.String,
+			SenderID:    nullStringPtr(messageSenderID),
+			Kind:        messageKind.String,
+			Body:        messageBody.String,
+			CreatedAt:   messageCreatedAt.Time,
+			UpdatedAt:   messageUpdatedAt.Time,
+		}
+	}
 	return conversation, nil
 }
 
