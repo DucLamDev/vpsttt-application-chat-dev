@@ -13,7 +13,7 @@ read_env_value() {
 }
 
 export API_DOMAIN="${API_DOMAIN:-$(read_env_value API_DOMAIN)}"
-export API_DOMAIN="${API_DOMAIN:-api.vpsttt.com}"
+export API_DOMAIN="${API_DOMAIN:-chat.vpsttt.com}"
 export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(read_env_value FRONTEND_DOMAIN)}"
 export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-chat.vpsttt.com}"
 export LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-$(read_env_value LETSENCRYPT_EMAIL)}"

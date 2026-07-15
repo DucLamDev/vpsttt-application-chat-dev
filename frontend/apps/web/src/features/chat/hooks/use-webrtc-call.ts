@@ -7,6 +7,7 @@ import type {
   CallSignalType,
   RealtimeCallSignal
 } from "./use-channel-realtime";
+import { runtimeEnvironment } from "@/lib/api";
 
 export type WebRtcCallStatus = "idle" | "incoming" | "outgoing" | "connecting" | "active" | "ended" | "error";
 
@@ -46,7 +47,7 @@ type UseWebRtcCallOptions = {
 };
 
 const rtcConfig: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  iceServers: runtimeEnvironment.rtcIceServers
 };
 const outgoingRingTimeoutMs = 30_000;
 
@@ -211,8 +212,10 @@ export function useWebRtcCall({
       throw new Error("Thiết bị hiện tại không hỗ trợ camera/micro.");
     }
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
+      audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true },
       video: mode === "video" ? { facingMode: "user", height: { ideal: 720 }, width: { ideal: 1280 } } : false
+    }).catch((error: unknown) => {
+      throw new Error(mediaAccessMessage(error, mode));
     });
     localStreamRef.current = stream;
     setLocalStream(stream);
@@ -517,6 +520,28 @@ function rejectionMessage(reason: string | undefined): string {
     return "Người nhận đã từ chối cuộc gọi.";
   }
   return "Cuộc gọi đã kết thúc.";
+}
+
+function mediaAccessMessage(error: unknown, mode: CallMode): string {
+  const name = error instanceof DOMException || error instanceof Error ? error.name : "";
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return mode === "video"
+      ? "Không tìm thấy camera hoặc micro. Hãy kiểm tra thiết bị đầu vào rồi thử lại."
+      : "Không tìm thấy micro. Hãy kiểm tra thiết bị đầu vào rồi thử lại.";
+  }
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "Trình duyệt đang chặn quyền micro/camera. Hãy cấp quyền rồi gọi lại.";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "Micro/camera đang được ứng dụng khác sử dụng hoặc chưa sẵn sàng.";
+  }
+  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+    return "Thiết bị không đáp ứng cấu hình cuộc gọi. Hãy thử lại hoặc đổi thiết bị.";
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "Không mở được micro/camera cho cuộc gọi.";
 }
 
 function toSessionDescriptionInit(

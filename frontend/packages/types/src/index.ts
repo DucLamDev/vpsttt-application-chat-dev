@@ -17,6 +17,7 @@ export type {
   ChannelSummary,
   PermissionCode,
   RuntimeEnvironment,
+  RuntimeIceServer,
   UserStatus,
   UserSummary,
   WorkspaceSummary

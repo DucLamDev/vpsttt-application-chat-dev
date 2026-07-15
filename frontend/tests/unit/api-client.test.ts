@@ -26,7 +26,7 @@ describe("HttpClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new HttpClient({
-      baseUrl: "https://api.vpsttt.com/",
+      baseUrl: "https://chat.vpsttt.com/",
       getAccessToken: () => "access-token"
     });
 
@@ -42,7 +42,7 @@ describe("HttpClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://api.vpsttt.com/api/v1/channels?q=k%E1%BB%B9+thu%E1%BA%ADt&tag=chat&tag=ops");
+    expect(url).toBe("https://chat.vpsttt.com/api/v1/channels?q=k%E1%BB%B9+thu%E1%BA%ADt&tag=chat&tag=ops");
     expect((init.headers as Headers).get("Authorization")).toBe("Bearer access-token");
     expect((init.headers as Headers).get("Accept")).toBe("application/json");
   });
@@ -57,7 +57,7 @@ describe("HttpClient", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new HttpClient({ baseUrl: "https://api.vpsttt.com" });
+    const client = new HttpClient({ baseUrl: "https://chat.vpsttt.com" });
 
     await client.post("/api/v1/messages", { body: "Xin chào" });
 
@@ -94,7 +94,7 @@ describe("HttpClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new HttpClient({
-      baseUrl: "https://api.vpsttt.com",
+      baseUrl: "https://chat.vpsttt.com",
       getAccessToken: () => token,
       refreshAccessToken
     });
@@ -124,7 +124,7 @@ describe("HttpClient", () => {
       )
     );
 
-    const client = new HttpClient({ baseUrl: "https://api.vpsttt.com" });
+    const client = new HttpClient({ baseUrl: "https://chat.vpsttt.com" });
 
     await expect(client.get("/api/v1/workspaces")).rejects.toMatchObject<ApiClientError>({
       code: "VALIDATION_ERROR",
@@ -141,9 +141,10 @@ describe("HttpClient", () => {
       vi.fn(async () => new Response("file-content", { status: 200 }))
     );
 
-    const client = new HttpClient({ baseUrl: "https://api.vpsttt.com" });
+    const client = new HttpClient({ baseUrl: "https://chat.vpsttt.com" });
     const blob = await client.blob("/api/v1/files/file-1/download");
 
     await expect(blob.text()).resolves.toBe("file-content");
   });
 });
+

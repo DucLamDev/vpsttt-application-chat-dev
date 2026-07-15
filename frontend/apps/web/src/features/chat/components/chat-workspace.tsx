@@ -5862,6 +5862,7 @@ function CallPanel({
           <MediaStreamVideo label="Bạn" muted stream={localStream} />
         </div>
       ) : null}
+      {!isVideo && canControlCall ? <MediaStreamAudio stream={remoteStream} /> : null}
       <div className="call-panel__actions">
         {callState.status === "incoming" ? (
           <>
@@ -5896,6 +5897,23 @@ function CallPanel({
       </div>
     </section>
   );
+}
+
+function MediaStreamAudio({ stream }: { stream: MediaStream | null }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || audio.srcObject === stream) {
+      return;
+    }
+    audio.srcObject = stream;
+    if (stream) {
+      void audio.play().catch(() => undefined);
+    }
+  }, [stream]);
+
+  return <audio autoPlay playsInline ref={audioRef} />;
 }
 
 function MediaStreamVideo({
@@ -8092,7 +8110,7 @@ function adminPanelUrl(): string {
   try {
     return `${new URL(runtimeEnvironment.apiBaseUrl).origin}/admin`;
   } catch {
-    return "https://api.vpsttt.com/admin";
+    return "https://chat.vpsttt.com/admin";
   }
 }
 

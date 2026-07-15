@@ -12,7 +12,7 @@
 - [docs/architecture/realtime-queue.md](docs/architecture/realtime-queue.md): WebSocket, RabbitMQ và worker.
 - [docs/architecture/operations.md](docs/architecture/operations.md): vận hành, deploy, backup và monitoring.
 - [docs/architecture/cicd-github-actions-docker-compose.md](docs/architecture/cicd-github-actions-docker-compose.md): luồng CI/CD với GitHub Actions và Docker Compose.
-- [docs/deploy/vps-production.md](docs/deploy/vps-production.md): hướng dẫn deploy production lên VPS với `api.vpsttt.com`.
+- [docs/deploy/vps-production.md](docs/deploy/vps-production.md): hướng dẫn deploy production lên VPS với `chat.vpsttt.com`.
 - [docs/database/postgresql-design.md](docs/database/postgresql-design.md): thiết kế database PostgreSQL.
 - [docs/planning/backend-roadmap.md](docs/planning/backend-roadmap.md): kế hoạch chi tiết để hoàn thiện backend trước frontend.
 - [backend/docs/api-convention.md](backend/docs/api-convention.md): quy ước API backend.

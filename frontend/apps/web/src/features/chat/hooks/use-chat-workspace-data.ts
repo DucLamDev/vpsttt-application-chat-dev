@@ -1291,7 +1291,7 @@ function mapNotification(notification: ApiNotification): NotificationItem {
 }
 
 function mapPresenceStatus(status?: string): PresenceStatus {
-  if (status === "online" || status === "active") {
+  if (status === "online" || status === "active" || status === "away") {
     return "online";
   }
 

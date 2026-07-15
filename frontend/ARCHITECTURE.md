@@ -58,13 +58,13 @@ features/messages/
 
 ## API và realtime
 
-- Frontend mặc định dùng backend đã deploy: REST base `https://api.vpsttt.com`, WebSocket endpoint `wss://api.vpsttt.com/api/v1/ws`. Không dùng `localhost` cho app web/admin trừ khi đang làm phiên backend-dev được yêu cầu riêng.
+- Frontend mặc định dùng backend đã deploy trên cùng domain: REST base `https://chat.vpsttt.com`, WebSocket public endpoint `wss://chat.vpsttt.com/ws`. Không dùng `localhost` cho app web/admin trừ khi đang làm phiên backend-dev được yêu cầu riêng.
 - Đọc contract chính ở `backend/api/openapi/openapi.yaml`.
 - Khi OpenAPI thiếu, đối chiếu route thật trong `backend/internal/**/delivery/http/handler.go`.
 - Response JSON dùng envelope `success`, `data`, `error`, `meta`, `request_id`, `timestamp`.
 - List response nằm trong key cụ thể như `messages`, `channels`, `files`, `api_tokens`, `presence`.
 - `GET /api/v1/workspaces/{workspace_id}/files/{file_id}/download` trả binary, không unwrap envelope.
-- WebSocket là `GET /api/v1/ws`; backend hỗ trợ `Authorization: Bearer ...`, query `access_token` và browser subprotocol `["webtui.jwt", accessToken]`. Frontend nên ưu tiên subprotocol hoặc query token qua HTTPS/WSS, không log URL chứa token.
+- WebSocket public l� `GET /ws` qua Nginx, proxy v? route Go n?i b? `GET /api/v1/ws`; backend h? tr? `Authorization: Bearer ...`, query `access_token` v� browser subprotocol `['webtui.jwt', accessToken]`. Frontend n�n uu ti�n subprotocol ho?c query token qua HTTPS/WSS, kh�ng log URL ch?a token.
 
 ## State
 
@@ -105,3 +105,4 @@ Khi agent làm frontend, dùng `.agents/webtui-chat-frontend/SKILL.md`.
 - `references/backend-api-map.md`: toàn bộ API backend và cách map vào màn hình.
 - `references/frontend-clean-architecture.md`: ranh giới Clean Architecture và workflow.
 - `references/ui-theme.md`: theme, layout và component rule theo mockup.
+

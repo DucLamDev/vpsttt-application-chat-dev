@@ -4,16 +4,16 @@ Tài liệu này dùng cho release web app và admin panel WebTui Chat.
 
 ## Môi trường
 
-- REST API production: `https://api.vpsttt.com`
-- WebSocket production: `wss://api.vpsttt.com/api/v1/ws`
+- REST API production: `https://chat.vpsttt.com`
+- WebSocket production: `wss://chat.vpsttt.com/ws`
 - Web app dự kiến: `chat.vpsttt.com`
 - Admin app dự kiến: `admin.chat.vpsttt.com`
 
 ## Biến môi trường
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=https://api.vpsttt.com
-NEXT_PUBLIC_WS_BASE_URL=wss://api.vpsttt.com/api/v1/ws
+NEXT_PUBLIC_API_BASE_URL=https://chat.vpsttt.com
+NEXT_PUBLIC_WS_BASE_URL=wss://chat.vpsttt.com/ws
 NEXT_PUBLIC_APP_NAME=WebTui Chat
 NEXT_PUBLIC_DEFAULT_LOCALE=vi-VN
 ```

@@ -7,10 +7,12 @@ import { getPlatformServices } from "@webtui/chat-core";
 import type { Notification, Presence, PresenceHeartbeatInput } from "@webtui/types";
 import { api } from "@/lib/api";
 
-const heartbeatMs = 30_000;
+const heartbeatMs = 25_000;
+const presenceRefetchMs = 10_000;
 const notificationFallbackMs = 10_000;
 const deviceIdStorageKey = "webtui-device-id";
 let cachedDeviceId: string | null = null;
+let cachedSocketId: string | null = null;
 
 export type NotificationPresenceOptions = {
   currentUserId: string;
@@ -39,7 +41,8 @@ export function useNotificationPresence({
     enabled: isEnabled,
     queryFn: () => api.presence.list(workspaceId, { limit: 100 }),
     queryKey: queryKeys.presence.list(workspaceId),
-    refetchInterval: heartbeatMs,
+    refetchInterval: presenceRefetchMs,
+    refetchIntervalInBackground: true,
     retry: false
   });
 
@@ -66,7 +69,7 @@ export function useNotificationPresence({
 
     let cancelled = false;
     const deviceId = getPlatformDeviceId();
-    const socketId = `${deviceId}:${currentUserId}`;
+    const socketId = getPresenceSocketId(deviceId, currentUserId);
 
     async function sendHeartbeat(status: "online" | "away" | "offline") {
       const input: PresenceHeartbeatInput = {
@@ -92,8 +95,7 @@ export function useNotificationPresence({
     }
 
     function heartbeat() {
-      const status = typeof document !== "undefined" && document.visibilityState === "hidden" ? "away" : "online";
-      void sendHeartbeat(status);
+      void sendHeartbeat("online");
     }
 
     heartbeat();
@@ -115,7 +117,7 @@ export function useNotificationPresence({
 
     for (const presence of presenceQuery.data ?? []) {
       const current = map.get(presence.user_id);
-      if (!current || Date.parse(presence.last_heartbeat_at) > Date.parse(current.last_heartbeat_at)) {
+      if (!current || comparePresence(presence, current) > 0) {
         map.set(presence.user_id, presence);
       }
     }
@@ -137,6 +139,27 @@ export function useNotificationPresence({
     presenceQuery,
     unreadNotificationsCount
   };
+}
+
+function comparePresence(next: Presence, current: Presence): number {
+  const rankDiff = presenceRank(next.status) - presenceRank(current.status);
+  if (rankDiff !== 0) {
+    return rankDiff;
+  }
+  return Date.parse(next.last_heartbeat_at) - Date.parse(current.last_heartbeat_at);
+}
+
+function presenceRank(status: string | undefined): number {
+  if (status === "online" || status === "active") {
+    return 3;
+  }
+  if (status === "away") {
+    return 2;
+  }
+  if (status === "busy") {
+    return 1;
+  }
+  return 0;
 }
 
 function upsertPresence(queryClient: ReturnType<typeof useQueryClient>, workspaceId: string, presence: Presence) {
@@ -184,5 +207,19 @@ function getPlatformDeviceId() {
 
   void getPlatformServices().storage.setItem(deviceIdStorageKey, next, "persistent");
   cachedDeviceId = next;
+  return next;
+}
+
+function getPresenceSocketId(deviceId: string, userId: string) {
+  const prefix = `${deviceId}:${userId}:`;
+  if (cachedSocketId?.startsWith(prefix)) {
+    return cachedSocketId;
+  }
+
+  const next =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? `${prefix}${crypto.randomUUID()}`
+      : `${prefix}${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  cachedSocketId = next;
   return next;
 }

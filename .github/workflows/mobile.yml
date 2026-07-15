@@ -57,4 +57,4 @@ jobs:
           flutter build apk --debug
           --flavor dev
           -t lib/main_dev.dart
-          --dart-define=WEBTUI_API_BASE_URL=https://api.vpsttt.com
+          --dart-define=WEBTUI_API_BASE_URL=https://chat.vpsttt.com

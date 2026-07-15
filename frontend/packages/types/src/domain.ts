@@ -2,6 +2,13 @@ import type { Id } from "./api";
 
 export type UserStatus = "active" | "blocked" | "disabled" | "locked" | "pending";
 
+export type RuntimeIceServer = {
+  credential?: string;
+  credentialType?: "oauth" | "password";
+  urls: string | string[];
+  username?: string;
+};
+
 export type UserSummary = {
   id: Id;
   email: string;
@@ -56,6 +63,7 @@ export type RuntimeEnvironment = {
   apiBaseUrl: string;
   appVersion: string;
   releaseChannel: "beta" | "stable" | string;
+  rtcIceServers: RuntimeIceServer[];
   wsBaseUrl: string;
   appName: string;
   locale: string;

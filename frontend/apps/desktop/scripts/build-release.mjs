@@ -23,7 +23,7 @@ if (!signingPrivateKey) {
 const bundles = parseCsv(process.env.WEBTUI_TAURI_BUNDLES) ?? defaultBundlesForPlatform(process.platform);
 const updaterEndpoint =
   process.env.WEBTUI_UPDATER_ENDPOINT ??
-  `https://api.vpsttt.com/desktop/releases/${channel}/{{target}}/{{arch}}/{{current_version}}`;
+  `https://chat.vpsttt.com/desktop/releases/${channel}/{{target}}/{{arch}}/{{current_version}}`;
 
 mkdirSync(generatedDir, { recursive: true });
 writeFileSync(

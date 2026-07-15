@@ -35,7 +35,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/webtui-chat' }}
-  API_HEALTH_URL: ${{ vars.API_HEALTH_URL || 'https://api.vpsttt.com/ready' }}
+  API_HEALTH_URL: ${{ vars.API_HEALTH_URL || 'https://chat.vpsttt.com/ready' }}
   IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || (inputs.image_tag != '' && inputs.image_tag || github.sha) }}
 
 jobs:

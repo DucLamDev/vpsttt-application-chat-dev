@@ -2,8 +2,8 @@
 
 Tài liệu này hướng dẫn setup CI/CD production cho WebTui Chat với domain:
 
-- API backend: `https://api.vpsttt.com`
-- Frontend: `https://chat.vpsttt.com`
+- Web/API backend: `https://chat.vpsttt.com`
+- WebSocket public: `wss://chat.vpsttt.com/ws`
 - VPS: dùng thông tin trong `vps-info.md`
 
 Không commit mật khẩu VPS, private key SSH, token GitHub, mật khẩu PostgreSQL, mật khẩu CloudAMQP, secret MinIO hoặc JWT secret.
@@ -127,7 +127,7 @@ Thêm Variables:
 
 ```text
 DEPLOY_PATH=/opt/webtui-chat
-API_HEALTH_URL=https://api.vpsttt.com/ready
+API_HEALTH_URL=https://chat.vpsttt.com/ready
 ```
 
 `GHCR_TOKEN` cần quyền đọc package nếu image GHCR để private. Nếu package public thì có thể không cần login GHCR trên VPS.
@@ -230,9 +230,9 @@ Giữ các giá trị production này:
 
 ```env
 APP_ENV=production
-APP_URL=https://api.vpsttt.com
+APP_URL=https://chat.vpsttt.com
 CORS_ALLOWED_ORIGINS=https://chat.vpsttt.com,http://localhost:3000,http://localhost:3001
-API_DOMAIN=api.vpsttt.com
+API_DOMAIN=chat.vpsttt.com
 FRONTEND_DOMAIN=chat.vpsttt.com
 RABBITMQ_ENABLED=true
 REDIS_ENABLED=true
@@ -335,7 +335,7 @@ Workflow sẽ:
 6. Chạy `deploy/scripts/deploy-compose.sh`.
 7. Chạy migration.
 8. Chạy `docker compose up -d`.
-9. Kiểm tra `https://api.vpsttt.com/ready`.
+9. Kiểm tra `https://chat.vpsttt.com/ready`.
 
 Nếu deploy báo `WEBTUI_WEB_IMAGE variable is not set` hoặc `service "web" has neither an image nor a build context specified`, hãy chạy lại workflow `Docker` trước để build image `web`, sau đó chạy workflow `Deploy`. Workflow deploy hiện đã export đủ `WEBTUI_API_IMAGE`, `WEBTUI_WORKER_IMAGE` và `WEBTUI_WEB_IMAGE`, đồng thời preflight sẽ kiểm tra đủ 3 image trên GHCR trước khi SSH vào VPS.
 
@@ -350,10 +350,10 @@ Nếu deploy báo `manifest unknown`, tag image đang chọn chưa tồn tại t
 Trên máy cá nhân:
 
 ```powershell
-Invoke-RestMethod https://api.vpsttt.com/health
-Invoke-RestMethod https://api.vpsttt.com/ready
-Invoke-RestMethod https://api.vpsttt.com/version
-Invoke-RestMethod https://api.vpsttt.com/metrics
+Invoke-RestMethod https://chat.vpsttt.com/health
+Invoke-RestMethod https://chat.vpsttt.com/ready
+Invoke-RestMethod https://chat.vpsttt.com/version
+Invoke-RestMethod https://chat.vpsttt.com/metrics
 ```
 
 Trên VPS:

@@ -8,6 +8,7 @@ import (
 
 	presenceapp "github.com/duclamdev/application-chat/backend/internal/modules/presence/application"
 	presencedomain "github.com/duclamdev/application-chat/backend/internal/modules/presence/domain"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,6 +22,10 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 func (r *Repository) Upsert(ctx context.Context, params presenceapp.UpsertParams) (presencedomain.Presence, error) {
+	if params.Status == "offline" {
+		return r.markSocketOffline(ctx, params)
+	}
+
 	row := r.pool.QueryRow(ctx, `
 INSERT INTO user_presence (user_id, workspace_id, device_id, socket_id, node_id, status, last_heartbeat_at, connected_at, metadata)
 VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, now(), now(), $7::jsonb)
@@ -52,6 +57,36 @@ RETURNING user_id::text, workspace_id::text, device_id, socket_id, node_id, stat
 		return scanPresence(row)
 	}
 	return presence, err
+}
+
+func (r *Repository) markSocketOffline(ctx context.Context, params presenceapp.UpsertParams) (presencedomain.Presence, error) {
+	row := r.pool.QueryRow(ctx, `
+UPDATE user_presence
+SET status = 'offline',
+    node_id = $5,
+    last_heartbeat_at = now(),
+    metadata = $6::jsonb
+WHERE user_id = $1::uuid
+  AND workspace_id = $2::uuid
+  AND device_id = $3
+  AND socket_id = $4
+RETURNING user_id::text, workspace_id::text, device_id, socket_id, node_id, status,
+          last_heartbeat_at, connected_at, metadata::text
+`, params.UserID, params.WorkspaceID, params.DeviceID, params.SocketID, params.NodeID, string(params.Metadata))
+	presence, err := scanPresence(row)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return presence, err
+	}
+
+	row = r.pool.QueryRow(ctx, `
+SELECT user_id::text, workspace_id::text, device_id, socket_id, node_id, status,
+       last_heartbeat_at, connected_at, metadata::text
+FROM user_presence
+WHERE user_id = $1::uuid
+  AND workspace_id = $2::uuid
+  AND device_id = $3
+`, params.UserID, params.WorkspaceID, params.DeviceID)
+	return scanPresence(row)
 }
 
 func (r *Repository) List(ctx context.Context, workspaceID string, limit int) ([]presencedomain.Presence, error) {
