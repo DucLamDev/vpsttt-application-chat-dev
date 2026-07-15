@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type FormEvent, type ReactNode, type UIEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type FormEvent, type ReactNode, type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useSearchParams } from "next/navigation";
 import { queryKeys } from "@webtui/api-client";
@@ -25,6 +25,7 @@ import {
   Bell,
   Bot,
   CheckCircle2,
+  ChevronLeft,
   Clock3,
   Cloud,
   Edit3,
@@ -42,6 +43,8 @@ import {
   Monitor,
   MoreVertical,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Paperclip,
@@ -56,7 +59,6 @@ import {
   Send,
   Share2,
   Smartphone,
-  Settings,
   ShieldCheck,
   Smile,
   SmilePlus,
@@ -126,15 +128,15 @@ import { AutomationPage } from "./automation-page";
 import { parseChatRoute } from "@/lib/chat-route";
 
 const railItems = [
-  { id: "messages", label: "Tin nhắn", icon: MessageCircle },
-  { id: "contacts", label: "Bạn bè", icon: Users },
-  { id: "channels", label: "Kênh", icon: Hash },
+  { id: "messages", label: "Tin nhắn", icon: ConversationSolidIcon },
+  { id: "channels", label: "Kênh & Bot", icon: GroupSolidIcon },
+  { id: "contacts", label: "Bạn bè", icon: AddContactSolidIcon },
   { id: "departments", label: "Phòng ban", icon: Archive },
   { id: "tickets", label: "Ticket", icon: Ticket },
   { id: "files", label: "File", icon: FileText },
   { id: "bots", label: "Bot", icon: Bot },
   { id: "automation", label: "Automation", icon: Workflow },
-  { id: "settings", label: "Cài đặt", icon: Settings }
+  { id: "settings", label: "Cài đặt", icon: SettingsSolidIcon }
 ] as const;
 
 type RailItemId = (typeof railItems)[number]["id"];
@@ -294,6 +296,11 @@ type NotificationPreferences = {
   quietEnd: string;
 };
 
+type ChatToastNotice = {
+  message: string;
+  tone: "danger" | "info" | "success";
+};
+
 const defaultNotificationPreferences: NotificationPreferences = {
   mode: "all",
   preview: true,
@@ -308,24 +315,201 @@ const notificationModeOptions: Array<{ label: string; value: NotificationMode }>
   { label: "Tắt", value: "muted" }
 ];
 
+function ComposerLikeIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+      <path
+        clipRule="evenodd"
+        d="M15.9 4.5C15.9 3 14.418 2 13.26 2c-.806 0-.869.612-.993 1.82-.055.53-.121 1.174-.267 1.93-.386 2.002-1.72 4.56-2.996 5.325V17C9 19.25 9.75 20 13 20h3.773c2.176 0 2.703-1.433 2.899-1.964l.013-.036c.114-.306.358-.547.638-.82.31-.306.664-.653.927-1.18.311-.623.27-1.177.233-1.67-.023-.299-.044-.575.017-.83.064-.27.146-.475.225-.671.143-.356.275-.686.275-1.329 0-1.5-.748-2.498-2.315-2.498H15.5S15.9 6 15.9 4.5zM5.5 10A1.5 1.5 0 0 0 4 11.5v7a1.5 1.5 0 0 0 3 0v-7A1.5 1.5 0 0 0 5.5 10z"
+        fill="currentColor"
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function HamburgerMenuIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg aria-hidden="true" fill="none" height={size} viewBox="0 0 24 24" width={size} xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
+type SolidNavIconProps = {
+  "aria-hidden"?: true | "true";
+  className?: string;
+  size?: number;
+};
+
+function ConversationSolidIcon({ size = 20, ...props }: SolidNavIconProps) {
+  return (
+    <svg fill="none" height={size} viewBox="0 0 24 24" width={size} xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path
+        clipRule="evenodd"
+        d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.5997 2.37562 15.1116 3.04346 16.4525C3.22094 16.8088 3.28001 17.2161 3.17712 17.6006L2.58151 19.8267C2.32295 20.793 3.20701 21.677 4.17335 21.4185L6.39939 20.8229C6.78393 20.72 7.19121 20.7791 7.54753 20.9565C8.88837 21.6244 10.4003 22 12 22ZM8 13.25C7.58579 13.25 7.25 13.5858 7.25 14C7.25 14.4142 7.58579 14.75 8 14.75H13.5C13.9142 14.75 14.25 14.4142 14.25 14C14.25 13.5858 13.9142 13.25 13.5 13.25H8ZM7.25 10.5C7.25 10.0858 7.58579 9.75 8 9.75H16C16.4142 9.75 16.75 10.0858 16.75 10.5C16.75 10.9142 16.4142 11.25 16 11.25H8C7.58579 11.25 7.25 10.9142 7.25 10.5Z"
+        fill="currentColor"
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function AddContactSolidIcon({ size = 20, ...props }: SolidNavIconProps) {
+  return (
+    <svg fill="currentColor" height={size} viewBox="924 796 200 200" width={size} xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M1050.379,857.065c0,29.431-20.199,53.292-45.119,53.292c-24.917,0-45.116-23.862-45.116-53.292 c0-29.433,20.198-53.285,45.116-53.285C1030.18,803.78,1050.379,827.632,1050.379,857.065z" />
+      <path d="M1065.693,988.22c1.768,0,3.201-1.433,3.201-3.2v-18.697c0-1.767-1.434-3.2-3.201-3.2h-14.774 c-8.276,0-15.012-6.733-15.012-15.012c0-8.277,6.735-15.011,15.012-15.011h17.905c-5.382-6.167-11.636-11.557-18.591-15.94 c-3.404-2.146-7.82-1.797-10.839,0.862c-9.255,8.15-20.709,13.004-33.143,13.004c-12.679,0-24.337-5.043-33.688-13.485 c-2.985-2.694-7.378-3.1-10.81-1.005c-17.754,10.842-31.191,28.053-37.051,48.491c-1.574,5.483-0.468,11.396,2.963,15.956 c3.442,4.557,8.816,7.237,14.521,7.237H1065.693L1065.693,988.22z" />
+      <path d="M1116.891,941.001h-25.875v-25.876c0-3.927-3.184-7.11-7.111-7.11c-3.929,0-7.111,3.184-7.111,7.11v25.876h-25.875 c-3.927,0-7.11,3.184-7.11,7.109c0,3.927,3.184,7.11,7.11,7.11h25.875v25.876c0,3.927,3.183,7.11,7.111,7.11 c3.928,0,7.111-3.184,7.111-7.11v-25.876h25.875c3.926,0,7.109-3.184,7.109-7.11C1124,944.185,1120.816,941.001,1116.891,941.001z" />
+    </svg>
+  );
+}
+
+function GroupSolidIcon({ size = 20, ...props }: SolidNavIconProps) {
+  return (
+    <svg fill="currentColor" height={size} viewBox="924 565.952 200 200" width={size} xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M984.585,626.893c0,14-9.609,25.348-21.461,25.348s-21.459-11.348-21.459-25.348c0-13.999,9.607-25.345,21.459-25.345 S984.585,612.895,984.585,626.893z" />
+      <path d="M987.586,671.591c1.549-0.945,3.265-1.56,5.041-1.854c-3.606-5.088-6.161-10.546-7.637-17.078 c-0.404-2.387-3.672-2.667-6.102-0.687c-4.545,3.706-9.849,6.186-15.764,6.186c-6.03,0-11.577-2.399-16.025-6.414 c-1.419-1.283-3.51-1.476-5.142-0.479c-8.444,5.157-14.835,13.344-17.623,23.064c-0.748,2.607-0.223,5.421,1.411,7.59 c1.637,2.166,4.192,3.443,6.906,3.443h38.669C975.947,680.023,981.41,675.362,987.586,671.591z" />
+      <path d="M1063.414,626.893c0,14,9.61,25.348,21.462,25.348s21.46-11.348,21.46-25.348c0-13.999-9.608-25.345-21.46-25.345 S1063.414,612.895,1063.414,626.893z" />
+      <path d="M1060.413,671.591c-1.549-0.945-3.264-1.56-5.04-1.854c3.605-5.088,6.16-10.546,7.637-17.078 c0.404-2.387,3.674-2.667,6.103-0.687c4.545,3.706,9.849,6.186,15.764,6.186c6.03,0,11.576-2.399,16.024-6.414 c1.42-1.283,3.51-1.476,5.143-0.479c8.443,5.157,14.834,13.344,17.623,23.064c0.748,2.608,0.222,5.421-1.412,7.59 c-1.635,2.166-4.192,3.443-6.906,3.443h-38.668C1072.052,680.023,1066.59,675.362,1060.413,671.591z" />
+      <path d="M1082.474,713.402c-4.198-14.654-13.72-27.044-26.327-34.991c-2.487-1.567-5.715-1.313-7.921,0.631 c-6.765,5.958-15.136,9.506-24.226,9.506c-9.268,0-17.791-3.686-24.626-9.856c-2.181-1.97-5.393-2.267-7.901-0.734 c-12.977,7.925-22.8,20.505-27.082,35.445c-1.151,4.008-0.344,8.329,2.166,11.663c2.516,3.329,6.443,5.29,10.615,5.29h92.521 c4.173,0,8.103-1.954,10.618-5.29C1082.822,721.731,1083.625,717.414,1082.474,713.402z" />
+      <path d="M1056.98,640.499c0,21.512-14.767,38.955-32.98,38.955s-32.979-17.442-32.979-38.955 c0-21.515,14.765-38.951,32.979-38.951S1056.98,618.984,1056.98,640.499z" />
+    </svg>
+  );
+}
+
+function SettingsSolidIcon({ size = 20, ...props }: SolidNavIconProps) {
+  return (
+    <svg fill="currentColor" height={size} viewBox="0 0 48 48" width={size} xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M40.2,29.2l5.5-1.5a23,23,0,0,0,0-7.4l-5.5-1.5a1.8,1.8,0,0,1-1.1-2.6l2.8-5a20.6,20.6,0,0,0-5.1-5.1l-5,2.8-.8.2a1.8,1.8,0,0,1-1.8-1.3L27.7,2.3a23,23,0,0,0-7.4,0L18.8,7.8A1.8,1.8,0,0,1,17,9.1l-.8-.2-5-2.8a20.6,20.6,0,0,0-5.1,5.1l2.8,5a1.8,1.8,0,0,1-1.1,2.6L2.3,20.3a23,23,0,0,0,0,7.4l5.5,1.5a1.8,1.8,0,0,1,1.1,2.6l-2.8,5a20.6,20.6,0,0,0,5.1,5.1l5-2.8.8-.2a1.8,1.8,0,0,1,1.8,1.3l1.5,5.5a23,23,0,0,0,7.4,0l1.5-5.5A1.8,1.8,0,0,1,31,38.9l.8.2,5,2.8a20.6,20.6,0,0,0,5.1-5.1l-2.8-5A1.8,1.8,0,0,1,40.2,29.2ZM24,33a9,9,0,1,1,9-9A9,9,0,0,1,24,33Z" />
+    </svg>
+  );
+}
+
+function MobileFeatureMenu({
+  activeId,
+  items,
+  onSelect
+}: {
+  activeId: RailItemId;
+  items: ReadonlyArray<(typeof railItems)[number]>;
+  onSelect: (itemId: RailItemId) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="mobile-feature-menu" ref={menuRef}>
+      <Button
+        aria-expanded={isOpen}
+        aria-label={isOpen ? "Đóng menu chức năng" : "Mở menu chức năng"}
+        className="mobile-feature-menu__trigger"
+        onClick={() => setIsOpen((current) => !current)}
+        size="sm"
+        variant="icon"
+      >
+        {isOpen ? <X size={20} /> : <HamburgerMenuIcon size={20} />}
+      </Button>
+      {isOpen ? (
+        <section aria-label="Menu chức năng" className="mobile-feature-menu__popover">
+          <strong>Chức năng</strong>
+          <nav>
+            {items.map((item) => {
+              const ItemIcon = item.icon;
+              const isActive = item.id === activeId;
+
+              return (
+                <button
+                  aria-current={isActive ? "page" : undefined}
+                  className={isActive ? "mobile-feature-menu__item mobile-feature-menu__item--active" : "mobile-feature-menu__item"}
+                  key={item.id}
+                  onClick={() => {
+                    setIsOpen(false);
+                    onSelect(item.id);
+                  }}
+                  type="button"
+                >
+                  <ItemIcon size={21} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function MobileNotificationButton({
+  count,
+  isOpen,
+  onToggle
+}: {
+  count: number;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <span className="mobile-notification-action">
+      <Button
+        aria-expanded={isOpen}
+        aria-label="Thông báo"
+        className={isOpen ? "notification-button notification-button--active" : "notification-button"}
+        onClick={onToggle}
+        size="sm"
+        variant="icon"
+      >
+        <Bell size={18} />
+        {count ? <span>{count}</span> : null}
+      </Button>
+    </span>
+  );
+}
+
 export function ChatWorkspace() {
   const { logout, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const routedRailItem = railItemFromRoute(pathname, searchParams);
+  const routedMessageSidebarTab = messageSidebarTabFromRoute(pathname, searchParams);
   const [activeRailItem, setActiveRailItem] = useState<RailItemId>(routedRailItem);
-  const [messageSidebarTab, setMessageSidebarTab] = useState<MessageSidebarTab>(
-    parseChatRoute(pathname, searchParams)?.kind === "channel" ? "channels" : "conversations"
-  );
+  const [messageSidebarTab, setMessageSidebarTab] = useState<MessageSidebarTab>(routedMessageSidebarTab);
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [detailTab, setDetailTab] = useState<DetailTab>("pinned");
   const [searchQuery, setSearchQuery] = useState("");
   const [friendSearchQuery, setFriendSearchQuery] = useState("");
   const [draft, setDraft] = useState("");
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToastNotice] = useState<ChatToastNotice | null>(null);
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
+  const [isTicketCreateOpen, setIsTicketCreateOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [editingBody, setEditingBody] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
@@ -337,10 +521,14 @@ export function ChatWorkspace() {
   const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
   const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
+  const handleFocusedMessageSettled = useCallback(() => setFocusedMessageId(null), []);
   const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
-  const [isDetailPanelOpen, setIsDetailPanelOpen] = useState(true);
+  const [isComposerMoreOpen, setIsComposerMoreOpen] = useState(false);
+  const [isDetailPanelOpen, setIsDetailPanelOpen] = useState(false);
+  const [isChannelPanelCollapsed, setIsChannelPanelCollapsed] = useState(false);
   const [favoriteChatIds, setFavoriteChatIds] = useState<Set<string>>(() => new Set());
+  const [unfavoriteChatIds, setUnfavoriteChatIds] = useState<Set<string>>(() => new Set());
   const [manuallyUnreadChatIds, setManuallyUnreadChatIds] = useState<Set<string>>(() => new Set());
   const [locallyReadChatIds, setLocallyReadChatIds] = useState<Set<string>>(() => new Set());
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(defaultNotificationPreferences);
@@ -350,21 +538,32 @@ export function ChatWorkspace() {
   const [isRecordingPaused, setIsRecordingPaused] = useState(false);
   const [isComposerDragActive, setIsComposerDragActive] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorderHandle | null>(null);
   const recordingCancelledRef = useRef(false);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingPausedAtRef = useRef<number | null>(null);
   const recordingPausedMsRef = useRef(0);
   const recordingStartedAtRef = useRef<number | null>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const seenNotificationIdsRef = useRef<Set<string> | null>(null);
-  const seenContactRequestIdsRef = useRef<Set<string> | null>(null);
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingPublishedRef = useRef(false);
   const composerInputRef = useRef<HTMLInputElement | null>(null);
   const currentUser = useMemo(() => mapAuthUser(user), [user]);
   const desktopVersionStatus = useDesktopVersionStatus();
+
+  function setToast(message: string | null, tone?: ChatToastNotice["tone"]) {
+    setToastNotice(message ? { message, tone: tone ?? inferToastTone(message) } : null);
+  }
+
+  useEffect(() => {
+    if (!toast) {
+      return undefined;
+    }
+    const duration = toast.tone === "danger" ? 5_000 : toast.tone === "info" ? 3_500 : 2_800;
+    const timer = window.setTimeout(() => setToastNotice(null), duration);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
   const activeMessageSearchQuery = isMessageSearchOpen ? messageSearchQuery : "";
   const data = useChatWorkspaceData(currentUser, {
     friendSearchQuery,
@@ -382,6 +581,37 @@ export function ChatWorkspace() {
   const visibleRailItems = railItems.filter((item) => canAccessRailItem(item.id, data.can));
 
   useEffect(() => setActiveRailItem(routedRailItem), [routedRailItem]);
+  useEffect(() => setMessageSidebarTab(routedMessageSidebarTab), [routedMessageSidebarTab]);
+  useEffect(() => {
+    const desktopDetailQuery = window.matchMedia("(min-width: 1441px)");
+    const syncDetailPanel = () => setIsDetailPanelOpen(desktopDetailQuery.matches);
+    syncDetailPanel();
+    desktopDetailQuery.addEventListener("change", syncDetailPanel);
+    return () => desktopDetailQuery.removeEventListener("change", syncDetailPanel);
+  }, []);
+  useEffect(() => {
+    if (!isProfileMenuOpen) {
+      return;
+    }
+
+    const closeAccountMenu = (event: PointerEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    const closeAccountMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsProfileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeAccountMenu);
+    document.addEventListener("keydown", closeAccountMenuOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeAccountMenu);
+      document.removeEventListener("keydown", closeAccountMenuOnEscape);
+    };
+  }, [isProfileMenuOpen]);
   useEffect(() => {
     if (data.permissionsQuery.isLoading || canAccessRailItem(routedRailItem, data.can)) {
       return;
@@ -397,12 +627,6 @@ export function ChatWorkspace() {
   const selectedChannelMembers = useMemo(
     () => (selectedChannelMembersQuery.data ?? []).filter((member) => member.status === "active" || member.status === "muted"),
     [selectedChannelMembersQuery.data]
-  );
-  const mentionMembers = selectedChannelMembers.length ? selectedChannelMembers : data.members;
-  const activeMentionToken = useMemo(() => resolveMentionToken(draft), [draft]);
-  const mentionSuggestions = useMemo(
-    () => buildMentionSuggestions(mentionMembers, currentUser.id, activeMentionToken?.query ?? ""),
-    [activeMentionToken?.query, currentUser.id, mentionMembers]
   );
   const sidebarBotsQuery = useQuery({
     enabled: Boolean(data.workspaceId && data.can("bot.manage") && activeRailItem === "messages"),
@@ -421,6 +645,7 @@ export function ChatWorkspace() {
     () => uploadQueue.items.filter((item) => item.status === "queued" || item.status === "failed"),
     [uploadQueue.items]
   );
+  const hasComposerContent = Boolean(draft.trim() || queuedUploads.length);
 
   const canCreateChannel = data.can("channel.create");
   const isDirectChat =
@@ -437,7 +662,7 @@ export function ChatWorkspace() {
   };
 
   const isFavoriteChat = (chatId: string, serverFavorite = false) =>
-    serverFavorite || favoriteChatIds.has(chatId);
+    !unfavoriteChatIds.has(chatId) && (serverFavorite || favoriteChatIds.has(chatId));
 
   const sidebarChannels = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -459,7 +684,7 @@ export function ChatWorkspace() {
           channel.description.toLowerCase().includes(normalizedQuery))
       );
     });
-  }, [channelFilter, data.channels, favoriteChatIds, locallyReadChatIds, manuallyUnreadChatIds, searchQuery]);
+  }, [channelFilter, data.channels, favoriteChatIds, locallyReadChatIds, manuallyUnreadChatIds, searchQuery, unfavoriteChatIds]);
 
   const filteredConversations = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -475,7 +700,7 @@ export function ChatWorkspace() {
         conversation.lastMessage.toLowerCase().includes(normalizedQuery);
       return matchesFilter && matchesQuery;
     });
-  }, [channelFilter, data.directConversations, favoriteChatIds, locallyReadChatIds, manuallyUnreadChatIds, searchQuery]);
+  }, [channelFilter, data.directConversations, favoriteChatIds, locallyReadChatIds, manuallyUnreadChatIds, searchQuery, unfavoriteChatIds]);
 
   const sidebarBots = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -509,19 +734,56 @@ export function ChatWorkspace() {
       }),
     [currentUser?.id, data.contactRequests, data.contacts, data.directConversations, data.members, data.searchUsers, friendSearchQuery]
   );
+  const knownProfileByUserId = useMemo(() => {
+    const profiles = new Map<string, ChatUser>();
+    for (const conversation of data.directConversations) {
+      profiles.set(conversation.user.id, conversation.user);
+    }
+    for (const record of [...data.contactRequests, ...data.contacts]) {
+      const contact = record.user;
+      const current = profiles.get(contact.id);
+      profiles.set(contact.id, {
+        avatarUrl: contact.avatar_url || current?.avatarUrl,
+        email: contact.email || current?.email,
+        id: contact.id,
+        name: contact.display_name || contact.username || contact.email || current?.name || "Người dùng",
+        phoneNumber: contact.phone_number || current?.phoneNumber,
+        status: profilePresenceStatus(contact.status, current?.status),
+        username: contact.username || current?.username
+      });
+    }
+    profiles.set(currentUser.id, currentUser);
+    return profiles;
+  }, [currentUser, data.contactRequests, data.contacts, data.directConversations]);
+  const displayWorkspaceMembers = useMemo(
+    () => enrichMemberProfiles(data.members, knownProfileByUserId),
+    [data.members, knownProfileByUserId]
+  );
+  const displayChannelMembers = useMemo(
+    () => enrichMemberProfiles(selectedChannelMembers, knownProfileByUserId),
+    [knownProfileByUserId, selectedChannelMembers]
+  );
+  const mentionMembers = displayChannelMembers.length ? displayChannelMembers : displayWorkspaceMembers;
+  const activeMentionToken = useMemo(() => resolveMentionToken(draft), [draft]);
+  const mentionSuggestions = useMemo(
+    () => buildMentionSuggestions(mentionMembers, currentUser.id, activeMentionToken?.query ?? ""),
+    [activeMentionToken?.query, currentUser.id, mentionMembers]
+  );
   const pinnedMessageIds = useMemo(
     () => new Set(data.pinnedMessages.map((message) => message.id)),
     [data.pinnedMessages]
   );
   const pinnedMessages = useMemo(
-    () =>
-      data.pinnedMessages.map<PinnedMessage>((message) => ({
-        author: message.author,
+    () => {
+      const memberByUserId = buildMessageAuthorLookup(displayWorkspaceMembers, displayChannelMembers);
+      return data.pinnedMessages.map<PinnedMessage>((message) => ({
+        author: resolveRenderedMessageAuthor(message, memberByUserId),
         date: message.sentAt,
         id: message.id,
         text: message.body
-      })),
-    [data.pinnedMessages]
+      }));
+    },
+    [data.pinnedMessages, displayChannelMembers, displayWorkspaceMembers]
   );
   const incomingContactRequests = useMemo(
     () => data.contactRequests.filter((request) => request.status === "pending" && request.direction === "incoming"),
@@ -541,11 +803,11 @@ export function ChatWorkspace() {
       return "";
     }
     const directUser = data.directConversations.find((conversation) => conversation.user.id === userId)?.user;
-    const member = data.members.find((item) => item.user_id === userId);
+    const member = displayWorkspaceMembers.find((item) => item.user_id === userId);
     const name = directUser?.name || member?.display_name || member?.username || member?.email || "Ai đó";
     const extra = data.realtime.typingUserIds.length - 1;
     return extra > 0 ? `${name} và ${extra} người khác đang soạn tin` : `${name} đang soạn tin`;
-  }, [data.directConversations, data.members, data.realtime.typingUserIds]);
+  }, [data.directConversations, data.realtime.typingUserIds, displayWorkspaceMembers]);
 
   useEffect(() => {
     const currentIds = new Set(data.notifications.map((notification) => notification.id));
@@ -562,7 +824,6 @@ export function ChatWorkspace() {
       return;
     }
 
-    setToast(`${newest.title}: ${newest.body}`);
     const notifications = getPlatformServices().notifications;
     if (shouldShowDesktopNotification(newest, notificationPreferences)) {
       const payload = {
@@ -590,21 +851,6 @@ export function ChatWorkspace() {
   }, [data.notifications, data.workspaceId, notificationPreferences]);
 
   useEffect(() => {
-    const currentIds = new Set(incomingContactRequests.map((request) => request.id));
-    if (!seenContactRequestIdsRef.current) {
-      seenContactRequestIdsRef.current = currentIds;
-      return;
-    }
-
-    const newest = incomingContactRequests.find((request) => !seenContactRequestIdsRef.current?.has(request.id));
-    incomingContactRequests.forEach((request) => seenContactRequestIdsRef.current?.add(request.id));
-    if (newest) {
-      const name = newest.user.display_name || newest.user.username || newest.user.email || "Một người dùng";
-      setToast(`${name} vừa gửi lời mời kết bạn.`);
-    }
-  }, [incomingContactRequests]);
-
-  useEffect(() => {
     if (!data.workspaceId || typeof window === "undefined") {
       return;
     }
@@ -615,11 +861,13 @@ export function ChatWorkspace() {
       }
       if (!stored) {
         setFavoriteChatIds(new Set());
+        setUnfavoriteChatIds(new Set());
         setManuallyUnreadChatIds(new Set());
         return;
       }
-      const preferences = JSON.parse(stored) as { favorites?: string[]; unread?: string[] };
+      const preferences = JSON.parse(stored) as { favorites?: string[]; unfavorites?: string[]; unread?: string[] };
       setFavoriteChatIds(new Set(preferences.favorites ?? []));
+      setUnfavoriteChatIds(new Set(preferences.unfavorites ?? []));
       setManuallyUnreadChatIds(new Set(preferences.unread ?? []));
     };
     const resetStoredPreferences = () => {
@@ -627,6 +875,7 @@ export function ChatWorkspace() {
         return;
       }
       setFavoriteChatIds(new Set());
+      setUnfavoriteChatIds(new Set());
       setManuallyUnreadChatIds(new Set());
     };
 
@@ -759,7 +1008,7 @@ export function ChatWorkspace() {
     channelId: data.selectedChannelId,
     channelName: selectedChatChannel?.name,
     currentUserId: currentUser.id,
-    enabled: data.realtime.status === "connected" && selectedChatChannel?.type === "direct" && Boolean(data.selectedChannelId),
+    enabled: activeRailItem === "messages" && data.realtime.status === "connected" && selectedChatChannel?.type === "direct" && Boolean(data.selectedChannelId),
     lastSignal: data.realtime.lastCallSignal,
     onCallOutcome: handleCallOutcome,
     peerName: selectedChatChannel?.name,
@@ -781,6 +1030,16 @@ export function ChatWorkspace() {
       startedAt: outcome.startedAt ? new Date(outcome.startedAt).toISOString() : undefined,
       status: outcome.status
     });
+  }
+
+  function terminateActiveCall(nextChannelId?: string) {
+    if (nextChannelId && nextChannelId === data.selectedChannelId) {
+      return;
+    }
+    const status = callControls.callState.status;
+    if (status !== "idle" && status !== "ended" && status !== "error") {
+      callControls.endCall();
+    }
   }
   const composerPlaceholder = botComposerPlaceholder(selectedChatChannel);
   const selectedChatFiles = useMemo(() => {
@@ -807,18 +1066,7 @@ export function ChatWorkspace() {
   }, [selectedChatChannel?.messages]);
 
   const selectedRailLabel = railItems.find((item) => item.id === activeRailItem)?.label ?? "Tin nhắn";
-  const panelTitle =
-    activeRailItem === "contacts"
-      ? "Bạn bè"
-      : activeRailItem === "channels"
-        ? "Kênh"
-        : activeRailItem === "departments"
-          ? "Phòng ban"
-        : activeRailItem === "files"
-          ? "Tệp tin"
-          : activeRailItem === "settings"
-          ? "Cài đặt"
-            : "Tin nhắn";
+  const panelTitle = activeRailItem === "files" ? "Tệp tin" : selectedRailLabel;
 
   useEffect(() => {
     if (!getPlatformServices().lifecycle.isDesktop) {
@@ -864,6 +1112,7 @@ export function ChatWorkspace() {
   }
 
   function showMessageWorkspace(tab: MessageSidebarTab) {
+    closeTransientWorkspaceUi();
     setMessageSidebarTab(tab);
     setThreadMessageId(null);
     setIsMessageSearchOpen(false);
@@ -877,6 +1126,7 @@ export function ChatWorkspace() {
   }
 
   function handleChannelSelect(channelId: string) {
+    terminateActiveCall(channelId);
     const channel = data.channels.find((item) => item.id === channelId);
     if (channel?.privateSessionMode) {
       data.openPrivateSessionMutation.mutate(channelId, {
@@ -918,6 +1168,7 @@ export function ChatWorkspace() {
 
   function openDesktopTarget(target: DesktopDeepLinkTarget) {
     if (target.section && railItems.some((item) => item.id === target.section)) {
+      terminateActiveCall();
       setActiveRailItem(target.section as RailItemId);
       data.setWorkspaceSection(target.section);
       return;
@@ -928,6 +1179,7 @@ export function ChatWorkspace() {
     }
 
     const kind = target.kind === "dm" ? "direct" : "channel";
+    terminateActiveCall(target.channelId);
     showMessageWorkspace(target.kind === "dm" ? "conversations" : "channels");
     data.setSelectedChannelId(target.channelId, target.workspaceId || data.workspaceId, kind);
     if (target.messageId) {
@@ -938,7 +1190,6 @@ export function ChatWorkspace() {
 
   function handleMessageSidebarTabChange(tab: MessageSidebarTab) {
     setMessageSidebarTab(tab);
-    setSearchQuery("");
     setChannelFilter("all");
   }
 
@@ -947,8 +1198,35 @@ export function ChatWorkspace() {
       setToast("Tài khoản của bạn chỉ được sử dụng các chức năng trao đổi trong workspace.");
       return;
     }
+    if (itemId !== "messages" && itemId !== "channels") {
+      terminateActiveCall();
+    }
+    closeTransientWorkspaceUi();
+    setIsProfileMenuOpen(false);
+    if (itemId === "messages" || itemId === "channels") {
+      const nextMessageTab = itemId === "messages" ? "conversations" : "channels";
+      handleMessageSidebarTabChange(nextMessageTab);
+      setActiveRailItem("messages");
+      data.setWorkspaceSection(undefined, nextMessageTab);
+      return;
+    }
     setActiveRailItem(itemId);
-    data.setWorkspaceSection(itemId === "messages" ? undefined : itemId);
+    data.setWorkspaceSection(itemId);
+  }
+
+  function closeTransientWorkspaceUi() {
+    setIsCreateChannelOpen(false);
+    setIsTicketCreateOpen(false);
+    setIsNotificationsOpen(false);
+    setIsEmojiPickerOpen(false);
+    setIsComposerMoreOpen(false);
+    setForwardingMessageId(null);
+    setEditingBody("");
+    setEditingMessageId(null);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      recordingCancelledRef.current = true;
+      handleStopRecording();
+    }
   }
 
   function handleToggleMessageSearch() {
@@ -1082,29 +1360,34 @@ export function ChatWorkspace() {
     return () => document.removeEventListener("click", handleExternalLinkClick);
   }, []);
 
-  function persistChatPreferences(favorites: Set<string>, unread: Set<string>) {
+  function persistChatPreferences(favorites: Set<string>, unread: Set<string>, unfavorites = unfavoriteChatIds) {
     if (!data.workspaceId || typeof window === "undefined") {
       return;
     }
     void getPlatformServices().storage.setItem(
       `vpsttt:chat-preferences:${data.workspaceId}`,
-      JSON.stringify({ favorites: [...favorites], unread: [...unread] }),
+      JSON.stringify({ favorites: [...favorites], unfavorites: [...unfavorites], unread: [...unread] }),
       "persistent"
     );
   }
 
   function handleToggleFavorite(chatId: string) {
     const next = new Set(favoriteChatIds);
+    const nextUnfavorites = new Set(unfavoriteChatIds);
     const serverFavorite = data.channels.find((channel) => channel.id === chatId)?.isFavorite ?? false;
-    const isCurrentlyFavorite = serverFavorite || next.has(chatId);
+    const isCurrentlyFavorite = isFavoriteChat(chatId, serverFavorite);
     if (isCurrentlyFavorite) {
       next.delete(chatId);
+      if (serverFavorite) {
+        nextUnfavorites.add(chatId);
+      }
     } else {
       next.add(chatId);
+      nextUnfavorites.delete(chatId);
     }
     setFavoriteChatIds(next);
-    persistChatPreferences(next, manuallyUnreadChatIds);
-    setToast(isCurrentlyFavorite ? "Đã bỏ khỏi danh sách yêu thích." : "Đã thêm vào danh sách yêu thích.");
+    setUnfavoriteChatIds(nextUnfavorites);
+    persistChatPreferences(next, manuallyUnreadChatIds, nextUnfavorites);
   }
 
   function handleMarkUnread(chatId: string) {
@@ -1116,28 +1399,6 @@ export function ChatWorkspace() {
       return updated;
     });
     persistChatPreferences(favoriteChatIds, next);
-    setToast("Đã đánh dấu cuộc trò chuyện là chưa đọc.");
-  }
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-
-    if (files.length && !canUploadFile) {
-      setToast("Tài khoản hiện tại chưa có quyền upload file.");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-      return;
-    }
-
-    addFilesToUploadQueue(files);
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-    if (imageInputRef.current) {
-      imageInputRef.current.value = "";
-    }
   }
 
   async function handlePickUploadFiles(kind: "file" | "image") {
@@ -1172,9 +1433,6 @@ export function ChatWorkspace() {
     }
 
     if (!rejected.length) {
-      if (options.source === "drop" || options.source === "paste") {
-        setToast(`${accepted.length} file đã được thêm vào tin nhắn.`);
-      }
       return;
     }
 
@@ -1490,6 +1748,10 @@ export function ChatWorkspace() {
         clearTimeout(typingStopTimerRef.current);
         typingStopTimerRef.current = null;
       }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        recordingCancelledRef.current = true;
+        mediaRecorderRef.current.stop();
+      }
       data.realtime.publishTyping(false);
       typingPublishedRef.current = false;
     },
@@ -1502,6 +1764,8 @@ export function ChatWorkspace() {
       setDraft("");
       return undefined;
     }
+    // Never expose the previous conversation's draft while IndexedDB is loading.
+    setDraft("");
     void readDraft(data.workspaceId, data.selectedChannelId)
       .then((value) => {
         if (!disposed) {
@@ -1514,23 +1778,20 @@ export function ChatWorkspace() {
     };
   }, [data.selectedChannelId, data.workspaceId]);
 
-  function handleSendMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const body = draft.trim();
-
-    if (!body && !queuedUploads.length) {
+  function sendComposerMessage(body: string, uploads: UploadQueueItem[]) {
+    if (!body && !uploads.length) {
       return;
     }
 
     if (!canUseComposer) {
-      setToast(queuedUploads.length ? "Bạn cần quyền gửi tin nhắn và upload file." : "Bạn cần quyền gửi tin nhắn.");
+      setToast(uploads.length ? "Bạn cần quyền gửi tin nhắn và upload file." : "Bạn cần quyền gửi tin nhắn.");
       return;
     }
 
     const mentionedUserIds = collectMentionedUserIds(body, mentionMembers);
 
     data.sendMessageMutation.mutate(
-      { body, mentionedUserIds, uploads: queuedUploads },
+      { body, mentionedUserIds, uploads },
       {
         onError: (error) => setToast(error instanceof Error ? error.message : "Không gửi được nội dung."),
         onSuccess: (result) => {
@@ -1551,6 +1812,23 @@ export function ChatWorkspace() {
         }
       }
     );
+  }
+
+  function handleMobileBackToList() {
+    terminateActiveCall();
+    setIsDetailPanelOpen(false);
+    setThreadMessageId(null);
+    handleCloseMessageSearch();
+    data.setSelectedChannelId("");
+  }
+
+  function handleSendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    sendComposerMessage(draft.trim(), queuedUploads);
+  }
+
+  function handleSendLike() {
+    sendComposerMessage("👍", []);
   }
 
   function handleDownload(file: FileItem) {
@@ -1594,12 +1872,14 @@ export function ChatWorkspace() {
     });
 
     if (notification.channelId) {
+      terminateActiveCall(notification.channelId);
       data.setSelectedChannelId(notification.channelId);
       setActiveRailItem("messages");
     }
 
     if (notification.messageId) {
-      setThreadMessageId(notification.messageId);
+      setThreadMessageId(null);
+      setFocusedMessageId(notification.messageId);
     }
 
     setIsNotificationsOpen(false);
@@ -1644,7 +1924,6 @@ export function ChatWorkspace() {
         }
         setThreadMessageId(null);
         setActiveRailItem("messages");
-        setToast("Đã mở hội thoại riêng.");
       }
     });
   }
@@ -1677,7 +1956,6 @@ export function ChatWorkspace() {
         onSuccess: () => {
           setEditingBody("");
           setEditingMessageId(null);
-          setToast("Đã cập nhật tin nhắn.");
         }
       }
     );
@@ -1697,7 +1975,6 @@ export function ChatWorkspace() {
           if (threadMessageId === message.id) {
             setThreadMessageId(null);
           }
-          setToast("Đã xóa tin nhắn.");
         }
       }
     );
@@ -1722,13 +1999,13 @@ export function ChatWorkspace() {
     const mutation = isPinned ? data.unpinMessageMutation : data.pinMessageMutation;
 
     mutation.mutate(message.id, {
-      onError: (error) => setToast(error instanceof Error ? error.message : "Không cập nhật được tin ghim."),
-      onSuccess: () => setToast(isPinned ? "Đã bỏ ghim tin nhắn." : "Đã ghim tin nhắn.")
+      onError: (error) => setToast(error instanceof Error ? error.message : "Không cập nhật được tin ghim.")
     });
   }
 
   function handleOpenThread(messageId: string) {
     setThreadMessageId(messageId);
+    setIsDetailPanelOpen(true);
   }
 
   function handleLoadOlderMessages() {
@@ -1739,25 +2016,74 @@ export function ChatWorkspace() {
 
   return (
     <main
-      className={`chat-app-shell chat-app-shell--zalo${activeRailItem === "messages" ? "" : " chat-app-shell--section"}${activeRailItem === "messages" && data.selectedChannel && !data.canAccessSelectedChannel ? " chat-app-shell--no-detail" : ""}${activeRailItem === "messages" && isDetailPanelOpen ? " chat-app-shell--detail-open" : " chat-app-shell--detail-closed"}`}
+      className={`chat-app-shell chat-app-shell--zalo${activeRailItem === "messages" ? selectedChatChannel ? " chat-app-shell--mobile-chat" : " chat-app-shell--mobile-list" : " chat-app-shell--section chat-app-shell--mobile-section"}${activeRailItem !== "messages" && activeRailItem !== "contacts" ? " chat-app-shell--section-full" : ""}${activeRailItem === "messages" && data.selectedChannel && !data.canAccessSelectedChannel ? " chat-app-shell--no-detail" : ""}${activeRailItem === "messages" && isDetailPanelOpen ? " chat-app-shell--detail-open" : " chat-app-shell--detail-closed"}${isChannelPanelCollapsed ? " chat-app-shell--channel-collapsed" : ""}`}
       aria-label="Màn hình chat WebTui"
     >
-      <NavigationRail
-        activeId={activeRailItem}
-        ariaLabel="Điều hướng chính"
-        brandLogoAlt="WebTui Chat"
-        brandLogoSrc="/brand/logo_webtui.png"
-        items={visibleRailItems}
-        onSelect={(itemId) => handleRailSelect(itemId as RailItemId)}
-        profile={currentUser}
-      />
+      <div className="navigation-rail-slot" ref={accountMenuRef}>
+        <NavigationRail
+          activeId={activeRailItem === "messages" && messageSidebarTab === "channels" ? "channels" : activeRailItem}
+          ariaLabel="Điều hướng chính"
+          brandLogoAlt="WebTui Chat"
+          brandLogoSrc="/brand/logo_webtui.png"
+          isProfileMenuOpen={isProfileMenuOpen}
+          items={visibleRailItems}
+          onProfileClick={() => setIsProfileMenuOpen((current) => !current)}
+          onSelect={(itemId) => handleRailSelect(itemId as RailItemId)}
+          profile={{ name: currentUser.name, src: currentUser.avatarUrl, status: currentUser.status }}
+        />
+        {isProfileMenuOpen ? (
+          <section aria-label="Tài khoản" className="account-menu" role="menu">
+            <header className="account-menu__identity">
+              <Avatar name={currentUser.name} size="lg" src={currentUser.avatarUrl} status={currentUser.status} />
+              <span>
+                <strong>{currentUser.name}</strong>
+                <small>{currentUser.email || currentUser.username || "Tài khoản WebTui"}</small>
+                <i><span /> Đang hoạt động</i>
+              </span>
+            </header>
+            <div className="account-menu__actions">
+              <button onClick={() => handleRailSelect("settings")} role="menuitem" type="button">
+                <SettingsSolidIcon size={17} />
+                <span><strong>Hồ sơ & cài đặt</strong></span>
+              </button>
+              <button onClick={toggleTheme} role="menuitem" type="button">
+                {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+                <span><strong>{theme === "dark" ? "Dùng giao diện sáng" : "Dùng giao diện tối"}</strong></span>
+              </button>
+              <button className="account-menu__logout" onClick={logout} role="menuitem" type="button">
+                <LogOut size={17} />
+                <span><strong>Đăng xuất</strong></span>
+              </button>
+            </div>
+          </section>
+        ) : null}
+      </div>
 
       <section className="channel-panel" aria-label="Kênh và hội thoại">
-        <header className="panel-heading">
-          <div>
-            <p>{panelTitle}</p>
-          </div>
+        <header className={activeRailItem === "messages" ? "panel-heading panel-heading--messages" : "panel-heading"}>
+          {activeRailItem === "messages" ? (
+            <div className="message-panel-heading__primary">
+              <div className="channel-search channel-search--heading">
+                <Input
+                  aria-label="Tìm kiếm hội thoại, kênh hoặc bot"
+                  leftAddon={<Search size={16} />}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Tìm kiếm..."
+                  value={searchQuery}
+                />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p>{panelTitle}</p>
+            </div>
+          )}
           <div className="panel-heading__actions">
+            <MobileFeatureMenu
+              activeId={activeRailItem === "messages" && messageSidebarTab === "channels" ? "channels" : activeRailItem}
+              items={visibleRailItems}
+              onSelect={handleRailSelect}
+            />
             <Tooltip label="Thông báo">
               <Button
                 aria-label="Thông báo"
@@ -1770,30 +2096,31 @@ export function ChatWorkspace() {
                 {notificationBadgeCount ? <span>{notificationBadgeCount}</span> : null}
               </Button>
             </Tooltip>
-            <Tooltip label={canCreateChannel ? "Tạo kênh" : "Thiếu quyền tạo kênh"}>
+            {activeRailItem === "messages" ? (
+              <Tooltip label={canCreateChannel ? "Tạo kênh" : "Thiếu quyền tạo kênh"}>
+                <Button
+                  aria-label="Tạo kênh"
+                  disabled={!data.workspaceId || !canCreateChannel || data.createChannelMutation.isPending}
+                  onClick={() => setIsCreateChannelOpen((current) => !current)}
+                  size="sm"
+                  variant="icon"
+                >
+                  <Plus size={18} />
+                </Button>
+              </Tooltip>
+            ) : null}
+            <Tooltip
+              className="channel-panel-toggle-wrap"
+              label={isChannelPanelCollapsed ? "Mở rộng danh sách" : "Thu gọn danh sách"}
+            >
               <Button
-                aria-label="Tạo kênh"
-                disabled={!data.workspaceId || !canCreateChannel || data.createChannelMutation.isPending}
-                onClick={() => setIsCreateChannelOpen((current) => !current)}
+                aria-label={isChannelPanelCollapsed ? "Mở rộng danh sách" : "Thu gọn danh sách"}
+                className="channel-panel-toggle"
+                onClick={() => setIsChannelPanelCollapsed((current) => !current)}
                 size="sm"
                 variant="icon"
               >
-                <Plus size={18} />
-              </Button>
-            </Tooltip>
-            <Tooltip label={theme === "dark" ? "Chuyển sang chế độ sáng" : "Chuyển sang chế độ tối"}>
-              <Button
-                aria-label={theme === "dark" ? "Chuyển sang chế độ sáng" : "Chuyển sang chế độ tối"}
-                onClick={toggleTheme}
-                size="sm"
-                variant="icon"
-              >
-                {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-              </Button>
-            </Tooltip>
-            <Tooltip label="Đăng xuất">
-              <Button aria-label="Đăng xuất" onClick={logout} size="sm" variant="icon">
-                <LogOut size={18} />
+                {isChannelPanelCollapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}
               </Button>
             </Tooltip>
           </div>
@@ -1825,49 +2152,88 @@ export function ChatWorkspace() {
           />
         ) : null}
 
-        {activeRailItem === "messages" ? (
-          <>
-            <div className="message-sidebar-tabs" aria-label="Loại danh sách tin nhắn" role="tablist">
+        {activeRailItem === "messages" && isChannelPanelCollapsed ? (
+          <div className="collapsed-channel-list" aria-label="Danh sách hội thoại thu gọn">
+            <div className="collapsed-channel-list__tabs" role="tablist" aria-label="Loại danh sách">
               <button
-                aria-controls="message-sidebar-conversations"
+                aria-label="Hội thoại"
                 aria-selected={messageSidebarTab === "conversations"}
-                className={messageSidebarTab === "conversations" ? "message-sidebar-tab message-sidebar-tab--active" : "message-sidebar-tab"}
+                className={messageSidebarTab === "conversations" ? "collapsed-channel-list__tab collapsed-channel-list__tab--active" : "collapsed-channel-list__tab"}
                 onClick={() => handleMessageSidebarTabChange("conversations")}
                 role="tab"
+                title="Hội thoại"
                 type="button"
               >
-                <MessageCircle size={17} />
-                <span>Hội thoại</span>
-                <b className={sidebarConversationUnreadCount ? "message-sidebar-tab__count message-sidebar-tab__count--unread" : "message-sidebar-tab__count"}>
-                  {sidebarConversationUnreadCount || data.directConversations.length}
-                </b>
+                <ConversationSolidIcon size={20} />
+                <span>{sidebarConversationUnreadCount || data.directConversations.length}</span>
               </button>
               <button
-                aria-controls="message-sidebar-channels"
+                aria-label="Kênh và bot"
                 aria-selected={messageSidebarTab === "channels"}
-                className={messageSidebarTab === "channels" ? "message-sidebar-tab message-sidebar-tab--active" : "message-sidebar-tab"}
+                className={messageSidebarTab === "channels" ? "collapsed-channel-list__tab collapsed-channel-list__tab--active" : "collapsed-channel-list__tab"}
                 onClick={() => handleMessageSidebarTabChange("channels")}
                 role="tab"
+                title="Kênh và bot"
                 type="button"
               >
-                <Hash size={17} />
-                <span>Kênh & Bot</span>
-                <b className={sidebarChannelUnreadCount ? "message-sidebar-tab__count message-sidebar-tab__count--unread" : "message-sidebar-tab__count"}>
-                  {sidebarChannelUnreadCount || data.channels.length}
-                </b>
+                <GroupSolidIcon size={20} />
+                <span>{sidebarChannelUnreadCount || data.channels.length}</span>
               </button>
             </div>
-
-            <div className="channel-search">
-              <Input
-                aria-label={messageSidebarTab === "conversations" ? "Tìm kiếm hội thoại" : "Tìm kiếm kênh hoặc bot"}
-                leftAddon={<Search size={17} />}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={messageSidebarTab === "conversations" ? "Tìm hội thoại..." : "Tìm kênh hoặc bot..."}
-                value={searchQuery}
-              />
+            <div className="collapsed-channel-list__items">
+              {messageSidebarTab === "conversations"
+                ? filteredConversations.map((item) => {
+                    const unreadCount = effectiveUnreadCount(item.id, item.unreadCount);
+                    return (
+                      <button
+                        aria-label={`Mở hội thoại với ${item.user.name}`}
+                        className={item.id === data.selectedChannelId ? "collapsed-channel-list__item collapsed-channel-list__item--active" : "collapsed-channel-list__item"}
+                        key={item.id}
+                        onClick={() => handleChannelSelect(item.id)}
+                        title={item.user.name}
+                        type="button"
+                      >
+                        <Avatar name={item.user.name} size="md" src={item.user.avatarUrl} status={item.user.status} />
+                        {unreadCount ? <UnreadBadge count={unreadCount} /> : null}
+                      </button>
+                    );
+                  })
+                : sidebarChannels.map((channel) => {
+                    const unreadCount = effectiveUnreadCount(channel.id, channel.unreadCount);
+                    return (
+                      <button
+                        aria-label={`Mở kênh ${channel.name}`}
+                        className={channel.id === data.selectedChannelId ? "collapsed-channel-list__item collapsed-channel-list__item--active" : "collapsed-channel-list__item"}
+                        key={channel.id}
+                        onClick={() => handleChannelSelect(channel.id)}
+                        title={channel.name}
+                        type="button"
+                      >
+                        <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>
+                          <Hash size={19} />
+                        </span>
+                        {unreadCount ? <UnreadBadge count={unreadCount} /> : null}
+                      </button>
+                    );
+                  })}
+              {messageSidebarTab === "channels" && data.can("bot.manage") ? (
+                <button
+                  aria-label="Quản lý bot"
+                  className="collapsed-channel-list__item collapsed-channel-list__item--bot"
+                  onClick={() => handleRailSelect("bots")}
+                  title="Quản lý bot"
+                  type="button"
+                >
+                  <Bot size={22} />
+                </button>
+              ) : null}
             </div>
+          </div>
+        ) : null}
 
+        {activeRailItem === "messages" ? (
+          isChannelPanelCollapsed ? null : (
+            <>
             <SegmentedControl
               aria-label="Bộ lọc hội thoại"
               className="channel-filter-tabs"
@@ -1879,7 +2245,6 @@ export function ChatWorkspace() {
             {messageSidebarTab === "conversations" ? (
               <div className="message-sidebar-tab-content" id="message-sidebar-conversations" role="tabpanel">
                 <div className="list-section conversations">
-                  <span className="section-label">Hội thoại gần đây</span>
                   {data.directConversationsQuery.isLoading ? (
                     <PanelSkeleton />
                   ) : filteredConversations.length ? (
@@ -1890,6 +2255,7 @@ export function ChatWorkspace() {
                           className={`conversation-row${item.id === data.selectedChannelId ? " conversation-row--active" : ""}${unreadCount ? " conversation-row--unread" : ""}`}
                           key={item.id}
                           onClick={() => handleChannelSelect(item.id)}
+                          title={isChannelPanelCollapsed ? item.user.name : undefined}
                           type="button"
                         >
                           <Avatar name={item.user.name} size="md" src={item.user.avatarUrl} status={item.user.status} />
@@ -1944,7 +2310,6 @@ export function ChatWorkspace() {
             ) : (
               <div className="message-sidebar-tab-content" id="message-sidebar-channels" role="tabpanel">
                 <div className="list-section channels-section">
-                  <span className="section-label">Kênh của bạn</span>
                   {data.workspacesQuery.isLoading || data.channelsQuery.isLoading ? (
                     <PanelSkeleton />
                   ) : sidebarChannels.length ? (
@@ -1955,6 +2320,7 @@ export function ChatWorkspace() {
                           className={`channel-row${channel.id === data.selectedChannelId ? " channel-row--active" : ""}${unreadCount ? " channel-row--unread" : ""}`}
                           key={channel.id}
                           onClick={() => handleChannelSelect(channel.id)}
+                          title={isChannelPanelCollapsed ? channel.name : undefined}
                           type="button"
                         >
                           <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>#</span>
@@ -2005,7 +2371,7 @@ export function ChatWorkspace() {
                       <PanelSkeleton />
                     ) : sidebarBots.length ? (
                       sidebarBots.map((bot) => (
-                        <button className="sidebar-bot-row" key={bot.id} onClick={() => handleRailSelect("bots")} type="button">
+                        <button className="sidebar-bot-row" key={bot.id} onClick={() => handleRailSelect("bots")} title={isChannelPanelCollapsed ? bot.name : undefined} type="button">
                           <span className="sidebar-bot-row__avatar">
                             {bot.avatar_url ? <img alt="" src={bot.avatar_url} /> : <Bot size={20} />}
                             <i />
@@ -2018,7 +2384,7 @@ export function ChatWorkspace() {
                         </button>
                       ))
                     ) : (
-                      <button className="sidebar-bot-row sidebar-bot-row--module" onClick={() => handleRailSelect("bots")} type="button">
+                      <button className="sidebar-bot-row sidebar-bot-row--module" onClick={() => handleRailSelect("bots")} title={isChannelPanelCollapsed ? "Quản lý bot" : undefined} type="button">
                         <span className="sidebar-bot-row__avatar"><Bot size={20} /></span>
                         <span className="sidebar-bot-row__body">
                           <strong>Quản lý bot</strong>
@@ -2031,13 +2397,44 @@ export function ChatWorkspace() {
                 ) : null}
               </div>
             )}
-          </>
+            </>
+          )
         ) : (
           <SidebarContextPanel
-            onOpenMessages={() => handleRailSelect("messages")}
+            activeRailItem={activeRailItem}
+            contacts={contactResults}
+            isPending={
+              data.createDirectConversationMutation.isPending ||
+              data.sendContactRequestMutation.isPending ||
+              data.acceptContactRequestMutation.isPending
+            }
+            isSearchingContacts={data.searchUsersQuery.isFetching}
+            onContactAction={handleContactPrimaryAction}
+            onSearchChange={setFriendSearchQuery}
+            query={friendSearchQuery}
           />
         )}
       </section>
+
+      {isNotificationsOpen ? (
+        <div className="mobile-notification-layer">
+          <NotificationDropdown
+            contactRequests={incomingContactRequests}
+            isLoading={data.notificationsQuery.isLoading || data.contactRequestsQuery.isLoading}
+            isMutatingContactRequest={data.acceptContactRequestMutation.isPending || data.rejectContactRequestMutation.isPending}
+            isMarkingAllRead={data.markAllNotificationsReadMutation.isPending}
+            notifications={data.notifications}
+            onAcceptContactRequest={handleAcceptIncomingRequest}
+            onMarkAllRead={handleMarkAllNotificationsRead}
+            onOpenNotification={handleOpenNotification}
+            onOpenContacts={() => {
+              handleRailSelect("contacts");
+              setIsNotificationsOpen(false);
+            }}
+            onRejectContactRequest={handleRejectIncomingRequest}
+          />
+        </div>
+      ) : null}
 
       <section
         className="chat-main"
@@ -2049,6 +2446,28 @@ export function ChatWorkspace() {
             : selectedRailLabel
         }
       >
+        {activeRailItem !== "messages" ? (
+          <header className="mobile-section-topbar">
+            <strong>{selectedRailLabel}</strong>
+            <div className="mobile-section-topbar__actions">
+              {activeRailItem === "tickets" ? (
+                <Button
+                  aria-controls="ticket-create-form"
+                  aria-expanded={isTicketCreateOpen}
+                  aria-label={isTicketCreateOpen ? "Đóng biểu mẫu tạo ticket" : "Tạo ticket"}
+                  className="mobile-ticket-create-button"
+                  onClick={() => setIsTicketCreateOpen((current) => !current)}
+                  size="sm"
+                >
+                  {isTicketCreateOpen ? <X size={17} /> : <Plus size={17} />}
+                  <span>{isTicketCreateOpen ? "Đóng" : "Tạo ticket"}</span>
+                </Button>
+              ) : null}
+              <MobileNotificationButton count={notificationBadgeCount} isOpen={isNotificationsOpen} onToggle={handleToggleNotifications} />
+              <MobileFeatureMenu activeId={activeRailItem} items={visibleRailItems} onSelect={handleRailSelect} />
+            </div>
+          </header>
+        ) : null}
         {activeRailItem !== "messages" ? (
           <WorkspaceSectionPage
             activeRailItem={activeRailItem}
@@ -2082,6 +2501,7 @@ export function ChatWorkspace() {
             }
             isLoadingFiles={data.filesQuery.isLoading}
             isLoadingDepartments={data.permissionsQuery.isLoading || data.departmentsQuery.isLoading}
+            isTicketCreateOpen={isTicketCreateOpen}
             isMutatingChannelMembership={
               data.requestChannelJoinMutation.isPending ||
               data.inviteChannelMemberMutation.isPending ||
@@ -2136,12 +2556,13 @@ export function ChatWorkspace() {
             onNotificationPreferencesChange={handleNotificationPreferencesChange}
             onStartConversation={handleContactPrimaryAction}
             onThemeToggle={toggleTheme}
+            onTicketCreateOpenChange={setIsTicketCreateOpen}
             theme={theme}
             canManageDepartments={data.can("workspace.manage")}
             isCreatingDepartment={data.createDepartmentMutation.isPending}
             isUpdatingProfile={data.updateProfileMutation.isPending}
             workspaceId={data.workspaceId}
-            workspaceMembers={data.members}
+            workspaceMembers={displayWorkspaceMembers}
           />
         ) : data.workspacesQuery.isError ? (
           <ErrorState
@@ -2157,6 +2578,12 @@ export function ChatWorkspace() {
           <ChannelAccessView
             channel={selectedChatChannel}
             isPending={data.requestChannelJoinMutation.isPending}
+            mobileFeatureMenu={
+              <div className="mobile-chat-utilities">
+                <MobileNotificationButton count={notificationBadgeCount} isOpen={isNotificationsOpen} onToggle={handleToggleNotifications} />
+              </div>
+            }
+            onBack={handleMobileBackToList}
             onRequestJoin={() =>
               data.requestChannelJoinMutation.mutate(selectedChatChannel.id, {
                 onError: (error) => setToast(error instanceof Error ? error.message : "Không gửi được yêu cầu tham gia."),
@@ -2173,7 +2600,13 @@ export function ChatWorkspace() {
               isFavorite={isFavoriteChat(selectedChatChannel.id, selectedChatChannel.isFavorite)}
               isMembersLoading={selectedChannelMembersQuery.isLoading}
               isSearchOpen={isMessageSearchOpen}
-              members={selectedChannelMembers}
+              members={displayChannelMembers}
+              mobileFeatureMenu={
+                <div className="mobile-chat-utilities">
+                  <MobileNotificationButton count={notificationBadgeCount} isOpen={isNotificationsOpen} onToggle={handleToggleNotifications} />
+                </div>
+              }
+              onBack={handleMobileBackToList}
               onMarkUnread={() => handleMarkUnread(selectedChatChannel.id)}
               onStartAudioCall={selectedChatChannel.type === "direct" ? () => void callControls.startCall("audio") : undefined}
               onStartVideoCall={selectedChatChannel.type === "direct" ? () => void callControls.startCall("video") : undefined}
@@ -2211,7 +2644,7 @@ export function ChatWorkspace() {
                     </select>
                     <select aria-label="Lọc theo người gửi" onChange={(event) => setMessageSearchSenderId(event.target.value)} value={messageSearchSenderId}>
                       <option value="">Tất cả người gửi</option>
-                      {data.members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name || member.username || member.email}</option>)}
+                      {displayWorkspaceMembers.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name || member.username || member.email}</option>)}
                     </select>
                     <select aria-label="Lọc theo loại nội dung" onChange={(event) => setMessageSearchKind(event.target.value)} value={messageSearchKind}>
                       <option value="">Mọi nội dung</option>
@@ -2275,12 +2708,14 @@ export function ChatWorkspace() {
                 onResolveAttachment={data.downloadAttachment}
                 onLoadOlderMessages={handleLoadOlderMessages}
                 onOpenThread={handleOpenThread}
+                onFocusedMessageSettled={handleFocusedMessageSettled}
                 onRetryCall={(mode) => void callControls.startCall(mode)}
                 onSearchResultSelect={(message) => {
                   if (message.rawChannelId && message.rawChannelId !== data.selectedChannelId) {
                     data.setSelectedChannelId(message.rawChannelId);
                   }
-                  setThreadMessageId(message.id);
+                  setThreadMessageId(null);
+                  setFocusedMessageId(message.id);
                   handleCloseMessageSearch();
                 }}
                 onStartEdit={handleStartEdit}
@@ -2288,10 +2723,11 @@ export function ChatWorkspace() {
                 onTogglePin={handleToggleMessagePin}
                 onToggleReaction={handleToggleReaction}
                 pinnedMessageIds={pinnedMessageIds}
-                readMembers={selectedChannelMembers}
+                readMembers={displayChannelMembers}
                 searchQuery={activeMessageSearchQuery}
                 searchResults={data.messageSearchResults}
-                workspaceMembers={data.members}
+                showAuthorName={selectedChatChannel.type !== "direct"}
+                workspaceMembers={displayWorkspaceMembers}
               />
             )}
             {!canSendMessage ? (
@@ -2334,11 +2770,6 @@ export function ChatWorkspace() {
                     </button>
                   </div>
                 ) : null}
-                <Tooltip className="composer-leading-tooltip" label="Thêm nội dung">
-                  <Button aria-label="Thêm nội dung" type="button" variant="icon">
-                    <Plus size={20} />
-                  </Button>
-                </Tooltip>
                 <div className="composer-input-group">
                   {activeMentionToken && mentionSuggestions.length ? (
                     <div className="mention-suggestions" role="listbox" aria-label="Gợi ý nhắc tên">
@@ -2370,72 +2801,117 @@ export function ChatWorkspace() {
                     ref={composerInputRef}
                     value={draft}
                   />
+                  <div className="composer-inline-actions">
+                    <Tooltip className="composer-leading-tooltip" label="Biểu cảm">
+                      <span className="composer-action-wrap">
+                        <Button
+                          aria-label="Biểu cảm"
+                          onClick={() => {
+                            setIsComposerMoreOpen(false);
+                            setIsEmojiPickerOpen((current) => !current);
+                          }}
+                          type="button"
+                          variant="icon"
+                        >
+                          <Smile size={20} />
+                        </Button>
+                        {isEmojiPickerOpen ? <EmojiPicker onSelect={handleEmojiSelect} /> : null}
+                      </span>
+                    </Tooltip>
+                    <span className="composer-desktop-attachment">
+                      <Tooltip label="Gửi hình ảnh">
+                        <Button
+                          aria-label="Gửi hình ảnh"
+                          disabled={data.sendMessageMutation.isPending || !canUploadFile}
+                          onClick={() => void handlePickUploadFiles("image")}
+                          type="button"
+                          variant="icon"
+                        >
+                          <ImageIcon size={20} />
+                        </Button>
+                      </Tooltip>
+                    </span>
+                    <span className="composer-desktop-attachment">
+                      <Tooltip label="Đính kèm file">
+                        <Button
+                          aria-label="Đính kèm file"
+                          disabled={data.sendMessageMutation.isPending || !canUploadFile}
+                          onClick={() => void handlePickUploadFiles("file")}
+                          type="button"
+                          variant="icon"
+                        >
+                          <Paperclip size={20} />
+                        </Button>
+                      </Tooltip>
+                    </span>
+                    <Tooltip label={isRecording ? "Dừng ghi âm" : "Gửi tin nhắn thoại"}>
+                      <Button
+                        aria-label={isRecording ? "Dừng ghi âm" : "Gửi tin nhắn thoại"}
+                        className={isRecording ? "record-button record-button--active" : "record-button"}
+                        disabled={data.sendMessageMutation.isPending || !canUploadFile}
+                        onClick={handleToggleRecording}
+                        type="button"
+                        variant="icon"
+                      >
+                        {isRecording ? <StopCircle size={20} /> : <Mic size={20} />}
+                      </Button>
+                    </Tooltip>
+                    <span className="composer-more-wrap">
+                      <Tooltip label="Thêm nội dung">
+                        <Button
+                          aria-expanded={isComposerMoreOpen}
+                          aria-label="Thêm nội dung"
+                          onClick={() => {
+                            setIsEmojiPickerOpen(false);
+                            setIsComposerMoreOpen((current) => !current);
+                          }}
+                          type="button"
+                          variant="icon"
+                        >
+                          <MoreVertical size={20} />
+                        </Button>
+                      </Tooltip>
+                      {isComposerMoreOpen ? (
+                        <div aria-label="Tùy chọn đính kèm" className="composer-more-menu" role="menu">
+                          <button
+                            disabled={data.sendMessageMutation.isPending || !canUploadFile}
+                            onClick={() => {
+                              setIsComposerMoreOpen(false);
+                              void handlePickUploadFiles("image");
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <ImageIcon size={19} />
+                            <span>Gửi hình ảnh</span>
+                          </button>
+                          <button
+                            disabled={data.sendMessageMutation.isPending || !canUploadFile}
+                            onClick={() => {
+                              setIsComposerMoreOpen(false);
+                              void handlePickUploadFiles("file");
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <Paperclip size={19} />
+                            <span>Đính kèm file</span>
+                          </button>
+                        </div>
+                      ) : null}
+                    </span>
+                  </div>
+                  <Button
+                    aria-label={hasComposerContent ? "Gửi tin nhắn" : "Gửi lượt thích"}
+                    className={hasComposerContent ? "composer-submit-icon-button composer-send-icon-button" : "composer-submit-icon-button composer-like-button"}
+                    disabled={data.sendMessageMutation.isPending || !canUseComposer}
+                    onClick={hasComposerContent ? undefined : handleSendLike}
+                    type={hasComposerContent ? "submit" : "button"}
+                    variant="icon"
+                  >
+                    {hasComposerContent ? <Send aria-hidden="true" size={22} /> : <ComposerLikeIcon />}
+                  </Button>
                 </div>
-                <Tooltip label="Biểu cảm">
-                  <span className="composer-action-wrap">
-                    <Button
-                      aria-label="Biểu cảm"
-                      onClick={() => setIsEmojiPickerOpen((current) => !current)}
-                      type="button"
-                      variant="icon"
-                    >
-                      <Smile size={20} />
-                    </Button>
-                    {isEmojiPickerOpen ? <EmojiPicker onSelect={handleEmojiSelect} /> : null}
-                  </span>
-                </Tooltip>
-                <Tooltip label={canUploadFile ? "Gửi hình ảnh" : "Thiếu quyền upload ảnh"}>
-                  <Button
-                    aria-label="Gửi hình ảnh"
-                    disabled={data.sendMessageMutation.isPending || !canUploadFile}
-                    onClick={() => void handlePickUploadFiles("image")}
-                    type="button"
-                    variant="icon"
-                  >
-                    <ImageIcon size={20} />
-                  </Button>
-                </Tooltip>
-                <Tooltip label={canUploadFile ? "Đính kèm file" : "Thiếu quyền upload file"}>
-                  <Button
-                    aria-label="Đính kèm file"
-                    disabled={data.sendMessageMutation.isPending || !canUploadFile}
-                    onClick={() => void handlePickUploadFiles("file")}
-                    type="button"
-                    variant="icon"
-                  >
-                    <Paperclip size={20} />
-                  </Button>
-                </Tooltip>
-                <Tooltip label={isRecording ? "Dừng ghi âm" : "Gửi tin nhắn thoại"}>
-                  <Button
-                    aria-label={isRecording ? "Dừng ghi âm" : "Gửi tin nhắn thoại"}
-                    className={isRecording ? "record-button record-button--active" : "record-button"}
-                    disabled={data.sendMessageMutation.isPending || !canUploadFile}
-                    onClick={handleToggleRecording}
-                    type="button"
-                    variant="icon"
-                  >
-                    {isRecording ? <StopCircle size={20} /> : <Mic size={20} />}
-                  </Button>
-                </Tooltip>
-                <input accept={uploadAcceptList.join(",")} className="visually-hidden" multiple onChange={handleFileChange} ref={fileInputRef} type="file" />
-                <input
-                  accept={imageUploadAcceptList.join(",")}
-                  className="visually-hidden"
-                  multiple
-                  onChange={handleFileChange}
-                  ref={imageInputRef}
-                  type="file"
-                />
-                <Button
-                  aria-label="Gửi tin nhắn"
-                  className="send-button"
-                  disabled={data.sendMessageMutation.isPending || !canUseComposer || (!draft.trim() && !queuedUploads.length)}
-                  type="submit"
-                >
-                  <Send size={19} />
-                  <span>Gửi</span>
-                </Button>
               </form>
             </div>
           </>
@@ -2453,6 +2929,7 @@ export function ChatWorkspace() {
       {activeRailItem === "messages" && isDetailPanelOpen && (!data.selectedChannel || data.canAccessSelectedChannel) ? (
         <RightDetailPanel
           activeTab={detailTab}
+          channelMembers={displayChannelMembers}
           files={selectedChatFiles}
           isDirectChat={selectedChatChannel?.type === "direct"}
           isLoading={data.messagesQuery.isLoading || data.pinnedMessagesQuery.isLoading}
@@ -2463,16 +2940,21 @@ export function ChatWorkspace() {
           onCloseThread={() => setThreadMessageId(null)}
           onFileSelect={handleDownload}
           onResolveMedia={data.downloadAttachment}
-          onSendThread={(body) =>
-            data.sendThreadMessageMutation.mutate(body, {
-              onError: (error) => setToast(error instanceof Error ? error.message : "Không gửi được trả lời."),
-              onSuccess: () => setToast("Đã gửi trả lời trong luồng.")
-            })
-          }
+          onSendThread={async (body) => {
+            try {
+              await data.sendThreadMessageMutation.mutateAsync(body);
+              setToast("Đã gửi trả lời trong luồng.");
+              return true;
+            } catch (error) {
+              setToast(error instanceof Error ? error.message : "Không gửi được trả lời.");
+              return false;
+            }
+          }}
           onTabChange={setDetailTab}
           pinnedMessages={pinnedMessages}
           threadMessages={data.threadMessages}
           threadMessageId={threadMessageId}
+          workspaceMembers={displayWorkspaceMembers}
         />
       ) : null}
 
@@ -2498,29 +2980,91 @@ export function ChatWorkspace() {
 
       {toast ? (
         <div className="toast-stack">
-          <Toast tone="success">
-            {toast}
-            <Button onClick={() => setToast(null)} size="sm" variant="ghost">
-              Đóng
-            </Button>
-          </Toast>
+          <Toast role={toast.tone === "danger" ? "alert" : "status"} tone={toast.tone}>{toast.message}</Toast>
         </div>
       ) : null}
     </main>
   );
 }
 
+function inferToastTone(message: string): ChatToastNotice["tone"] {
+  const normalized = message.toLocaleLowerCase("vi");
+  if (
+    normalized.includes("không ") ||
+    normalized.includes("chưa có quyền") ||
+    normalized.includes("thiếu quyền") ||
+    normalized.includes("thất bại") ||
+    normalized.includes("failed") ||
+    normalized.includes("lỗi")
+  ) {
+    return "danger";
+  }
+  if (normalized.includes("đang ") || normalized.includes("offline") || normalized.includes("chờ ")) {
+    return "info";
+  }
+  return "success";
+}
+
 function SidebarContextPanel({
-  onOpenMessages
+  activeRailItem,
+  contacts,
+  isPending,
+  isSearchingContacts,
+  onContactAction,
+  onSearchChange,
+  query
 }: {
-  onOpenMessages: () => void;
+  activeRailItem: RailItemId;
+  contacts: ContactResult[];
+  isPending: boolean;
+  isSearchingContacts: boolean;
+  onContactAction: (contact: ContactResult) => void;
+  onSearchChange: (value: string) => void;
+  query: string;
 }) {
+  const isContactsPanel = activeRailItem === "contacts";
+  const isSearching = query.trim().length >= 2;
+
   return (
     <div className="sidebar-context-panel">
-      <Button onClick={onOpenMessages} size="sm" variant="secondary">
-        <MessageCircle size={15} />
-        Quay lại tin nhắn
-      </Button>
+      {isContactsPanel ? (
+        <section aria-label="Tìm và kết bạn" className="sidebar-contact-finder">
+          <Input
+            aria-label="Tìm người theo tên, email hoặc số điện thoại"
+            leftAddon={<Search size={16} />}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Tên, email hoặc số điện thoại"
+            value={query}
+          />
+          {!isSearching ? (
+            <p>Nhập ít nhất 2 ký tự để tìm và gửi lời mời kết bạn.</p>
+          ) : isSearchingContacts ? (
+            <PanelSkeleton />
+          ) : contacts.length ? (
+            <div className="sidebar-contact-finder__results">
+              {contacts.slice(0, 6).map((contact) => (
+                <article key={contact.userId}>
+                  <Avatar name={contact.name} size="sm" src={contact.avatarUrl ?? undefined} />
+                  <span>
+                    <strong>{contact.name}</strong>
+                    <small>{contact.phoneNumber || contact.email || contact.username || "Chưa có thông tin liên hệ"}</small>
+                  </span>
+                  <Button
+                    disabled={isPending || (contact.contactStatus === "pending" && contact.contactDirection === "outgoing")}
+                    onClick={() => onContactAction(contact)}
+                    size="sm"
+                    variant={contact.contactStatus === "pending" && contact.contactDirection === "outgoing" ? "secondary" : "primary"}
+                  >
+                    {contactActionLabel(contact)}
+                  </Button>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p>Không tìm thấy người phù hợp.</p>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -2549,6 +3093,7 @@ function WorkspaceSectionPage({
   isLoadingDepartments,
   isLoadingFiles,
   isMutatingChannelMembership,
+  isTicketCreateOpen,
   isUpdatingProfile,
   isAutoStartEnabled,
   isAutoStartLoading,
@@ -2568,6 +3113,7 @@ function WorkspaceSectionPage({
   onSecondaryContactAction,
   onStartConversation,
   onThemeToggle,
+  onTicketCreateOpenChange,
   theme,
   workspaceId,
   workspaceMembers
@@ -2595,6 +3141,7 @@ function WorkspaceSectionPage({
   isLoadingDepartments: boolean;
   isLoadingFiles: boolean;
   isMutatingChannelMembership: boolean;
+  isTicketCreateOpen: boolean;
   isUpdatingProfile: boolean;
   isAutoStartEnabled: boolean;
   isAutoStartLoading: boolean;
@@ -2618,6 +3165,7 @@ function WorkspaceSectionPage({
   onSecondaryContactAction: (contact: ContactResult) => void;
   onStartConversation: (contact: ContactResult) => void;
   onThemeToggle: () => void;
+  onTicketCreateOpenChange: (isOpen: boolean) => void;
   theme: "dark" | "light";
   workspaceId?: string;
   workspaceMembers: WorkspaceMember[];
@@ -2678,6 +3226,8 @@ function WorkspaceSectionPage({
       <TicketsPage
         canManage={canManageTickets}
         channels={channels}
+        isCreateOpen={isTicketCreateOpen}
+        onCreateOpenChange={onTicketCreateOpenChange}
         workspaceId={workspaceId}
         workspaceMembers={workspaceMembers}
       />
@@ -2761,42 +3311,43 @@ function ContactsPage({
       ? friendContacts
       : discoverContacts;
   const tabItems: Array<{ count: number; label: string; value: ContactsTab }> = [
-    { count: employeeContacts.length, label: "Nhân viên hệ thống", value: "employees" },
+    { count: employeeContacts.length, label: "Nội bộ", value: "employees" },
     { count: friendContacts.length, label: "Bạn bè", value: "friends" },
-    { count: discoverContacts.length, label: "Người lạ", value: "discover" }
+    { count: discoverContacts.length, label: "Khám phá", value: "discover" }
   ];
 
   return (
     <div className="workspace-page contacts-page">
-      <nav aria-label="Phân loại danh bạ" className="contacts-tabs">
-        {tabItems.map((tab) => (
-          <button
-            aria-current={activeTab === tab.value ? "page" : undefined}
-            className={activeTab === tab.value ? "contacts-tabs__item contacts-tabs__item--active" : "contacts-tabs__item"}
-            key={tab.value}
-            onClick={() => setActiveTab(tab.value)}
-            type="button"
-          >
-            <span>{tab.label}</span>
-            <strong>{tab.count}</strong>
-          </button>
-        ))}
-      </nav>
+      <div className="contacts-toolbar">
+        <nav aria-label="Phân loại danh bạ" className="contacts-tabs">
+          {tabItems.map((tab) => (
+            <button
+              aria-current={activeTab === tab.value ? "page" : undefined}
+              className={activeTab === tab.value ? "contacts-tabs__item contacts-tabs__item--active" : "contacts-tabs__item"}
+              key={tab.value}
+              onClick={() => setActiveTab(tab.value)}
+              type="button"
+            >
+              <span>{tab.label}</span>
+              <strong><span>{tab.count}</span></strong>
+            </button>
+          ))}
+        </nav>
 
-      <section className="zalo-search-panel">
-        <div className="zalo-search-panel__icon">
-          <Search size={22} />
-        </div>
-        <div>
-          <strong>{activeTab === "employees" ? "Tìm nhân viên" : activeTab === "friends" ? "Tìm trong bạn bè" : "Tìm người để kết bạn"}</strong>
-          <Input
-            aria-label="Tìm người dùng bằng tên, số điện thoại hoặc email"
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Nhập email, số điện thoại hoặc tên"
-            value={query}
-          />
-        </div>
-      </section>
+        <section className="zalo-search-panel">
+          <div className="zalo-search-panel__icon">
+            <Search size={20} />
+          </div>
+          <div>
+            <Input
+              aria-label="Tìm người dùng bằng tên, số điện thoại hoặc email"
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder={activeTab === "employees" ? "Tìm trong nội bộ" : activeTab === "friends" ? "Tìm trong bạn bè" : "Tìm theo tên, email hoặc số điện thoại"}
+              value={query}
+            />
+          </div>
+        </section>
+      </div>
 
       {isLoading ? (
         <PanelSkeleton />
@@ -2815,7 +3366,7 @@ function ContactsPage({
             <tbody>
               {visibleContacts.map((contact) => (
                 <tr key={contact.userId}>
-                  <td>
+                  <td data-label="Liên hệ">
                     <div className="workspace-data-table__identity">
                       <Avatar name={contact.name} size="md" src={contact.avatarUrl ?? undefined} />
                       <span>
@@ -2824,18 +3375,18 @@ function ContactsPage({
                       </span>
                     </div>
                   </td>
-                  <td>{contact.phoneNumber || "Chưa có số điện thoại"}</td>
-                  <td>
+                  <td data-label="Số điện thoại">{contact.phoneNumber || "Chưa có số điện thoại"}</td>
+                  <td data-label="Phân loại">
                     <Badge tone={contact.isWorkspaceMember ? "blue" : "slate"}>
                       {contact.isWorkspaceMember ? "Nhân viên hệ thống" : "Ngoài workspace"}
                     </Badge>
                   </td>
-                  <td>
+                  <td data-label="Trạng thái">
                     <Badge tone={contact.contactStatus === "accepted" ? "green" : contact.contactStatus === "pending" ? "orange" : "blue"}>
                       {contactBadgeLabel(contact)}
                     </Badge>
                   </td>
-                  <td>
+                  <td data-label="Thao tác">
                     <div className="workspace-data-table__actions">
                       <Button
                         disabled={
@@ -2955,7 +3506,7 @@ function ChannelsDirectoryPage({
             <tbody>
               {channels.map((channel) => (
                 <tr key={channel.id}>
-                  <td>
+                  <td data-label="Kênh">
                     <div className="workspace-data-table__identity">
                       <span className={`channel-hash channel-hash--${channel.tone}`} style={channelHashStyle(channel)}>
                         <Hash size={18} />
@@ -2963,12 +3514,12 @@ function ChannelsDirectoryPage({
                       <span><strong>{channel.name}</strong></span>
                     </div>
                   </td>
-                  <td className="workspace-data-table__description">{channel.description || "Chưa có mô tả"}</td>
-                  <td>{channel.memberCount}</td>
-                  <td>
+                  <td className="workspace-data-table__description" data-label="Mô tả">{channel.description || "Chưa có mô tả"}</td>
+                  <td data-label="Thành viên">{channel.memberCount}</td>
+                  <td data-label="Chưa đọc">
                     <Badge tone={channel.unreadCount ? "red" : "slate"}>{channel.unreadCount}</Badge>
                   </td>
-                  <td>
+                  <td data-label="Trạng thái">
                     <Badge
                       tone={
                         channel.isMember
@@ -2989,7 +3540,7 @@ function ChannelsDirectoryPage({
                             : "Chưa tham gia"}
                     </Badge>
                   </td>
-                  <td>
+                  <td data-label="Thao tác">
                     <div className="workspace-data-table__actions workspace-data-table__actions--stacked">
                       {channel.isMember ? (
                         <Button onClick={() => onChannelSelect(channel.id)} size="sm">
@@ -3345,7 +3896,7 @@ function DepartmentsPage({
             <tbody>
               {visibleRows.map(({ department, depth }) => (
                 <tr className={department.id === selectedDepartmentId ? "workspace-data-table__row--active" : undefined} key={department.id}>
-                  <td>
+                  <td className="department-table__identity-cell" data-label="Phòng ban">
                     <div className="workspace-data-table__identity" style={{ paddingLeft: `${Math.min(depth, 4) * 14}px` }}>
                       <span className="department-table-icon"><Users size={17} /></span>
                       <span>
@@ -3354,16 +3905,16 @@ function DepartmentsPage({
                       </span>
                     </div>
                   </td>
-                  <td className="workspace-data-table__description">{department.description || "Chưa có mô tả"}</td>
-                  <td>
+                  <td className="workspace-data-table__description department-table__description-cell" data-label="Mô tả">{department.description || "Chưa có mô tả"}</td>
+                  <td className="department-table__metric-cell" data-label="Trưởng phòng">
                     <Badge tone={department.lead_count ? "green" : "orange"}>
                       {department.lead_count ?? 0}
                     </Badge>
                   </td>
-                  <td>{department.member_count ?? 0}</td>
-                  <td>{department.channel_count ?? 0}</td>
-                  <td>{department.parent_id ? <Badge tone="slate">Cấp {depth + 1}</Badge> : <Badge tone="blue">Gốc</Badge>}</td>
-                  <td>
+                  <td className="department-table__metric-cell" data-label="Nhân sự">{department.member_count ?? 0}</td>
+                  <td className="department-table__metric-cell" data-label="Kênh">{department.channel_count ?? 0}</td>
+                  <td className="department-table__level-cell" data-label="Cấp">{department.parent_id ? <Badge tone="slate">Cấp {depth + 1}</Badge> : <Badge tone="blue">Gốc</Badge>}</td>
+                  <td className="department-table__actions-cell" data-label="Thao tác">
                     <div className="workspace-data-table__actions">
                       <Button onClick={() => openDepartment(department)} size="sm" variant="secondary">Quản lý</Button>
                     </div>
@@ -3468,7 +4019,11 @@ function DepartmentsPage({
                 <div className="department-member-list">
                   {departmentMembers.map((member: DepartmentMember) => (
                     <article key={member.user_id}>
-                      <Avatar name={departmentMemberName(member)} size="sm" />
+                      <Avatar
+                        name={departmentMemberName(member)}
+                        size="sm"
+                        src={member.avatar_url || workspaceMembers.find((item) => item.user_id === member.user_id)?.avatar_url || undefined}
+                      />
                       <span><strong>{departmentMemberName(member)}</strong><small>{member.email || member.username}</small></span>
                       <select
                         aria-label={`Vai trò của ${departmentMemberName(member)}`}
@@ -3597,18 +4152,21 @@ const ticketPriorityOptions = legacyTicketPriorityOptions.map((option) => ({
 function TicketsPage({
   canManage,
   channels,
+  isCreateOpen,
+  onCreateOpenChange,
   workspaceId,
   workspaceMembers
 }: {
   canManage: boolean;
   channels: ChatChannel[];
+  isCreateOpen: boolean;
+  onCreateOpenChange: (isOpen: boolean) => void;
   workspaceId?: string;
   workspaceMembers: WorkspaceMember[];
 }) {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<TicketStatus | "all">("all");
   const [selectedTicketId, setSelectedTicketId] = useState("");
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [channelId, setChannelId] = useState("");
@@ -3651,7 +4209,7 @@ function TicketsPage({
       setChannelId("");
       setPriority("normal");
       setAssignedTo("");
-      setIsCreateOpen(false);
+      onCreateOpenChange(false);
       setFeedback({ message: "Đã tạo ticket.", tone: "success" });
     }
   });
@@ -3691,7 +4249,7 @@ function TicketsPage({
         <div>
           <h1>Ticket</h1>
         </div>
-        <Button onClick={() => setIsCreateOpen((current) => !current)} size="sm">
+        <Button className="tickets-page__create-button" onClick={() => onCreateOpenChange(!isCreateOpen)} size="sm">
           {isCreateOpen ? <X size={16} /> : <Plus size={16} />}
           {isCreateOpen ? "Đóng" : "Tạo ticket"}
         </Button>
@@ -3717,7 +4275,7 @@ function TicketsPage({
       ) : null}
 
       {isCreateOpen ? (
-        <form className="ticket-create-form" onSubmit={handleCreateTicket}>
+        <form className="ticket-create-form" id="ticket-create-form" onSubmit={handleCreateTicket}>
           <label>Tiêu đề<input autoFocus onChange={(event) => setTitle(event.target.value)} placeholder="Khách không truy cập được VPS" required value={title} /></label>
           <label>Kênh liên kết<select onChange={(event) => setChannelId(event.target.value)} value={channelId}>
             <option value="">Không gắn kênh</option>
@@ -3874,7 +4432,7 @@ function FilesPage({
             <tbody>
               {visibleFiles.map((file) => (
                 <tr key={file.id}>
-                  <td>
+                  <td className="file-table__identity-cell" data-label="Tệp">
                     <div className="workspace-data-table__identity">
                       <span className={`file-icon file-icon--${file.tone}`}><FileText size={18} /></span>
                       <span>
@@ -3883,10 +4441,10 @@ function FilesPage({
                       </span>
                     </div>
                   </td>
-                  <td className="workspace-data-table__description">{file.mimeType || "Không xác định"}</td>
-                  <td>{file.size}</td>
-                  <td>{file.updatedAt}</td>
-                  <td>
+                  <td className="workspace-data-table__description file-table__type-cell" data-label="Loại nội dung">{file.mimeType || "Không xác định"}</td>
+                  <td className="file-table__size-cell" data-label="Kích thước">{file.size}</td>
+                  <td className="file-table__updated-cell" data-label="Cập nhật">{file.updatedAt}</td>
+                  <td className="file-table__actions-cell" data-label="Thao tác">
                     <div className="workspace-data-table__actions">
                       <Button onClick={() => onDownloadFile(file)} size="sm" variant="secondary">
                         Tải xuống
@@ -4026,46 +4584,35 @@ function SettingsPage({
             </div>
           </div>
           <form className="profile-form" onSubmit={handleSubmit}>
-            <label>
-              Tên hiển thị
-              <input defaultValue={currentUser.name} name="display_name" placeholder="Tên của bạn" />
-            </label>
-            <div className="avatar-upload-field">
-              <span>Ảnh đại diện</span>
-              <div>
+            <input name="avatar_url" readOnly type="hidden" value={avatarValue} />
+            <div className="profile-form__row">
+              <div className="avatar-upload-field">
                 <Avatar name={currentUser.name} size="lg" src={avatarValue || undefined} />
-                <span>
-                  <Button onClick={() => avatarInputRef.current?.click()} size="sm" type="button" variant="secondary">
-                    <ImageIcon size={16} /> Chọn ảnh từ máy
-                  </Button>
-                  <small>JPG, PNG hoặc WebP · tối đa 8 MB</small>
-                </span>
+                <Button aria-label="Đổi ảnh đại diện" onClick={() => avatarInputRef.current?.click()} size="sm" type="button" variant="secondary">
+                  <ImageIcon size={16} /> Đổi ảnh
+                </Button>
+                <input
+                  accept="image/*"
+                  className="visually-hidden"
+                  onChange={handleAvatarFile}
+                  ref={avatarInputRef}
+                  type="file"
+                />
               </div>
-              <input
-                accept="image/*"
-                className="visually-hidden"
-                onChange={handleAvatarFile}
-                ref={avatarInputRef}
-                type="file"
-              />
-              <input name="avatar_url" onChange={(event) => setAvatarValue(event.target.value)} placeholder="Hoặc dán URL ảnh..." value={avatarValue} />
-              {avatarError ? <small className="profile-form__error">{avatarError}</small> : null}
+              <label>
+                Tên hiển thị
+                <input defaultValue={currentUser.name} name="display_name" placeholder="Tên của bạn" />
+              </label>
+              <label>
+                Số điện thoại
+                <input defaultValue={currentUser.phoneNumber ?? ""} name="phone_number" placeholder="Số điện thoại" />
+              </label>
+              <Button disabled={isUpdatingProfile} size="sm" type="submit">
+                {isUpdatingProfile ? "Đang lưu..." : "Lưu hồ sơ"}
+              </Button>
             </div>
-            <label>
-              Số điện thoại
-              <input name="phone_number" placeholder="Số điện thoại nội bộ" />
-            </label>
-            <Button disabled={isUpdatingProfile} size="sm" type="submit">
-              {isUpdatingProfile ? "Đang lưu..." : "Lưu hồ sơ"}
-            </Button>
+            {avatarError ? <small className="profile-form__error">{avatarError}</small> : null}
           </form>
-        </section>
-        <section className="settings-card settings-card--privacy">
-          <div>
-            <ShieldCheck size={22} />
-            <h2>Quyền riêng tư</h2>
-          </div>
-          <p>Tài khoản của bạn được bảo vệ trong phiên làm việc hiện tại.</p>
         </section>
         {canOpenAdmin ? (
           <section className="settings-card settings-card--admin-link">
@@ -4089,7 +4636,8 @@ function SettingsPage({
             Chuyển chế độ
           </Button>
         </section>
-        <section className={`settings-card settings-card--desktop-version settings-card--desktop-version-${desktopVersionStatus.status}`}>
+        <div className="settings-desktop-grid">
+          <section className={`settings-card settings-card--desktop-version settings-card--desktop-version-${desktopVersionStatus.status}`}>
           <div>
             <Cloud size={22} />
             <h2>Phiên bản desktop</h2>
@@ -4119,8 +4667,8 @@ function SettingsPage({
               </Button>
             ) : null}
           </div>
-        </section>
-        <section className="settings-card settings-card--notifications">
+          </section>
+          <section className="settings-card settings-card--notifications">
           <div>
             <Bell size={22} />
             <h2>Thông báo desktop</h2>
@@ -4185,7 +4733,8 @@ function SettingsPage({
               type="checkbox"
             />
           </label>
-        </section>
+          </section>
+        </div>
         <section className="settings-card settings-card--sessions">
           <div className="sessions-heading">
             <span className="sessions-heading__icon"><ShieldCheck size={22} /></span>
@@ -4239,7 +4788,7 @@ function SettingsPage({
                     const isMobile = isMobileSession(session);
                     return (
                       <tr className={isCurrent ? "workspace-data-table__row--current" : isRevoked ? "workspace-data-table__row--revoked" : undefined} key={session.id}>
-                        <td>
+                        <td data-label="Thiết bị">
                           <div className="workspace-data-table__identity session-table__device">
                             <span className="session-device-icon" aria-hidden="true">
                               {isMobile ? <Smartphone size={19} /> : <Monitor size={19} />}
@@ -4250,15 +4799,15 @@ function SettingsPage({
                             </span>
                           </div>
                         </td>
-                        <td>{session.ip_address || "Không xác định"}</td>
-                        <td>{formatRelativeSessionDate(session.last_seen_at || session.created_at)}</td>
-                        <td>{session.expires_at ? formatSessionDate(session.expires_at) : "Không xác định"}</td>
-                        <td>
+                        <td data-label="Địa chỉ IP">{session.ip_address || "Không xác định"}</td>
+                        <td data-label="Hoạt động">{formatRelativeSessionDate(session.last_seen_at || session.created_at)}</td>
+                        <td data-label="Hết hạn">{session.expires_at ? formatSessionDate(session.expires_at) : "Không xác định"}</td>
+                        <td data-label="Trạng thái">
                           <Badge tone={isCurrent ? "green" : isRevoked ? "slate" : "blue"}>
                             {isCurrent ? "Thiết bị này" : isRevoked ? "Đã thu hồi" : "Đang hoạt động"}
                           </Badge>
                         </td>
-                        <td>
+                        <td data-label="Thao tác">
                           <div className="workspace-data-table__actions">
                             {!isCurrent && !isRevoked ? (
                               <Button
@@ -5005,6 +5554,8 @@ function ChatHeader({
   isMembersLoading = false,
   isSearchOpen,
   members = [],
+  mobileFeatureMenu,
+  onBack,
   onMarkUnread,
   onStartAudioCall,
   onStartVideoCall,
@@ -5019,6 +5570,8 @@ function ChatHeader({
   isMembersLoading?: boolean;
   isSearchOpen: boolean;
   members?: ChannelMember[];
+  mobileFeatureMenu?: ReactNode;
+  onBack?: () => void;
   onMarkUnread?: () => void;
   onStartAudioCall?: () => void;
   onStartVideoCall?: () => void;
@@ -5034,6 +5587,11 @@ function ChatHeader({
 
   return (
     <header className="chat-header">
+      {onBack ? (
+        <Button aria-label="Quay lại danh sách hội thoại" className="chat-header__mobile-back" onClick={onBack} variant="icon">
+          <ChevronLeft size={22} />
+        </Button>
+      ) : null}
       <div className="chat-title">
         {channel.type === "direct" ? (
           <Avatar name={channel.name} size="lg" src={channel.avatarUrl} status={channel.userStatus} />
@@ -5101,7 +5659,7 @@ function ChatHeader({
         </Tooltip>
         {canShowCallActions ? (
           <>
-            <Tooltip label={callDisabled ? "Cuộc gọi đang diễn ra" : "Gọi thoại"}>
+            <Tooltip className="chat-call-action" label={callDisabled ? "Cuộc gọi đang diễn ra" : "Gọi thoại"}>
               <Button
                 aria-label="Gọi thoại"
                 disabled={callDisabled}
@@ -5115,7 +5673,7 @@ function ChatHeader({
                 <Phone size={19} />
               </Button>
             </Tooltip>
-            <Tooltip label={callDisabled ? "Cuộc gọi đang diễn ra" : "Gọi video"}>
+            <Tooltip className="chat-call-action" label={callDisabled ? "Cuộc gọi đang diễn ra" : "Gọi video"}>
               <Button
                 aria-label="Gọi video"
                 disabled={callDisabled || !onStartVideoCall}
@@ -5131,7 +5689,7 @@ function ChatHeader({
             </Tooltip>
           </>
         ) : null}
-        <Tooltip label={isDetailPanelOpen ? "Ẩn thông tin cuộc trò chuyện" : "Hiện thông tin cuộc trò chuyện"}>
+        <Tooltip className="chat-detail-action" label={isDetailPanelOpen ? "Ẩn thông tin cuộc trò chuyện" : "Hiện thông tin cuộc trò chuyện"}>
           <Button
             aria-label={isDetailPanelOpen ? "Ẩn thông tin cuộc trò chuyện" : "Hiện thông tin cuộc trò chuyện"}
             className={isDetailPanelOpen ? "chat-action-active" : undefined}
@@ -5159,6 +5717,16 @@ function ChatHeader({
           </Tooltip>
           {openPopover === "more" ? (
             <div className="chat-header-popover chat-more-menu" role="menu">
+              {onToggleDetailPanel ? (
+                <button
+                  className="chat-more-menu__mobile-action"
+                  onClick={() => { onToggleDetailPanel(); setOpenPopover(null); }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <Info size={17} /> {isDetailPanelOpen ? "Ẩn thông tin" : "Thông tin cuộc trò chuyện"}
+                </button>
+              ) : null}
               <button onClick={() => { onToggleFavorite?.(); setOpenPopover(null); }} role="menuitem" type="button">
                 <Star fill={isFavorite ? "currentColor" : "none"} size={17} />
                 {isFavorite ? "Bỏ khỏi yêu thích" : "Thêm vào yêu thích"}
@@ -5185,6 +5753,7 @@ function ChatHeader({
             </Button>
           </Tooltip>
         ) : null}
+        {mobileFeatureMenu}
       </div>
     </header>
   );
@@ -5384,17 +5953,21 @@ function callPanelSubtitle(callState: WebRtcCallState): string {
 function ChannelAccessView({
   channel,
   isPending,
+  mobileFeatureMenu,
+  onBack,
   onRequestJoin
 }: {
   channel: ChatChannel;
   isPending: boolean;
+  mobileFeatureMenu?: ReactNode;
+  onBack?: () => void;
   onRequestJoin: () => void;
 }) {
   const isWaiting = channel.membershipStatus === "invited";
 
   return (
     <div className="channel-access-view">
-      <ChatHeader channel={channel} isSearchOpen={false} onToggleSearch={() => undefined} />
+      <ChatHeader channel={channel} isSearchOpen={false} mobileFeatureMenu={mobileFeatureMenu} onBack={onBack} onToggleSearch={() => undefined} />
       <section>
         <span><ShieldCheck size={30} /></span>
         <h2>{isWaiting ? "Yêu cầu đang chờ phê duyệt" : "Bạn chưa tham gia kênh này"}</h2>
@@ -5439,65 +6012,77 @@ function NotificationDropdown({
 
   return (
     <section className="notification-dropdown" aria-label="Thông báo">
-      <header>
-        <div>
-          <strong>Thông báo</strong>
-          <span>{totalUnreadCount} chưa đọc</span>
+      <header className="notification-dropdown__header">
+        <div className="notification-dropdown__title">
+          <span><Bell size={18} /></span>
+          <div>
+            <strong>Thông báo</strong>
+          </div>
+          {totalUnreadCount ? <b>{totalUnreadCount}</b> : null}
         </div>
-        <Button disabled={isMarkingAllRead || !notifications.length} onClick={onMarkAllRead} size="sm" variant="secondary">
-          Đánh dấu đã đọc
+        <Button disabled={isMarkingAllRead || !unreadNotificationCount} onClick={onMarkAllRead} size="sm" variant="ghost">
+          {isMarkingAllRead ? "Đang xử lý..." : "Đọc tất cả"}
         </Button>
       </header>
-      {contactRequests.length ? (
-        <div className="notification-list">
-          {contactRequests.map((request) => (
-            <article className="notification-row notification-row--unread contact-request-row" key={request.id}>
-              <span />
-              <div>
-                <strong>{request.user.display_name || request.user.username}</strong>
-                <p>Đã gửi lời mời kết bạn. Đồng ý để mở hội thoại riêng.</p>
-                <small>{request.user.email}</small>
-                <div className="contact-request-row__actions">
-                  <Button disabled={isMutatingContactRequest} onClick={() => onAcceptContactRequest(request)} size="sm" variant="primary">
-                    Đồng ý
-                  </Button>
-                  <Button disabled={isMutatingContactRequest} onClick={() => onRejectContactRequest(request)} size="sm" variant="ghost">
-                    Từ chối
-                  </Button>
-                  <Button onClick={onOpenContacts} size="sm" variant="secondary">
-                    Xem danh bạ
-                  </Button>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-      ) : null}
-      {isLoading ? (
-        <PanelSkeleton />
-      ) : notifications.length ? (
-        <div className="notification-list">
-          {notifications.map((notification) => (
-            <button
-              className={notification.isRead ? "notification-row" : "notification-row notification-row--unread"}
-              key={notification.id}
-              onClick={() => onOpenNotification(notification)}
-              type="button"
-            >
-              <span />
-              <div>
-                <strong>{notification.title}</strong>
-                <p>{notification.body}</p>
-                <small>
-                  {notification.type} - {notification.createdAt}
-                </small>
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : !contactRequests.length ? (
-        <EmptyState description="Bạn chưa có thông báo mới." title="Chưa có thông báo" />
-      ) : null}
+      <div className="notification-dropdown__body">
+        {contactRequests.length ? (
+          <section className="notification-group">
+            <header><span><Users size={15} /> Lời mời kết bạn</span><b>{contactRequests.length}</b></header>
+            <div className="notification-list">
+              {contactRequests.map((request) => (
+                <article className="notification-row notification-row--unread contact-request-row" key={request.id}>
+                  <Avatar
+                    name={request.user.display_name || request.user.username || request.user.email || "Người dùng"}
+                    size="sm"
+                    src={request.user.avatar_url ?? undefined}
+                  />
+                  <div>
+                    <strong>{request.user.display_name || request.user.username || request.user.email || "Người dùng"}</strong>
+                    <p>Muốn kết nối và nhắn tin với bạn.</p>
+                    <small>{request.user.email}</small>
+                    <div className="contact-request-row__actions">
+                      <Button disabled={isMutatingContactRequest} onClick={() => onAcceptContactRequest(request)} size="sm" variant="primary">
+                        Đồng ý
+                      </Button>
+                      <Button disabled={isMutatingContactRequest} onClick={() => onRejectContactRequest(request)} size="sm" variant="ghost">
+                        Từ chối
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <button className="notification-group__link" onClick={onOpenContacts} type="button">Mở danh bạ</button>
+          </section>
+        ) : null}
+        {isLoading ? (
+          <PanelSkeleton />
+        ) : notifications.length ? (
+          <section className="notification-group">
+            <header><span><Bell size={15} /> Hoạt động gần đây</span></header>
+            <div className="notification-list">
+              {notifications.map((notification) => (
+                <button
+                  className={notification.isRead ? "notification-row" : "notification-row notification-row--unread"}
+                  key={notification.id}
+                  onClick={() => onOpenNotification(notification)}
+                  type="button"
+                >
+                  <span className="notification-row__icon"><Bell size={16} /></span>
+                  <div>
+                    <strong>{notification.title}</strong>
+                    <p>{notification.body}</p>
+                    <small>{notification.createdAt}</small>
+                  </div>
+                  {!notification.isRead ? <i aria-label="Chưa đọc" /> : null}
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : !contactRequests.length ? (
+          <EmptyState description="Thông báo mới sẽ xuất hiện tại đây." title="Bạn đã xem hết" />
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -5520,46 +6105,68 @@ function UploadQueue({
     uploading: "Đang tải"
   };
 
-  const imageCount = items.filter((item) => item.isImage).length;
+  const hasImages = items.some((item) => item.isImage);
 
   return (
-    <div className={imageCount ? "upload-queue upload-queue--media" : "upload-queue"} aria-label="Hàng đợi upload">
-      {imageCount ? (
-        <header className="upload-queue__header">
-          <strong>{imageCount} ảnh</strong>
-          <span>{items.length > imageCount ? `${items.length - imageCount} file khác` : "Sẵn sàng gửi"}</span>
-        </header>
-      ) : null}
-      {items.map((item) => (
-        <article className={`upload-queue__item upload-queue__item--${item.status}${item.isAudio ? " upload-queue__item--audio" : ""}`} key={item.id}>
-          {item.isImage && item.previewUrl ? (
-            <img alt={item.name} className="upload-queue__thumb" src={item.previewUrl} />
-          ) : item.isAudio && item.previewUrl ? (
-            <VoiceMessagePlayer id={`preview-${item.id}`} source={item.previewUrl} />
-          ) : (
-            <span className="upload-queue__icon">
-              {item.isAudio ? <Mic size={16} /> : item.status === "attached" ? <CheckCircle2 size={16} /> : <Cloud size={16} />}
-            </span>
-          )}
-          <div>
-            <strong>{item.isAudio ? "Tin nhắn thoại" : item.name}</strong>
-            <small>
-              {item.durationSeconds ? `${formatVoiceTime(item.durationSeconds)} · ` : ""}{formatFileSize(item.size)} - {item.error ?? labels[item.status]}
-            </small>
-            {item.status === "uploading" ? <i /> : null}
-          </div>
-          {item.status === "failed" ? (
-            <button disabled={disabled} onClick={() => onRetry(item.id)} type="button">
-              Thử lại
-            </button>
-          ) : null}
-          {item.status === "queued" || item.status === "failed" ? (
-            <button aria-label={`Xóa ${item.name}`} disabled={disabled} onClick={() => onRemove(item.id)} type="button">
-              <X size={15} />
-            </button>
-          ) : null}
-        </article>
-      ))}
+    <div className={hasImages ? "upload-queue upload-queue--media" : "upload-queue"} aria-label="Hàng đợi upload">
+      {items.map((item) => {
+        const kindClassName = item.isImage
+          ? "upload-queue__item--image"
+          : item.isAudio
+            ? "upload-queue__item--audio"
+            : "upload-queue__item--file";
+        const statusLabel = item.error ?? labels[item.status];
+
+        return (
+          <article
+            aria-busy={item.status === "uploading"}
+            className={`upload-queue__item upload-queue__item--${item.status} ${kindClassName}`}
+            key={item.id}
+          >
+            {item.isImage && item.previewUrl ? (
+              <div className="upload-queue__preview upload-queue__preview--image">
+                <img alt={item.name} className="upload-queue__thumb" src={item.previewUrl} />
+                <span className="upload-queue__status visually-hidden" role="status">{statusLabel}</span>
+              </div>
+            ) : item.isAudio && item.previewUrl ? (
+              <div className="upload-queue__preview upload-queue__preview--audio">
+                <VoiceMessagePlayer id={`preview-${item.id}`} source={item.previewUrl} />
+              </div>
+            ) : (
+              <span className="upload-queue__icon upload-queue__file-preview" aria-hidden="true">
+                <FileText size={22} />
+                <small className="upload-queue__file-extension">{fileExtensionLabel(item.name, item.file.type)}</small>
+              </span>
+            )}
+            {!item.isImage ? (
+              <div className="upload-queue__details">
+                <strong className="upload-queue__name" title={item.name}>{item.isAudio ? "Tin nhắn thoại" : item.name}</strong>
+                <small className="upload-queue__meta">
+                  {item.durationSeconds ? `${formatVoiceTime(item.durationSeconds)} · ` : ""}{statusLabel}
+                </small>
+                {item.status === "uploading" ? <i aria-hidden="true" className="upload-queue__progress" /> : null}
+              </div>
+            ) : null}
+            {!item.isImage && item.status === "failed" ? (
+              <button className="upload-queue__retry" disabled={disabled} onClick={() => onRetry(item.id)} type="button">
+                Thử lại
+              </button>
+            ) : null}
+            {item.isImage || item.status === "queued" || item.status === "failed" ? (
+              <button
+                aria-label={`Xóa ${item.name}`}
+                className="upload-queue__remove"
+                disabled={disabled}
+                onClick={() => onRemove(item.id)}
+                title="Xóa file"
+                type="button"
+              >
+                <X size={15} />
+              </button>
+            ) : null}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -5619,6 +6226,7 @@ function MessageTimeline({
   onResolveAttachment,
   onLoadOlderMessages,
   onOpenThread,
+  onFocusedMessageSettled,
   onRetryCall,
   onSearchResultSelect,
   onStartEdit,
@@ -5629,6 +6237,7 @@ function MessageTimeline({
   readMembers,
   searchQuery,
   searchResults,
+  showAuthorName,
   workspaceMembers
 }: {
   currentUserId: string;
@@ -5647,6 +6256,7 @@ function MessageTimeline({
   onResolveAttachment: (fileId: string) => Promise<Blob>;
   onLoadOlderMessages: () => Promise<unknown> | void;
   onOpenThread: (messageId: string) => void;
+  onFocusedMessageSettled: () => void;
   onRetryCall: (mode: "audio" | "video") => void;
   onSearchResultSelect: (message: ChatMessage) => void;
   onStartEdit: (message: ChatMessage) => void;
@@ -5657,6 +6267,7 @@ function MessageTimeline({
   readMembers: ChannelMember[];
   searchQuery: string;
   searchResults: ChatMessage[];
+  showAuthorName: boolean;
   workspaceMembers: WorkspaceMember[];
 }) {
   const lastMessageId = messages.at(-1)?.id;
@@ -5664,11 +6275,11 @@ function MessageTimeline({
   const bottomRef = useRef<HTMLDivElement>(null);
   const olderLoadRequestedRef = useRef(false);
   const olderScrollAnchorRef = useRef<number | null>(null);
+  const lastAutoScrollMessageIdRef = useRef<string | undefined>(undefined);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [actionMenuMessageId, setActionMenuMessageId] = useState<string | null>(null);
   const memberByUserId = useMemo(
-    () => new Map<MessageAuthorLookupMember["user_id"], MessageAuthorLookupMember>(
-      [...readMembers, ...workspaceMembers].map((member) => [member.user_id, member])
-    ),
+    () => buildMessageAuthorLookup(workspaceMembers, readMembers),
     [readMembers, workspaceMembers]
   );
   const messageOrderById = useMemo(() => new Map(messages.map((message, index) => [message.id, index])), [messages]);
@@ -5678,7 +6289,37 @@ function MessageTimeline({
   );
 
   useEffect(() => {
-    if (!lastMessageId) {
+    if (!actionMenuMessageId && !reactionPickerMessageId) {
+      return undefined;
+    }
+
+    const closeOverlaysOnOutsidePress = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".message-actions, .message-reaction-control")) {
+        return;
+      }
+      setActionMenuMessageId(null);
+      setReactionPickerMessageId(null);
+    };
+    const closeOverlaysOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActionMenuMessageId(null);
+        setReactionPickerMessageId(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOverlaysOnOutsidePress);
+    document.addEventListener("keydown", closeOverlaysOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOverlaysOnOutsidePress);
+      document.removeEventListener("keydown", closeOverlaysOnEscape);
+    };
+  }, [actionMenuMessageId, reactionPickerMessageId]);
+
+  useEffect(() => {
+    const isNewLastMessage = Boolean(lastMessageId && lastAutoScrollMessageIdRef.current !== lastMessageId);
+    lastAutoScrollMessageIdRef.current = lastMessageId;
+    if (!lastMessageId || !isNewLastMessage || focusedMessageId) {
       return;
     }
 
@@ -5688,7 +6329,7 @@ function MessageTimeline({
     }, 120);
 
     return () => window.clearTimeout(timeout);
-  }, [lastMessageId]);
+  }, [focusedMessageId, lastMessageId]);
 
   useEffect(() => {
     if (!isLoadingOlderMessages) {
@@ -5713,8 +6354,13 @@ function MessageTimeline({
       return;
     }
     const target = timelineRef.current?.querySelector<HTMLElement>(`[data-message-id="${cssEscape(focusedMessageId)}"]`);
-    target?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [focusedMessageId, messages]);
+    if (!target) {
+      return;
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timeout = window.setTimeout(onFocusedMessageSettled, 1_600);
+    return () => window.clearTimeout(timeout);
+  }, [focusedMessageId, messages, onFocusedMessageSettled]);
 
   function requestOlderMessages(source?: HTMLDivElement | null) {
     if (!hasOlderMessages || isLoadingOlderMessages || olderLoadRequestedRef.current) {
@@ -5770,15 +6416,18 @@ function MessageTimeline({
             <span>{searchResults.length} tin nhắn</span>
           </header>
           {searchResults.length ? (
-            searchResults.map((message) => (
-              <button key={message.id} onClick={() => onSearchResultSelect(message)} type="button">
-                <Avatar name={message.author.name} size="sm" />
-                <span>
-                  <strong>{message.author.name}</strong>
-                  <small>{message.body}</small>
-                </span>
-              </button>
-            ))
+            searchResults.map((message) => {
+              const messageAuthor = resolveRenderedMessageAuthor(message, memberByUserId);
+              return (
+                <button key={message.id} onClick={() => onSearchResultSelect(message)} type="button">
+                  <Avatar name={messageAuthor.name} size="sm" src={messageAuthor.avatarUrl} />
+                  <span>
+                    <strong>{messageAuthor.name}</strong>
+                    <small>{message.body}</small>
+                  </span>
+                </button>
+              );
+            })
           ) : (
             <EmptyState description="Không có tin nhắn nào khớp từ khóa hiện tại." title="Không tìm thấy" />
           )}
@@ -5798,7 +6447,7 @@ function MessageTimeline({
             >
               <span className="message-system-row__icon"><SystemIcon size={15} /></span>
               <div className="message-system-row__body">
-                <strong>{message.systemTone === "announcement" ? "Thong bao" : "He thong"}</strong>
+                <strong>{message.systemTone === "announcement" ? "Thông báo" : "Hệ thống"}</strong>
                 <MessageBody body={message.body} />
               </div>
               <time>{message.sentAt}</time>
@@ -5816,62 +6465,121 @@ function MessageTimeline({
             />
           );
         }
+        const showMessageHeader = showAuthorName || message.isBot || message.isForwarded || Boolean(message.editedAt) || message.isPending;
         return (
         <article
-          className={`${message.isMine ? "message-row message-row--local" : "message-row"}${isImageOnlyMessage(message) ? " message-row--media-only" : ""}${hasReactions ? " message-row--has-reactions" : ""}${focusedMessageId === message.id ? " message-row--focused" : ""}`}
+          className={`${message.isMine ? "message-row message-row--local" : "message-row"}${isImageOnlyMessage(message) ? " message-row--media-only" : ""}${isFileOnlyMessage(message) ? " message-row--file-only" : ""}${hasReactions ? " message-row--has-reactions" : ""}${focusedMessageId === message.id ? " message-row--focused" : ""}`}
           data-message-id={message.id}
           key={message.id}
+          tabIndex={0}
         >
-          <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} />
-          <div className="message-row__content">
-            <header>
-              <strong>{messageAuthor.name}</strong>
-              {message.isBot ? <Badge tone="blue">BOT</Badge> : null}
-              <span>{message.sentAt}</span>
-              {message.isForwarded ? <span>Đã chuyển tiếp</span> : null}
-              {message.editedAt ? <span>Đã sửa {message.editedAt}</span> : null}
-              {message.isPending ? <Badge tone="blue">Đang gửi</Badge> : null}
-              <div className="message-actions">
-                {!message.isDeleted ? (
-                  <Tooltip label={pinnedMessageIds.has(message.id) ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}>
-                    <button
-                      aria-label={pinnedMessageIds.has(message.id) ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
-                      className={pinnedMessageIds.has(message.id) ? "message-pin-button message-pin-button--active" : "message-pin-button"}
-                      onClick={() => onTogglePin(message, pinnedMessageIds.has(message.id))}
-                      type="button"
-                    >
-                      <Pin size={15} />
-                    </button>
-                  </Tooltip>
-                ) : null}
-                {message.canEdit ? (
-                  <Tooltip label="Sửa tin nhắn">
-                    <button aria-label="Sửa tin nhắn" onClick={() => onStartEdit(message)} type="button">
-                      <Edit3 size={15} />
-                    </button>
-                  </Tooltip>
-                ) : null}
-                {message.canDelete ? (
-                  <Tooltip label="Xóa tin nhắn">
-                    <button aria-label="Xóa tin nhắn" onClick={() => onDeleteMessage(message)} type="button">
-                      <Trash2 size={15} />
-                    </button>
-                  </Tooltip>
-                ) : null}
-                {!message.isDeleted && !message.isPending ? (
-                  <Tooltip label="Chuyển tiếp tin nhắn">
-                    <button aria-label="Chuyển tiếp tin nhắn" onClick={() => onForwardMessage(message.id)} type="button">
-                      <Share2 size={15} />
-                    </button>
-                  </Tooltip>
-                ) : null}
-                <Tooltip label="Mở luồng trả lời">
-                  <button aria-label="Mở luồng trả lời" onClick={() => onOpenThread(message.id)} type="button">
-                    <Reply size={15} />
+          {!message.isMine ? <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} /> : null}
+          <div className="message-row__stack">
+            <div className="message-row__content">
+              {showMessageHeader ? (
+                <header>
+                  {showAuthorName ? <strong>{messageAuthor.name}</strong> : null}
+                  {message.isBot ? <Badge tone="blue">BOT</Badge> : null}
+                  {message.isForwarded ? <span>Đã chuyển tiếp</span> : null}
+                  {message.editedAt ? <span>Đã sửa {message.editedAt}</span> : null}
+                  {message.isPending ? <Badge tone="blue">Đang gửi</Badge> : null}
+                </header>
+              ) : null}
+              <div className={actionMenuMessageId === message.id ? "message-actions message-actions--open" : "message-actions"}>
+                <Tooltip label={actionMenuMessageId === message.id ? "Đóng thao tác" : "Thao tác tin nhắn"}>
+                  <button
+                    aria-expanded={actionMenuMessageId === message.id}
+                    aria-haspopup="menu"
+                    aria-label="Thao tác tin nhắn"
+                    className="message-actions__trigger"
+                    onClick={() => {
+                      setReactionPickerMessageId(null);
+                      setActionMenuMessageId((current) => current === message.id ? null : message.id);
+                    }}
+                    type="button"
+                  >
+                    <MoreVertical size={17} />
                   </button>
                 </Tooltip>
+                {actionMenuMessageId === message.id ? (
+                  <div aria-label="Các thao tác với tin nhắn" className="message-actions__menu" role="menu">
+                    {!message.isDeleted ? (
+                      <Tooltip label={pinnedMessageIds.has(message.id) ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}>
+                        <button
+                          aria-label={pinnedMessageIds.has(message.id) ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
+                          className={pinnedMessageIds.has(message.id) ? "message-pin-button message-pin-button--active" : "message-pin-button"}
+                          onClick={() => {
+                            setActionMenuMessageId(null);
+                            onTogglePin(message, pinnedMessageIds.has(message.id));
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <Pin size={15} />
+                        </button>
+                      </Tooltip>
+                    ) : null}
+                    {message.canEdit ? (
+                      <Tooltip label="Sửa tin nhắn">
+                        <button
+                          aria-label="Sửa tin nhắn"
+                          onClick={() => {
+                            setActionMenuMessageId(null);
+                            onStartEdit(message);
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <Edit3 size={15} />
+                        </button>
+                      </Tooltip>
+                    ) : null}
+                    {message.canDelete ? (
+                      <Tooltip label="Xóa tin nhắn">
+                        <button
+                          aria-label="Xóa tin nhắn"
+                          onClick={() => {
+                            setActionMenuMessageId(null);
+                            onDeleteMessage(message);
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </Tooltip>
+                    ) : null}
+                    {!message.isDeleted && !message.isPending ? (
+                      <Tooltip label="Chuyển tiếp tin nhắn">
+                        <button
+                          aria-label="Chuyển tiếp tin nhắn"
+                          onClick={() => {
+                            setActionMenuMessageId(null);
+                            onForwardMessage(message.id);
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <Share2 size={15} />
+                        </button>
+                      </Tooltip>
+                    ) : null}
+                    <Tooltip label="Mở luồng trả lời">
+                      <button
+                        aria-label="Mở luồng trả lời"
+                        onClick={() => {
+                          setActionMenuMessageId(null);
+                          onOpenThread(message.id);
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <Reply size={15} />
+                      </button>
+                    </Tooltip>
+                  </div>
+                ) : null}
               </div>
-            </header>
             {editingMessageId === message.id ? (
               <form className="message-edit-form" onSubmit={onSubmitEdit}>
                 <input
@@ -5922,20 +6630,11 @@ function MessageTimeline({
                       onResolve={onResolveAttachment}
                     />
                   ) : (
-                    <button
-                      className="attachment-chip"
+                    <AttachmentFileCard
+                      attachment={attachment}
                       key={attachment.id}
-                      onClick={() => onDownloadAttachment(attachment)}
-                      type="button"
-                    >
-                      <span className={`file-icon file-icon--${attachment.tone}`}>
-                        <FileText size={16} />
-                      </span>
-                      <span>
-                        <strong>{attachment.name}</strong>
-                        <small>{fileSecurityLabel(attachment.status) ?? attachment.size ?? attachment.mimeType ?? "File đính kèm"}</small>
-                      </span>
-                    </button>
+                      onDownload={onDownloadAttachment}
+                    />
                   )
                 )}
               </div>
@@ -5955,19 +6654,16 @@ function MessageTimeline({
                 ))}
               </div>
             ) : null}
-            {lastOwnReceipt?.messageId === message.id ? (
-              <span className={`message-read-status message-read-status--${lastOwnReceipt.tone}`}>
-                <span aria-hidden="true">✓✓</span>
-                {lastOwnReceipt.label}
-              </span>
-            ) : null}
             {!message.isDeleted ? (
               <div className="message-reaction-control">
                 <button
                   aria-expanded={reactionPickerMessageId === message.id}
                   aria-label="Thả cảm xúc"
                   className="reaction-add-button"
-                  onClick={() => setReactionPickerMessageId((current) => current === message.id ? null : message.id)}
+                  onClick={() => {
+                    setActionMenuMessageId(null);
+                    setReactionPickerMessageId((current) => current === message.id ? null : message.id);
+                  }}
                   type="button"
                 >
                   <Smile size={15} />
@@ -5996,6 +6692,16 @@ function MessageTimeline({
                 ) : null}
               </div>
             ) : null}
+            </div>
+            <footer className="message-row__meta">
+              <time>{message.sentAt}</time>
+              {lastOwnReceipt?.messageId === message.id ? (
+                <span className={`message-read-status message-read-status--${lastOwnReceipt.tone}`}>
+                  <span aria-hidden="true">✓✓</span>
+                  {lastOwnReceipt.label}
+                </span>
+              ) : null}
+            </footer>
           </div>
         </article>
         );
@@ -6029,7 +6735,7 @@ function CallMessageRow({
       className={`${message.isMine ? "message-row message-row--local" : "message-row"} message-row--call${focused ? " message-row--focused" : ""}`}
       data-message-id={message.id}
     >
-      <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} />
+      {!message.isMine ? <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} /> : null}
       <div className={isMissed ? "message-call-card message-call-card--missed" : "message-call-card"}>
         <strong>{callMessageTitle(callEvent)}</strong>
         <span>
@@ -6081,7 +6787,7 @@ function resolveLastOwnMessageReceipt(
   currentUserId: string,
   messageOrderById: Map<string, number>
 ): MessageReceipt | null {
-  const message = [...messages].reverse().find((item) => item.isMine && !item.isDeleted && !item.isPending && !item.isLocal);
+  const message = [...messages].reverse().find((item) => item.isMine && !item.callEvent && !item.isDeleted && !item.isPending && !item.isLocal);
   if (!message) {
     return null;
   }
@@ -6399,6 +7105,21 @@ function normalizedUploadMimeType(file: File): string {
   return browserMimeType || uploadMimeTypeFromName(file.name);
 }
 
+function fileExtensionLabel(name: string, mimeType?: string): string {
+  const extension = name.trim().split(".").at(-1)?.toUpperCase() ?? "";
+  if (/^[A-Z0-9]{1,5}$/.test(extension) && extension !== name.toUpperCase()) {
+    return extension;
+  }
+
+  if (mimeType?.includes("pdf")) {
+    return "PDF";
+  }
+  if (mimeType?.startsWith("text/")) {
+    return "TXT";
+  }
+  return "FILE";
+}
+
 function uploadMimeTypeFromName(name: string): string {
   const extension = name.split(".").at(-1)?.toLowerCase() ?? "";
   const map: Record<string, string> = {
@@ -6435,7 +7156,59 @@ function isAllowedUploadMimeType(mimeType: string): boolean {
   return uploadAcceptList.some((accept) => accept === mimeType);
 }
 
+function profilePresenceStatus(
+  status: string | undefined,
+  fallback: ChatUser["status"] | undefined
+): ChatUser["status"] {
+  if (status === "online" || status === "offline" || status === "busy") {
+    return status;
+  }
+  return fallback ?? "offline";
+}
+
+function enrichMemberProfiles<T extends ChannelMember | WorkspaceMember>(
+  members: T[],
+  profiles: ReadonlyMap<string, ChatUser>
+): T[] {
+  return members.map((member) => {
+    const profile = profiles.get(member.user_id);
+    if (!profile) {
+      return member;
+    }
+
+    return {
+      ...member,
+      avatar_url: member.avatar_url || profile.avatarUrl,
+      display_name: member.display_name || profile.name,
+      email: member.email || profile.email,
+      username: member.username || profile.username
+    };
+  });
+}
+
 type MessageAuthorLookupMember = Pick<ChannelMember | WorkspaceMember, "avatar_url" | "display_name" | "email" | "status" | "user_id" | "username">;
+
+function buildMessageAuthorLookup(
+  workspaceMembers: WorkspaceMember[],
+  channelMembers: ChannelMember[]
+): Map<MessageAuthorLookupMember["user_id"], MessageAuthorLookupMember> {
+  const memberByUserId = new Map<MessageAuthorLookupMember["user_id"], MessageAuthorLookupMember>();
+  for (const member of [...workspaceMembers, ...channelMembers]) {
+    const current = memberByUserId.get(member.user_id);
+    const nextStatus = member.status === "online" || member.status === "offline" || member.status === "busy"
+      ? member.status
+      : current?.status ?? member.status;
+    memberByUserId.set(member.user_id, {
+      avatar_url: member.avatar_url || current?.avatar_url,
+      display_name: member.display_name || current?.display_name,
+      email: member.email || current?.email,
+      status: nextStatus,
+      user_id: member.user_id,
+      username: member.username || current?.username
+    });
+  }
+  return memberByUserId;
+}
 
 function resolveRenderedMessageAuthor(message: ChatMessage, memberByUserId: Map<string, MessageAuthorLookupMember>): ChatUser {
   if (message.isBot || !message.rawSenderId) {
@@ -6448,15 +7221,15 @@ function resolveRenderedMessageAuthor(message: ChatMessage, memberByUserId: Map<
   }
 
   const memberDisplayName = member.display_name || member.username || member.email || "";
-  if (!memberDisplayName && message.author.name !== "Người dùng") {
-    return message.author;
-  }
+  const memberPresence = member.status === "online" || member.status === "offline" || member.status === "busy"
+    ? member.status
+    : message.author.status;
 
   return {
-    avatarUrl: member.avatar_url ?? message.author.avatarUrl,
+    avatarUrl: member.avatar_url || message.author.avatarUrl,
     id: member.user_id,
     name: memberDisplayName || message.author.name,
-    status: member.status === "online" ? "online" : "offline"
+    status: memberPresence
   };
 }
 
@@ -6467,7 +7240,7 @@ function UnreadBadge({ count }: { count: number }) {
 
   return (
     <span aria-label={`${count} tin nhắn chưa đọc`} className="conversation-row__unread-badge">
-      {count > 99 ? "99+" : count}
+      <span>{count > 99 ? "99+" : count}</span>
     </span>
   );
 }
@@ -6487,6 +7260,10 @@ function ReactionGlyph({ emoji, size = 15 }: { emoji: string; size?: number }) {
 }
 
 function MessageBody({ body }: { body: string }) {
+  if (body.trim() === "👍") {
+    return <div aria-label="Thích" className="message-body message-body--like"><ComposerLikeIcon /></div>;
+  }
+
   const blocks = body.split("```");
   return (
     <div className="message-body">
@@ -6537,6 +7314,31 @@ function stripCodeLanguage(block: string) {
   return normalized.replace(/\r?\n$/, "");
 }
 
+function AttachmentFileCard({
+  attachment,
+  onDownload
+}: {
+  attachment: MessageAttachmentItem;
+  onDownload: (attachment: MessageAttachmentItem) => void;
+}) {
+  return (
+    <button
+      aria-label={`Tải xuống ${attachment.name}`}
+      className={`attachment-card attachment-file-card attachment-file-card--${attachment.tone}`}
+      onClick={() => onDownload(attachment)}
+      title={attachment.name}
+      type="button"
+    >
+      <span className="attachment-file-card__preview" aria-hidden="true">
+        <FileText size={28} />
+      </span>
+      <span className="attachment-file-card__content">
+        <strong className="attachment-file-card__name">{attachment.name}</strong>
+      </span>
+    </button>
+  );
+}
+
 function AttachmentMedia({
   attachment,
   onDownload,
@@ -6578,21 +7380,34 @@ function AttachmentMedia({
 
   if (attachment.isVideo) {
     return (
-      <div className="attachment-video">
-        {resolvedSource ? (
-          <video controls playsInline preload="metadata" src={resolvedSource}>
-            Trình duyệt của bạn không hỗ trợ phát video.
-          </video>
-        ) : <span className="attachment-media-loading">Đang tải video...</span>}
-        <button disabled={!resolvedSource} onClick={() => onDownload(attachment)} type="button">{attachment.name}</button>
+      <div className="attachment-card attachment-media-card attachment-media-card--video attachment-video">
+        <div className="attachment-media-card__preview">
+          {resolvedSource ? (
+            <video controls playsInline preload="metadata" src={resolvedSource}>
+              Trình duyệt của bạn không hỗ trợ phát video.
+            </video>
+          ) : <span className="attachment-media-loading">Đang tải video...</span>}
+        </div>
+        <button className="attachment-media-card__caption" disabled={!resolvedSource} onClick={() => onDownload(attachment)} title={attachment.name} type="button">
+          {attachment.name}
+        </button>
       </div>
     );
   }
 
   return (
-    <button className="attachment-image" disabled={!resolvedSource} onClick={() => onDownload(attachment)} type="button">
-      {resolvedSource ? <img alt={attachment.name} decoding="async" loading="lazy" src={resolvedSource} /> : <span className="attachment-media-loading">Đang tải ảnh...</span>}
-      <span>{attachment.name}</span>
+    <button
+      aria-label={`Mở ảnh ${attachment.name}`}
+      className="attachment-card attachment-media-card attachment-media-card--image attachment-image"
+      disabled={!resolvedSource}
+      onClick={() => onDownload(attachment)}
+      title={attachment.name}
+      type="button"
+    >
+      <span className="attachment-media-card__preview">
+        {resolvedSource ? <img alt={attachment.name} decoding="async" loading="lazy" src={resolvedSource} /> : <span className="attachment-media-loading">Đang tải ảnh...</span>}
+      </span>
+      <span className="attachment-media-card__caption">{attachment.name}</span>
     </button>
   );
 }
@@ -6711,7 +7526,8 @@ function formatVoiceTime(seconds: number) {
 }
 
 function shouldRenderMessageBody(message: ChatMessage): boolean {
-  if (!message.body.trim()) {
+  const body = message.body.trim();
+  if (!body) {
     return false;
   }
 
@@ -6722,19 +7538,30 @@ function shouldRenderMessageBody(message: ChatMessage): boolean {
   const attachments = message.attachments ?? [];
   const hasOnlyImages = attachments.length > 0 && attachments.every((attachment) => attachment.isImage);
   const hasOnlyAudio = attachments.length > 0 && attachments.every((attachment) => attachment.isAudio);
-  if (hasOnlyAudio && /^Đã gửi(?: \d+)? tin nhắn thoại$/.test(message.body.trim())) {
+  if (hasOnlyAudio && /^Đã gửi(?: \d+)? tin nhắn thoại$/.test(body)) {
+    return false;
+  }
+  if (attachments.length === 1 && body === `Đã gửi file ${attachments[0].name}`) {
+    return false;
+  }
+  if (attachments.length > 1 && body === `Đã gửi ${attachments.length} file`) {
     return false;
   }
   if (!hasOnlyImages) {
     return true;
   }
 
-  return !/^Đã gửi(?: \d+)? ảnh$/.test(message.body.trim());
+  return !/^Đã gửi(?: \d+)? ảnh$/.test(body);
 }
 
 function isImageOnlyMessage(message: ChatMessage): boolean {
   const attachments = message.attachments ?? [];
   return attachments.length > 0 && attachments.every((attachment) => attachment.isImage) && !shouldRenderMessageBody(message);
+}
+
+function isFileOnlyMessage(message: ChatMessage): boolean {
+  const attachments = message.attachments ?? [];
+  return attachments.length > 0 && attachments.every((attachment) => !attachment.isAudio && !attachment.isImage && !attachment.isVideo) && !shouldRenderMessageBody(message);
 }
 
 function formatRecordingTime(totalSeconds: number): string {
@@ -6802,6 +7629,7 @@ function MediaGalleryThumbnail({
 
 function RightDetailPanel({
   activeTab,
+  channelMembers,
   files,
   isDirectChat = false,
   isLoading,
@@ -6816,9 +7644,11 @@ function RightDetailPanel({
   onTabChange,
   pinnedMessages,
   threadMessageId,
-  threadMessages
+  threadMessages,
+  workspaceMembers
 }: {
   activeTab: DetailTab;
+  channelMembers: ChannelMember[];
   files: FileItem[];
   isDirectChat?: boolean;
   isLoading: boolean;
@@ -6829,23 +7659,33 @@ function RightDetailPanel({
   onCloseThread: () => void;
   onFileSelect: (file: FileItem) => void;
   onResolveMedia: (fileId: string) => Promise<Blob>;
-  onSendThread: (body: string) => void;
+  onSendThread: (body: string) => Promise<boolean>;
   onTabChange: (tab: DetailTab) => void;
   pinnedMessages: PinnedMessage[];
   threadMessageId: string | null;
   threadMessages: ChatMessage[];
+  workspaceMembers: WorkspaceMember[];
 }) {
   const [threadDraft, setThreadDraft] = useState("");
   const currentChatLabel = isDirectChat ? "Hội thoại này" : "Kênh này";
+  const memberByUserId = useMemo(
+    () => buildMessageAuthorLookup(workspaceMembers, channelMembers),
+    [channelMembers, workspaceMembers]
+  );
 
-  function handleThreadSubmit(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    setThreadDraft("");
+  }, [threadMessageId]);
+
+  async function handleThreadSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = threadDraft.trim();
     if (!body || isSendingThread) {
       return;
     }
-    onSendThread(body);
-    setThreadDraft("");
+    if (await onSendThread(body)) {
+      setThreadDraft("");
+    }
   }
 
   return (
@@ -6865,16 +7705,19 @@ function RightDetailPanel({
             <PanelSkeleton />
           ) : threadMessages.length ? (
             <div className="thread-list">
-              {threadMessages.map((message) => (
-                <article key={message.id}>
-                  <Avatar name={message.author.name} size="sm" src={message.author.avatarUrl} />
-                  <div>
-                    <strong>{message.author.name}</strong>
-                    <small>{message.sentAt}</small>
-                    <MessageBody body={message.body} />
-                  </div>
-                </article>
-              ))}
+              {threadMessages.map((message) => {
+                const messageAuthor = resolveRenderedMessageAuthor(message, memberByUserId);
+                return (
+                  <article key={message.id}>
+                    <Avatar name={messageAuthor.name} size="sm" src={messageAuthor.avatarUrl} />
+                    <div>
+                      <strong>{messageAuthor.name}</strong>
+                      <small>{message.sentAt}</small>
+                      <MessageBody body={message.body} />
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <EmptyState description="Luồng này chưa có tin nhắn." title="Luồng trống" />
@@ -6910,7 +7753,7 @@ function RightDetailPanel({
           {pinnedMessages.length ? (
             pinnedMessages.map((item) => (
               <article className="pinned-card" key={item.id}>
-                <Avatar name={item.author.name} size="sm" />
+                <Avatar name={item.author.name} size="sm" src={item.author.avatarUrl} />
                 <div>
                   <strong>{item.author.name}</strong>
                   <small>{item.date}</small>
@@ -7049,10 +7892,10 @@ async function verifyBlobChecksum(blob: Blob, expectedSha256: string): Promise<b
 
 function contactResultFromRequest(request: ContactRequest, data: ChatWorkspaceData): ContactResult {
   const member = data.members.find((item) => item.user_id === request.user.id);
-  const name = request.user.display_name || request.user.username || request.user.email || memberName(member) || request.user.id;
+  const name = request.user.display_name || member?.display_name || request.user.username || member?.username || request.user.email || member?.email || request.user.id;
 
   return {
-    avatarUrl: request.user.avatar_url ?? member?.avatar_url,
+    avatarUrl: request.user.avatar_url || member?.avatar_url,
     contactDirection: request.direction,
     contactRequestId: request.id,
     contactStatus: "accepted",
@@ -7060,7 +7903,7 @@ function contactResultFromRequest(request: ContactRequest, data: ChatWorkspaceDa
     hasConversation: data.directConversations.some((conversation) => conversation.user.id === request.user.id),
     isWorkspaceMember: Boolean(member),
     name,
-    phoneNumber: request.user.phone_number ?? memberPhone(member),
+    phoneNumber: request.user.phone_number || memberPhone(member),
     status: member?.status ?? request.user.status,
     userId: request.user.id,
     username: request.user.username ?? member?.username
@@ -7108,18 +7951,18 @@ function buildContactResults({
   };
 
   if (query.trim().length >= 2) {
-    return searchUsers.map((user) => {
+    return searchUsers.filter((user) => user.id !== currentUserId).map((user) => {
       const member = memberByUserId.get(user.id);
       const contactState = statusFor(user.id);
 
       return {
-        avatarUrl: user.avatar_url ?? member?.avatar_url,
+        avatarUrl: user.avatar_url || member?.avatar_url,
         ...contactState,
         email: user.email ?? member?.email,
         hasConversation: conversationUserIds.has(user.id),
         isWorkspaceMember: Boolean(member),
-        name: user.display_name || user.username || user.email || memberName(member) || user.id,
-        phoneNumber: user.phone_number ?? memberPhone(member),
+        name: user.display_name || member?.display_name || user.username || member?.username || user.email || member?.email || user.id,
+        phoneNumber: user.phone_number || memberPhone(member),
         status: member?.status ?? user.status,
         userId: user.id,
         username: user.username ?? member?.username
@@ -7142,13 +7985,13 @@ function buildContactResults({
     const user = request.user;
     const member = memberByUserId.get(user.id);
     pushResult({
-      avatarUrl: user.avatar_url ?? member?.avatar_url,
+      avatarUrl: user.avatar_url || member?.avatar_url,
       ...statusFor(user.id),
       email: user.email ?? member?.email,
       hasConversation: conversationUserIds.has(user.id),
       isWorkspaceMember: Boolean(member),
-      name: user.display_name || user.username || user.email || memberName(member) || user.id,
-      phoneNumber: user.phone_number ?? memberPhone(member),
+      name: user.display_name || member?.display_name || user.username || member?.username || user.email || member?.email || user.id,
+      phoneNumber: user.phone_number || memberPhone(member),
       status: member?.status ?? user.status,
       userId: user.id,
       username: user.username ?? member?.username
@@ -7209,6 +8052,17 @@ function slugify(value: string): string {
 function railItemFromRoute(pathname: string, searchParams?: { get: (name: string) => string | null }): RailItemId {
   const section = parseChatRoute(pathname, searchParams)?.sectionRef;
   return railItems.some((item) => item.id === section) ? section as RailItemId : "messages";
+}
+
+function messageSidebarTabFromRoute(
+  pathname: string,
+  searchParams?: { get: (name: string) => string | null }
+): MessageSidebarTab {
+  const route = parseChatRoute(pathname, searchParams);
+  if (route?.kind === "channel" || route?.messageView === "channels") {
+    return "channels";
+  }
+  return "conversations";
 }
 
 function shouldOpenExternally(link: HTMLAnchorElement): boolean {

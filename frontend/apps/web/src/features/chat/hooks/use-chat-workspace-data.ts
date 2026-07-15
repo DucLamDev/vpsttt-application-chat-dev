@@ -6,6 +6,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { queryKeys } from "@webtui/api-client";
 import type {
   Channel as ApiChannel,
+  ContactUser,
   CreateDepartmentInput,
   CreateChannelInput,
   DirectConversation as ApiDirectConversation,
@@ -109,7 +110,11 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   const searchParams = useSearchParams();
   const workspaceContext = useWorkspaceContext();
   const { workspaceId } = workspaceContext;
-  const [cachedChat, setCachedChat] = useState<WorkspaceChatCache | null>(null);
+  const [cachedChatState, setCachedChatState] = useState<{ value: WorkspaceChatCache | null; workspaceId: string }>({
+    value: null,
+    workspaceId: ""
+  });
+  const cachedChat = cachedChatState.workspaceId === workspaceId ? cachedChatState.value : null;
   const [outboxItems, setOutboxItems] = useState<MessageOutboxEntry[]>([]);
   const parsedRoute = parseChatRoute(pathname, searchParams);
   const legacyChannelId = searchParams.get("channel") ?? "";
@@ -138,13 +143,14 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   useEffect(() => {
     let disposed = false;
     if (!workspaceId) {
-      setCachedChat(null);
+      setCachedChatState({ value: null, workspaceId: "" });
       return undefined;
     }
+    setCachedChatState({ value: null, workspaceId });
     void readWorkspaceChatCache(workspaceId)
       .then((cache) => {
         if (!disposed) {
-          setCachedChat(cache);
+          setCachedChatState({ value: cache, workspaceId });
         }
       })
       .catch(() => undefined);
@@ -152,7 +158,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
       disposed = true;
     };
   }, [workspaceId]);
-  const channelSource = channelsQuery.data?.length ? channelsQuery.data : cachedChat?.channels ?? [];
+  const channelSource = channelsQuery.data ?? cachedChat?.channels ?? [];
   const channels = useMemo(
     () => channelSource.map(mapChannel).filter((channel) => channel.type !== "direct"),
     [channelSource]
@@ -164,17 +170,37 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     workspaceId
   });
 
+  // Channel/workspace member payloads from older servers do not include the
+  // profile avatar. Contacts do, so keep this fallback while the member API
+  // catches up and prefer the accepted-contact record when both are present.
+  const contactsQuery = useQuery({
+    queryFn: () => api.contacts.list(),
+    queryKey: queryKeys.contacts.all,
+    refetchInterval: contactRefetchMs
+  });
+  const contactRequestsQuery = useQuery({
+    queryFn: () => api.contacts.requests({ status: "all" }),
+    queryKey: queryKeys.contacts.requests("all"),
+    refetchInterval: contactRefetchMs
+  });
+  const contacts = contactsQuery.data ?? [];
+  const contactRequests = contactRequestsQuery.data ?? [];
+  const contactProfileByUserId = useMemo(
+    () => new Map<string, ContactUser>(
+      [...contactRequests, ...contacts].map((contact) => [contact.user.id, contact.user])
+    ),
+    [contactRequests, contacts]
+  );
+
   const directConversationsQuery = useQuery({
     enabled: Boolean(workspaceId),
     queryFn: () => api.channels.directConversations(workspaceId),
     queryKey: queryKeys.channels.directConversations(workspaceId),
     refetchInterval: contactRefetchMs
   });
-  const directConversationSource = directConversationsQuery.data?.length
-    ? directConversationsQuery.data
-    : cachedChat?.directConversations ?? [];
+  const directConversationSource = directConversationsQuery.data ?? cachedChat?.directConversations ?? [];
   useEffect(() => {
-    if (!workspaceId || !channelsQuery.data?.length) {
+    if (!workspaceId || channelsQuery.data === undefined) {
       return;
     }
     void writeWorkspaceChatCache(workspaceId, {
@@ -203,11 +229,13 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
             item,
             notificationPresence.presenceByUserId,
             currentUser.id,
-            directConversationSummaries[index]?.data?.[0]
+            directConversationSummaries[index]?.data?.[0],
+            workspaceContext.members,
+            contactProfileByUserId
           )
         )
         .filter(Boolean) as DirectConversation[],
-    [currentUser.id, directConversationSource, directConversationSummaries, notificationPresence.presenceByUserId]
+    [contactProfileByUserId, currentUser.id, directConversationSource, directConversationSummaries, notificationPresence.presenceByUserId, workspaceContext.members]
   );
   const requestedChannelId = useMemo(() => {
     if (legacyChannelId) {
@@ -263,11 +291,14 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     [channels, directConversations, router, workspaceContext.workspaces, workspaceId]
   );
   const setWorkspaceSection = useCallback(
-    (section?: string) => {
+    (section?: string, messageView?: "channels" | "conversations") => {
       const workspace = workspaceContext.workspaces.find((item) => item.id === workspaceId);
       const workspaceRef = workspace?.slug || workspaceId;
       if (!workspaceRef) return;
-      router.replace(section ? buildWorkspaceSectionRoute(workspaceRef, section) : buildChatRoute(workspaceRef), { scroll: false });
+      router.replace(
+        section ? buildWorkspaceSectionRoute(workspaceRef, section) : buildChatRoute(workspaceRef, undefined, undefined, messageView),
+        { scroll: false }
+      );
     },
     [router, workspaceContext.workspaces, workspaceId]
   );
@@ -335,19 +366,6 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     () => (searchUsersQuery.data ?? []).filter((item) => item.id !== currentUser.id),
     [currentUser.id, searchUsersQuery.data]
   );
-  const contactsQuery = useQuery({
-    queryFn: () => api.contacts.list(),
-    queryKey: queryKeys.contacts.all,
-    refetchInterval: contactRefetchMs
-  });
-  const contactRequestsQuery = useQuery({
-    queryFn: () => api.contacts.requests({ status: "all" }),
-    queryKey: queryKeys.contacts.requests("all"),
-    refetchInterval: contactRefetchMs
-  });
-  const contacts = contactsQuery.data ?? [];
-  const contactRequests = contactRequestsQuery.data ?? [];
-
   const filesQuery = useQuery({
     enabled: Boolean(workspaceId),
     queryFn: () => api.files.list(workspaceId),
@@ -573,7 +591,11 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
       if (uploads.length && !attachedFiles.length && !input.body) {
         await api.messages.delete(workspaceId, selectedChannelId, sentMessage.id).catch(() => undefined);
-        throw new Error("Không tải được tin nhắn thoại. Bản ghi tạm đã được thu hồi; hãy thử lại.");
+        throw new Error(
+          isVoiceMessage
+            ? "Không tải được tin nhắn thoại. Bản ghi tạm đã được thu hồi; hãy thử lại."
+            : "Không tải được tệp đính kèm. Tin nhắn tạm đã được thu hồi; hãy thử lại."
+        );
       }
 
       return {
@@ -1059,7 +1081,9 @@ function mapDirectConversation(
   item: ApiDirectConversation,
   presenceByUserId: Map<string, { status?: string }>,
   currentUserId: string,
-  latestMessage?: ApiMessage
+  latestMessage?: ApiMessage,
+  workspaceMembers: WorkspaceMember[] = [],
+  contactProfileByUserId: ReadonlyMap<string, ContactUser> = new Map()
 ): DirectConversation | null {
   const participant = item.user ?? item.participants?.find((member) => member.user_id !== currentUserId) ?? item.participants?.[0];
 
@@ -1068,6 +1092,19 @@ function mapDirectConversation(
   }
 
   const lastMessage = item.last_message ?? latestMessage;
+  const workspaceMember = workspaceMembers.find((member) => member.user_id === participant.user_id);
+  const contactProfile = contactProfileByUserId.get(participant.user_id);
+  const participantName =
+    participant.display_name ||
+    contactProfile?.display_name ||
+    workspaceMember?.display_name ||
+    participant.username ||
+    contactProfile?.username ||
+    workspaceMember?.username ||
+    participant.email ||
+    contactProfile?.email ||
+    workspaceMember?.email ||
+    "Người dùng";
 
   return {
     id: item.channel_id ?? item.id,
@@ -1075,9 +1112,11 @@ function mapDirectConversation(
     relativeTime: formatConversationTime(lastMessage?.created_at ?? lastMessage?.updated_at ?? item.updated_at),
     unreadCount: item.unread_count,
     user: {
-      avatarUrl: participant.avatar_url ?? undefined,
+      avatarUrl: participant.avatar_url || contactProfile?.avatar_url || workspaceMember?.avatar_url || undefined,
+      email: participant.email || contactProfile?.email || workspaceMember?.email,
       id: participant.user_id,
-      name: displayName(participant),
+      name: participantName,
+      username: participant.username || contactProfile?.username || workspaceMember?.username,
       status: mapPresenceStatus(presenceByUserId.get(participant.user_id)?.status)
     }
   };
@@ -1257,15 +1296,6 @@ function mapPresenceStatus(status?: string): PresenceStatus {
   }
 
   return "offline";
-}
-
-function displayName(
-  user:
-    | { display_name?: string; email?: string; username?: string }
-    | null
-    | undefined
-): string {
-  return user?.display_name || user?.username || user?.email || "Người dùng";
 }
 
 function formatRelative(value?: string): string {

@@ -32,6 +32,7 @@ type Member struct {
 	Email        string
 	Username     string
 	DisplayName  string
+	AvatarURL    *string
 	Role         string
 	CreatedAt    time.Time
 }

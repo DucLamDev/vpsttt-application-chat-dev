@@ -26,7 +26,9 @@ export type NavigationRailProps = {
   brandTitle?: string;
   className?: string;
   items: NavigationRailItem[];
+  isProfileMenuOpen?: boolean;
   onSelect?: (id: string) => void;
+  onProfileClick?: () => void;
   profile?: Pick<AvatarProps, "name" | "src" | "status"> & {
     description?: string;
     label?: string;
@@ -42,7 +44,9 @@ export function NavigationRail({
   brandTitle,
   className,
   items,
+  isProfileMenuOpen,
   onSelect,
+  onProfileClick,
   profile
 }: NavigationRailProps) {
   return (
@@ -57,7 +61,7 @@ export function NavigationRail({
         {items.map((item) => {
           const Icon = item.icon;
           return (
-            <Tooltip key={item.id} label={item.label}>
+            <Tooltip className={cn("ui-navigation-rail__tooltip", `ui-navigation-rail__tooltip--${item.id}`)} key={item.id} label={item.label}>
               <Button
                 aria-label={item.label}
                 aria-pressed={activeId === item.id}
@@ -65,6 +69,7 @@ export function NavigationRail({
                   "ui-navigation-rail__item",
                   activeId === item.id && "ui-navigation-rail__item--active"
                 )}
+                data-nav-item-id={item.id}
                 onClick={() => onSelect?.(item.id)}
                 variant="ghost"
               >
@@ -78,13 +83,34 @@ export function NavigationRail({
       </nav>
       {profile ? (
         <div className="ui-navigation-rail__profile">
-          <Avatar name={profile.name} src={profile.src} status={profile.status} />
-          {profile.label || profile.description ? (
-            <span>
-              {profile.label ? <strong>{profile.label}</strong> : null}
-              {profile.description ? <small>{profile.description}</small> : null}
-            </span>
-          ) : null}
+          {onProfileClick ? (
+            <button
+              aria-expanded={Boolean(isProfileMenuOpen)}
+              aria-haspopup="menu"
+              aria-label={profile.label ? `Mở menu tài khoản ${profile.label}` : "Mở menu tài khoản"}
+              className="ui-navigation-rail__profile-button"
+              onClick={onProfileClick}
+              type="button"
+            >
+              <Avatar name={profile.name} src={profile.src} status={profile.status} />
+              {profile.label || profile.description ? (
+                <span>
+                  {profile.label ? <strong>{profile.label}</strong> : null}
+                  {profile.description ? <small>{profile.description}</small> : null}
+                </span>
+              ) : null}
+            </button>
+          ) : (
+            <div className="ui-navigation-rail__profile-button">
+              <Avatar name={profile.name} src={profile.src} status={profile.status} />
+              {profile.label || profile.description ? (
+                <span>
+                  {profile.label ? <strong>{profile.label}</strong> : null}
+                  {profile.description ? <small>{profile.description}</small> : null}
+                </span>
+              ) : null}
+            </div>
+          )}
         </div>
       ) : null}
     </aside>

@@ -25,6 +25,17 @@ describe("chat route", () => {
     expect(directIdPrefix(reference)).toBe("ff81f5d2");
   });
 
+  it("keeps the selected message list across navigation and reloads", () => {
+    const path = buildChatRoute("vpsttt", undefined, undefined, "channels");
+    expect(path).toBe("/chat/vpsttt?view=channels");
+
+    const [pathname, query] = path.split("?");
+    expect(parseChatRoute(pathname, new URLSearchParams(query))).toEqual({
+      messageView: "channels",
+      workspaceRef: "vpsttt"
+    });
+  });
+
   it("uses query routes for desktop static export", () => {
     setPlatformServices({
       ...createBrowserPlatformServices(),
@@ -38,6 +49,14 @@ describe("chat route", () => {
     expect(parseChatRoute("/chat/desktop", params)).toEqual({
       kind: "channel",
       targetRef: "ky-thuat",
+      workspaceRef: "vpsttt"
+    });
+
+    const messagePath = buildChatRoute("vpsttt", undefined, undefined, "channels");
+    expect(messagePath).toBe("/chat/desktop?workspace=vpsttt&view=channels");
+    const messageParams = new URLSearchParams(messagePath.split("?")[1]);
+    expect(parseChatRoute("/chat/desktop", messageParams)).toEqual({
+      messageView: "channels",
       workspaceRef: "vpsttt"
     });
   });

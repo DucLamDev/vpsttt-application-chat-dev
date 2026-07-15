@@ -35,6 +35,7 @@ type Member struct {
 	Email             string
 	Username          string
 	DisplayName       string
+	AvatarURL         *string
 	Status            string
 	LastReadAt        *time.Time
 	LastReadMessageID *string
