@@ -176,7 +176,7 @@ WHERE c.workspace_id = $1::uuid
 
 func (r *Repository) ListMembers(ctx context.Context, workspaceID string, channelID string) ([]channelsdomain.Member, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT cm.channel_id::text, cm.user_id::text, u.email::text, u.username::text, u.display_name,
+SELECT cm.channel_id::text, cm.user_id::text, u.email::text, u.username::text, u.display_name, u.avatar_url,
        cm.status, cm.last_read_at, cm.last_read_message_id::text, cm.joined_at, cm.created_at, cm.updated_at
 FROM channel_members cm
 JOIN channels c ON c.id = cm.channel_id AND c.deleted_at IS NULL
@@ -639,7 +639,7 @@ VALUES (NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, '')::uuid
 
 func (r *Repository) member(ctx context.Context, workspaceID string, channelID string, userID string) (channelsdomain.Member, error) {
 	row := r.pool.QueryRow(ctx, `
-SELECT cm.channel_id::text, cm.user_id::text, u.email::text, u.username::text, u.display_name,
+SELECT cm.channel_id::text, cm.user_id::text, u.email::text, u.username::text, u.display_name, u.avatar_url,
        cm.status, cm.last_read_at, cm.last_read_message_id::text, cm.joined_at, cm.created_at, cm.updated_at
 FROM channel_members cm
 JOIN channels c ON c.id = cm.channel_id AND c.deleted_at IS NULL
@@ -683,7 +683,7 @@ WHERE id = $1::uuid
 
 func (r *Repository) directParticipants(ctx context.Context, directID string) ([]channelsdomain.Member, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT dc.channel_id::text, dcm.user_id::text, u.email::text, u.username::text, u.display_name,
+SELECT dc.channel_id::text, dcm.user_id::text, u.email::text, u.username::text, u.display_name, u.avatar_url,
        cm.status, cm.last_read_at, cm.last_read_message_id::text, cm.joined_at, cm.created_at, cm.updated_at
 FROM direct_conversation_members dcm
 JOIN direct_conversations dc ON dc.id = dcm.direct_conversation_id
@@ -761,6 +761,7 @@ func scanChannel(row rowScanner) (channelsdomain.Channel, error) {
 
 func scanMember(row rowScanner) (channelsdomain.Member, error) {
 	var member channelsdomain.Member
+	var avatarURL sql.NullString
 	var lastReadAt sql.NullTime
 	var lastReadMessageID sql.NullString
 	if err := row.Scan(
@@ -769,6 +770,7 @@ func scanMember(row rowScanner) (channelsdomain.Member, error) {
 		&member.Email,
 		&member.Username,
 		&member.DisplayName,
+		&avatarURL,
 		&member.Status,
 		&lastReadAt,
 		&lastReadMessageID,
@@ -781,6 +783,7 @@ func scanMember(row rowScanner) (channelsdomain.Member, error) {
 		}
 		return channelsdomain.Member{}, err
 	}
+	member.AvatarURL = nullStringPtr(avatarURL)
 	member.LastReadAt = nullTimePtr(lastReadAt)
 	member.LastReadMessageID = nullStringPtr(lastReadMessageID)
 	return member, nil

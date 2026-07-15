@@ -92,9 +92,11 @@ export function useMessageTimeline({
 }: MessageTimelineOptions) {
   const queryClient = useQueryClient();
   const timelineKey = messageTimelineKey(workspaceId, channelId);
+  const timelineCacheKey = `${workspaceId}:${channelId}`;
   const cleanSearchQuery = searchQuery.trim();
   const searchFilterKey = JSON.stringify(searchFilters);
-  const [cachedApiMessages, setCachedApiMessages] = useState<ApiMessage[]>([]);
+  const [cachedTimeline, setCachedTimeline] = useState<{ key: string; messages: ApiMessage[] }>({ key: "", messages: [] });
+  const cachedApiMessages = cachedTimeline.key === timelineCacheKey ? cachedTimeline.messages : [];
 
   const messagesQuery = useInfiniteQuery<
     MessagePage,
@@ -119,40 +121,41 @@ export function useMessageTimeline({
     () => sortMessagesAscending(uniqueMessages(messagesQuery.data?.pages.flatMap((page) => page.messages) ?? [])),
     [messagesQuery.data?.pages]
   );
+  const isUsingCachedMessages = !messagesQuery.isSuccess && remoteApiMessages.length === 0 && cachedApiMessages.length > 0;
   const apiMessages = useMemo(
-    () => sortMessagesAscending(uniqueMessages(remoteApiMessages.length ? remoteApiMessages : cachedApiMessages)),
-    [cachedApiMessages, remoteApiMessages]
+    () => sortMessagesAscending(uniqueMessages(isUsingCachedMessages ? cachedApiMessages : remoteApiMessages)),
+    [cachedApiMessages, isUsingCachedMessages, remoteApiMessages]
   );
   const offlineReadMode = Boolean(
-    cachedApiMessages.length > 0 &&
-      remoteApiMessages.length === 0 &&
+    isUsingCachedMessages &&
       (messagesQuery.isError || (typeof navigator !== "undefined" && navigator.onLine === false))
   );
 
   useEffect(() => {
     let disposed = false;
     if (!workspaceId || !channelId) {
-      setCachedApiMessages([]);
+      setCachedTimeline({ key: "", messages: [] });
       return undefined;
     }
+    setCachedTimeline({ key: timelineCacheKey, messages: [] });
     void readTimelineCache(workspaceId, channelId)
       .then((messages) => {
         if (!disposed) {
-          setCachedApiMessages(messages);
+          setCachedTimeline({ key: timelineCacheKey, messages });
         }
       })
       .catch(() => undefined);
     return () => {
       disposed = true;
     };
-  }, [channelId, workspaceId]);
+  }, [channelId, timelineCacheKey, workspaceId]);
 
   useEffect(() => {
-    if (!workspaceId || !channelId || !remoteApiMessages.length) {
+    if (!workspaceId || !channelId || !messagesQuery.isSuccess) {
       return;
     }
     void writeTimelineCache(workspaceId, channelId, remoteApiMessages).catch(() => undefined);
-  }, [channelId, remoteApiMessages, workspaceId]);
+  }, [channelId, messagesQuery.isSuccess, remoteApiMessages, workspaceId]);
   const attachmentMessageIds = useMemo(
     () => apiMessages.filter((message) => !message.id.startsWith("local-") && !message.deleted_at).map((message) => message.id),
     [apiMessages]
@@ -370,8 +373,11 @@ export function useMessageTimeline({
 export function mapAuthUser(user: AuthUser | null): ChatUser {
   return {
     avatarUrl: user?.avatar_url ?? undefined,
+    email: user?.email,
     id: user?.id ?? "current-user",
     name: displayName(user),
+    phoneNumber: user?.phone_number ?? undefined,
+    username: user?.username,
     status: "online"
   };
 }
@@ -558,8 +564,9 @@ function mapMessageAttachments(attachments?: MessageAttachment[]): MessageAttach
       const mimeType = attachment.mime_type ?? file?.mime_type;
       const size = attachment.byte_size ?? attachment.size_bytes ?? attachment.size ?? file?.byte_size ?? file?.size_bytes ?? file?.size;
       const url = attachment.url ?? attachment.download_url ?? file?.url ?? file?.download_url;
+      const extension = name.split(".").at(-1)?.toLowerCase() ?? "";
       const isAudio = Boolean(mimeType?.startsWith("audio/") || mimeType === "application/ogg");
-      const isImage = Boolean(mimeType?.startsWith("image/"));
+      const isImage = Boolean(mimeType?.startsWith("image/") || ["gif", "jpeg", "jpg", "png", "webp"].includes(extension));
       const isVideo = Boolean(mimeType?.startsWith("video/"));
 
       return {

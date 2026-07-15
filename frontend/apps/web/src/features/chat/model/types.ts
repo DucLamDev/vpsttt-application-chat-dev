@@ -11,6 +11,9 @@ export type ChatUser = {
   name: string;
   status: PresenceStatus;
   avatarUrl?: string;
+  email?: string;
+  phoneNumber?: string;
+  username?: string;
 };
 
 export type ChatMetric = {

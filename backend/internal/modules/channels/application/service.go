@@ -177,6 +177,7 @@ type MemberDTO struct {
 	Email             string  `json:"email"`
 	Username          string  `json:"username"`
 	DisplayName       string  `json:"display_name"`
+	AvatarURL         *string `json:"avatar_url,omitempty"`
 	Status            string  `json:"status"`
 	LastReadAt        *string `json:"last_read_at,omitempty"`
 	LastReadMessageID *string `json:"last_read_message_id,omitempty"`
@@ -694,6 +695,7 @@ func toMemberDTO(member channelsdomain.Member) MemberDTO {
 		Email:             member.Email,
 		Username:          member.Username,
 		DisplayName:       member.DisplayName,
+		AvatarURL:         member.AvatarURL,
 		Status:            member.Status,
 		LastReadAt:        formatOptionalTime(member.LastReadAt),
 		LastReadMessageID: member.LastReadMessageID,
