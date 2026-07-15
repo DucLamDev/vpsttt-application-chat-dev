@@ -96,5 +96,8 @@ fi
 compose pull
 compose --profile migration run --rm migrate
 compose up -d --remove-orphans
+# The nginx image renders templates only when the container starts. Always
+# recreate it so domain, route, and websocket template changes are applied.
+compose up -d --force-recreate nginx
 compose ps
 wait_for_public_health
