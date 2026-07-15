@@ -38,24 +38,83 @@ Vì vậy roadmap Flutter dùng khái niệm parity với Next.js web, không ph
 - Không log nội dung message, Authorization header, refresh token hoặc URL có access token.
 - Mọi phase phải chạy `flutter analyze`, unit/widget test và không thêm mock vào flavor production.
 
+### 3.1. Clean Architecture bắt buộc
+
+Mobile app phải đi theo hướng feature-first, mỗi feature tự chia layer rõ ràng. Dependency chỉ được chảy từ ngoài vào trong:
+
+```text
+Presentation -> Application -> Domain <- Data
+```
+
+| Lớp | Trách nhiệm | Được phép phụ thuộc | Không được phép | Deliverable bắt buộc |
+|---|---|---|---|---|
+| Domain | Entity, value object, repository contract, domain error, rule nghiệp vụ | Dart thuần, package rất nhẹ không dính Flutter | Flutter widget, Dio, Drift, Secure Storage, Firebase, JSON DTO | Entity bất biến, interface repository, use case input/output rõ |
+| Application | Điều phối use case, transaction logic, permission decision, sync command | Domain, clock/id generator abstraction | Widget, API route cụ thể, SQL, plugin native trực tiếp | Use case độc lập test được bằng fake repository |
+| Data | API client, DTO, mapper, local database, secure storage, repository implementation | Domain contract, generated OpenAPI client, Drift/Dio/plugin adapter | Gọi widget/state trực tiếp, trả DTO lên UI | Mapper DTO/entity, repository impl, data source test |
+| Presentation | Screen, widget, state notifier, form validation UI, navigation | Application use case, UI model, design system | Gọi Dio/Drift/Secure Storage trực tiếp, chứa rule backend | Screen state có loading/empty/error/success và widget test |
+| Infrastructure/Core | HTTP, websocket, database, crypto, notification, telemetry adapter | Abstraction được inject | Nghiệp vụ feature cụ thể | Adapter dùng chung, interceptor, redaction, lifecycle hook |
+
+Quy tắc kiểm soát kiến trúc:
+
+- DTO từ OpenAPI chỉ sống ở `data`; UI và domain không import DTO.
+- Entity domain không có annotation của JSON/Drift/Firebase.
+- Repository interface đặt ở domain, implementation đặt ở data.
+- Use case là cửa vào duy nhất cho nghiệp vụ từ presentation.
+- Riverpod provider ở presentation/application chỉ compose dependency, không chứa query SQL hoặc URL API.
+- Mọi state mutation realtime/offline phải đi qua reducer/use case, tránh cập nhật list message rải rác trong widget.
+- Mỗi feature có `README.md` ngắn ghi entity chính, use case, API, event realtime, permission code và test bắt buộc.
+
+### 3.2. Multi-tenant, workspace và quyền quản trị
+
+Sản phẩm là mô hình nhiều công ty, mỗi công ty là một workspace độc lập. Mobile phải tôn trọng tenant boundary như backend.
+
+| Vai trò | Phạm vi | Mobile cần hiển thị | Không được làm |
+|---|---|---|---|
+| Super admin | Toàn hệ thống, nhiều workspace | Danh sách workspace, trạng thái workspace, nhảy vào workspace theo quyền, màn quản trị tối giản nếu được bật | Trộn dữ liệu chat giữa workspace, cache chung không có `workspace_id` |
+| Workspace admin | Một workspace/công ty | Quản lý thành viên, kênh, bot, flow AI, ticket, automation theo permission | Nhìn thấy secret AI/API token dạng plaintext |
+| Member/Agent | Workspace được mời | Chat, ticket, bot session, file, thông báo theo quyền | Thấy menu admin khi không có permission |
+| Guest/External user | Phạm vi rất hẹp nếu có | Hội thoại/ticket được cấp quyền | Tự search user/channel ngoài phạm vi |
+
+Quy tắc kỹ thuật:
+
+- Mọi bảng local cache phải có `workspace_id` hoặc nằm trong secure/session store riêng.
+- Khi đổi workspace phải reset provider scope, websocket subscription, unread counter, query cursor và navigation stack.
+- Permission code phải lấy từ backend; mobile chỉ ẩn/hiện và chặn UX sớm, backend vẫn quyết định cuối cùng.
+- Route deep link phải chứa đủ `workspaceSlug/workspaceId` để tránh mở nhầm tenant.
+
+### 3.3. Bot/AI theo từng công ty, không hard-code flow VPSTTT
+
+Mobile chỉ là client cấu hình và sử dụng bot; mobile không gọi thẳng OpenAI/LLM provider để tránh lộ key. Bot runtime nằm ở backend.
+
+| Mảng | Yêu cầu thiết kế | Ghi chú Clean Architecture |
+|---|---|---|
+| Bot catalog | Workspace admin thấy danh sách bot của workspace, trạng thái bật/tắt, kênh được gắn bot | Domain entity `Bot`, `BotInstallation`, `BotStatus` |
+| AI provider | Cấu hình provider/model qua backend: OpenAI-compatible, local gateway hoặc provider nội bộ | Mobile chỉ gửi config hợp lệ; secret lưu backend vault |
+| Flow riêng | Mỗi công ty có flow riêng: prompt, tool, trigger, knowledge source, approval step, fallback human handoff | Domain entity `BotFlow`, `BotNode`, `ToolBinding` |
+| Tool/API | VPSTTT order API chỉ là một tool mẫu, không là dependency cứng của app | Tool list lấy từ backend theo workspace |
+| Test bot | Admin chạy thử prompt/flow bằng dữ liệu giả lập hoặc sample input | Use case `TestBotFlow` trả transcript và lỗi rõ |
+| Audit | Lưu lịch sử ai action, tool call, người sửa flow, phiên bản config | Mobile hiển thị audit theo permission |
+| Chat runtime | User chat với bot như conversation bình thường, có label bot và trạng thái đang trả lời | Presentation dùng cùng message timeline, không tạo UI riêng quá khác |
+
 ## 4. Stack đề xuất
 
 | Thành phần | Lựa chọn |
 |---|---|
 | Flutter/Dart | Flutter stable, Dart stable đi kèm |
-| State management | Riverpod |
+| State management | Riverpod/riverpod_generator, ưu tiên `AsyncNotifier`/`Notifier` theo feature |
 | Navigation | `go_router` |
 | REST | Client sinh từ OpenAPI + Dio transport/interceptor |
 | Realtime | `web_socket_channel` |
 | Secure storage | `flutter_secure_storage` |
 | Local database | Drift + SQLite |
-| Immutable/model | Code generation phù hợp contract, hạn chế model trùng |
+| Immutable/model | `freezed`/`json_serializable` cho UI model/data model khi generator contract không đủ |
 | Push | Firebase Messaging; APNs qua Firebase cho iOS |
 | Local notification | `flutter_local_notifications` |
 | File/image | `file_picker`, `image_picker` |
 | Voice | `record`, `just_audio` |
+| Audio/video call | `flutter_webrtc`, permission qua `permission_handler` |
 | Connectivity | `connectivity_plus` kết hợp request thực tế, không chỉ tin trạng thái mạng |
-| Crash report | Provider có redaction; không gửi nội dung chat |
+| Crash report | Sentry/Crashlytics có redaction; không gửi nội dung chat |
 
 ## 5. Cấu trúc source đề xuất
 
@@ -88,11 +147,15 @@ mobile/
 │       ├── messages/
 │       ├── files/
 │       ├── notifications/
+│       ├── calls/
 │       ├── profile/
 │       ├── departments/
 │       ├── bots/
+│       ├── bot_flows/
 │       ├── automation/
 │       ├── tickets/
+│       ├── admin/
+│       ├── super_admin/
 │       └── settings/
 ├── test/
 └── pubspec.yaml
@@ -100,24 +163,102 @@ mobile/
 
 Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức vừa đủ; không tạo abstraction hình thức nếu feature nhỏ.
 
+Mẫu cấu trúc một feature lớn:
+
+```text
+features/messages/
+├── domain/
+│   ├── entities/message.dart
+│   ├── repositories/message_repository.dart
+│   ├── value_objects/message_id.dart
+│   └── errors/message_failure.dart
+├── application/
+│   ├── send_message_use_case.dart
+│   ├── observe_timeline_use_case.dart
+│   ├── mark_read_use_case.dart
+│   └── message_event_reducer.dart
+├── data/
+│   ├── datasources/message_remote_data_source.dart
+│   ├── datasources/message_local_data_source.dart
+│   ├── dto/message_dto.dart
+│   ├── mappers/message_mapper.dart
+│   └── repositories/message_repository_impl.dart
+└── presentation/
+    ├── controllers/message_timeline_controller.dart
+    ├── screens/chat_room_screen.dart
+    ├── widgets/message_bubble.dart
+    └── models/message_view_model.dart
+```
+
+### 5.1. Ranh giới package đề xuất khi app lớn dần
+
+| Package/module | Nội dung | Khi nào tách |
+|---|---|---|
+| `app` | Bootstrap, route, flavor, root provider scope | Luôn có |
+| `core` | Error, result, clock, id generator, logger, permission abstraction | Luôn có |
+| `design_system` | Token màu, typography, button, avatar, badge, bottom sheet, empty state | Sau M1 để tránh copy widget |
+| `api_client` | Generated OpenAPI client và Dio adapter | Ngay M0/M1 |
+| `local_store` | Drift database, migration, DAO base | Ngay M1/M8 |
+| `realtime` | WebSocket connection, event envelope, reconnect/catch-up | Ngay M5 |
+| `feature_*` | Feature độc lập khi code vượt khoảng 1.500-2.000 dòng hoặc cần owner riêng | Tách dần, không tách sớm hình thức |
+
 ## 6. Phạm vi chức năng hoàn chỉnh
 
 | Nhóm | Chức năng phải có |
 |---|---|
 | Auth | Login email/username, Google khi cấu hình, refresh, logout, remember login, session list/revoke |
-| Workspace/RBAC | Chọn workspace, permission gate, membership, chuyển workspace, profile |
+| Workspace/RBAC | Chọn workspace/công ty, permission gate, membership, chuyển workspace, profile, quyền admin/super admin |
 | Conversation | DM, channel public/private/group, unread, favorite, search, read state |
 | Message | Text, markdown, emoji, mention, reaction, reply, thread, pin, forward, edit, recall/delete |
 | Media | Camera, gallery, file, paste/share intent, voice record/play, video, preview/download |
+| Call | Audio call, video call, incoming ringing, missed call, call history, permission camera/mic, reconnect/hangup |
 | Realtime | Message, typing, reaction, pin, update/delete, notification, presence, reconnect/catch-up |
 | Notification | FCM/APNs, local notification, badge, deep link, mark read, preference, mute/quiet hours |
 | Offline | Cache đọc, draft, outbox, upload queue, retry/idempotency, migration/eviction |
 | Phòng ban | Cây, chi tiết, member và channel liên kết theo permission |
-| Bot | Bot workspace, session riêng, CSKH/order tra ví/gia hạn/QR theo quyền |
+| Bot/AI | Bot theo workspace, cấu hình provider/model/prompt/tool/flow/knowledge, test bot, audit, handoff sang người thật |
 | Automation | Danh sách, CRUD, run-now, pause/resume, lịch sử, webhook theo permission |
 | Ticket | Lifecycle đầy đủ sau khi backend ticket domain/API thật hoàn thành |
+| Admin | Workspace admin quản lý thành viên, kênh, bot, ticket, automation ở mức mobile-friendly |
+| Super admin | Xem danh sách workspace, trạng thái hệ thống, nhảy vào workspace theo quyền được cấp |
 | Native | Deep link/universal link, share intent, biometric app lock, camera/mic permission, background lifecycle |
 | Accessibility | Font scaling, screen reader, contrast, touch target, reduced motion |
+
+### 6.1. Bản đồ màn hình mobile
+
+| Khu vực | Màn hình chính | Màn hình phụ/bottom sheet | Ghi chú UX |
+|---|---|---|---|
+| Onboarding/Auth | Splash, login, chọn workspace | Quên mật khẩu, revoke session, chọn môi trường dev/staging nếu build nội bộ | Không hiện route chat khi chưa có workspace hợp lệ |
+| Home | Danh sách hội thoại, channel, unread, favorite | Search, filter, create DM/channel | Phone dùng single column; tablet dùng split view |
+| Chat | Timeline, composer, reaction, reply, pin, media, call button | Message actions, emoji picker, member list, pinned/media/file tabs | Composer phải bám safe area và không mất draft |
+| Call | Incoming call, outgoing call, active audio/video call | Chọn camera/mic/speaker, reconnect, call ended/missed card | Sự kiện call lưu như message system |
+| Bot/AI | Bot conversation, bot list | Bot detail, test prompt, flow status, handoff | Admin mới thấy config; user chỉ chat |
+| Ticket | Ticket list, ticket detail | Assign, status, priority, comment, attachment | Toàn bộ tiếng Việt có dấu |
+| Admin | Member, role, channel request, bot flow, automation | Confirm destructive action, audit view | Có thể mở Admin Panel web cho chức năng quá nặng |
+| Super admin | Workspace list, workspace health | Switch workspace, suspend/activate theo quyền | Không dùng cho member thường |
+
+### 6.2. Reference UI bắt buộc
+
+Mobile app phải thiết kế dựa trên mẫu Zalo-like/WebTui mobile đã chốt. Ảnh reference chính đặt tại:
+
+```text
+docs/design/mobile/references/webtui-mobile-zalo-reference.png
+```
+
+Tài liệu phân tích reference đặt tại:
+
+```text
+docs/design/mobile/references/mobile-ui-reference.md
+```
+
+Quy tắc khi làm UI mobile:
+
+- Trước khi dựng bất kỳ màn Flutter nào, phải mở ảnh reference và đọc `.agents/webtui-chat-mobile/SKILL.md`.
+- UI ưu tiên cảm giác ứng dụng chat native chuyên nghiệp: nền sáng, border mảnh, shadow nhẹ, danh sách dày nhưng dễ quét, tab segmented nhỏ, bottom navigation rõ.
+- Màn đầu tiên không làm landing page marketing; phải là trải nghiệm app thật: đăng nhập, tin nhắn, danh bạ, kênh/bot, cài đặt.
+- Luồng `Tin nhắn`, `Bạn bè`, `Kênh & Bot`, `Kênh`, `Cài đặt` phải bám bố cục và mật độ của ảnh mẫu.
+- Tất cả label, empty state, toast, lỗi và mô tả trong UI phải là tiếng Việt có dấu.
+- Sau khi hoàn thành UI, phải chụp screenshot mobile và đối chiếu lại với ảnh reference; nếu lệch navigation, spacing, mật độ list hoặc phong cách Zalo-like thì chưa đạt.
 
 ## 7. Bảng phase tổng quan
 
@@ -129,13 +270,31 @@ Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức 
 | M3 | Workspace, RBAC và profile | Chọn workspace/hồ sơ/settings | Data scope và permission đúng |
 | M4 | Conversation và channel | Danh sách DM/channel, unread/search | Điều hướng mobile hoàn chỉnh |
 | M5 | Message và realtime | Chat nâng cao, typing/presence/reconnect | Hai thiết bị nhận event đúng |
-| M6 | Camera, file, voice và video | Media flow hoàn chỉnh | Upload/record/play/download pass |
+| M6 | Media, voice note và audio/video call | Media flow, call signaling và WebRTC cơ bản | Upload/record/play/download/call pass |
 | M7 | Push, background và deep link | FCM/APNs, badge, notification preference | Push mở đúng message |
 | M8 | Offline, sync và reliability | Cache/outbox/idempotency | Mạng yếu không mất/trùng dữ liệu |
 | M9 | Module nghiệp vụ đầy đủ | Phòng ban, bot, automation, ticket | Không còn placeholder thuộc scope |
 | M10 | Native UX, accessibility và performance | Biometric/share/accessibility/tối ưu | Đạt quality gate thiết bị thật |
-| M11 | Test, security và release Android | Internal/closed production rollout | Android production ready |
-| M12 | iOS hardening và release | TestFlight/App Store | iOS production ready |
+| M11 | Test, security và Android packaging | Signed APK/AAB, Firebase distribution, direct download fallback | Người dùng nội bộ tải/cài được bản Android |
+| M12 | CH Play và kênh tải Android | Play Console, store listing, internal/closed/open/production track, download page | Người dùng tải được qua CH Play hoặc link APK có kiểm soát |
+| M13 | iOS hardening và release | TestFlight/App Store | iOS production ready |
+
+### 7.1. Ma trận task Clean Architecture xuyên suốt
+
+| ID | Hạng mục | Việc phải làm | Acceptance |
+|---|---|---|---|
+| CA-1 | Dependency rule | Thêm lint/import rule hoặc review checklist chặn `presentation` import trực tiếp `dio`, `drift`, `firebase_*`, generated DTO | CI hoặc review fail khi vi phạm |
+| CA-2 | Feature template | Tạo template thư mục `domain/application/data/presentation` và README feature | Feature mới không tự phát minh cấu trúc |
+| CA-3 | Result/error model | Chuẩn hóa `Result<T, Failure>`, `AppFailure`, mapping HTTP/domain/local error | UI không parse status code/raw exception |
+| CA-4 | Repository contract | Mỗi feature có interface ở domain và impl ở data | Unit test use case dùng fake repository |
+| CA-5 | Mapper boundary | DTO/entity/view model có mapper rõ, không dùng một model cho mọi layer | DTO không xuất hiện trong widget |
+| CA-6 | Use case catalog | Danh sách use case chính cho từng feature, đặt tên theo hành động nghiệp vụ | Controller chỉ gọi use case, không tự ghép API |
+| CA-7 | Provider composition | Riverpod provider chỉ inject dependency, observe state và gọi use case | Không chứa query SQL/URL API trong provider UI |
+| CA-8 | Realtime reducer | Event websocket được đưa qua reducer/application service | Không update timeline trực tiếp trong socket callback của widget |
+| CA-9 | Offline outbox | Mutation quan trọng có command/outbox/idempotency | Gửi lại không tạo dữ liệu trùng |
+| CA-10 | Test pyramid | Domain/use case test nhiều nhất, widget test cho UI state, integration test cho flow thật | Mỗi phase có test tương ứng |
+| CA-11 | Tenant guard | Mọi query/cache/event command có `workspace_id` hoặc session scope rõ | Không có dữ liệu chéo workspace trong local DB |
+| CA-12 | Secret boundary | Secret/token/API key chỉ qua abstraction bảo mật | Log/crash/cache không chứa secret |
 
 ## Phase M0: Contract và backend mobile readiness
 
@@ -169,6 +328,9 @@ Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức 
 | M1.8 | Logging có redaction | M1.1 | Không log token/message/file path nhạy cảm | P0 |
 | M1.9 | Widget loading/empty/error/toast | M1.3 | Trạng thái dùng nhất quán toàn app | P0 |
 | M1.10 | CI nền | M1.1 | format/analyze/test/build APK chạy tự động | P0 |
+| M1.11 | Khóa mobile UI reference | Không | Ảnh mẫu nằm ở `docs/design/mobile/references/webtui-mobile-zalo-reference.png` và tài liệu phân tích reference được cập nhật | P0 |
+| M1.12 | Tạo skill mobile cho agent | M1.11 | `.agents/webtui-chat-mobile/SKILL.md` bắt buộc agent đọc ảnh mẫu trước khi làm UI Flutter | P0 |
+| M1.13 | Design tokens từ ảnh mẫu | M1.11 | Màu, typography, spacing, radius, shadow, list density, bottom tab và segmented control được ghi thành guideline | P0 |
 
 ## Phase M2: Auth, secure session và app lock
 
@@ -229,7 +391,7 @@ Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức 
 | M5.11 | Typing/presence | M5.9 | Throttle/timeout/background behavior đúng | P0 |
 | M5.12 | Foreground catch-up | M5.9/M0.9 | Quay lại app không bỏ sót tin | P0 |
 
-## Phase M6: Ảnh, file, camera, voice và video
+## Phase M6: Ảnh, file, camera, voice, video và call
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
@@ -245,6 +407,14 @@ Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức 
 | M6.10 | Video player | M6.5 | Streaming/download/error/fullscreen cơ bản | P1 |
 | M6.11 | Share intent vào WebTui | M6.2 | Nhận ảnh/file/text từ app khác và chọn conversation | P1 |
 | M6.12 | File security state | Backend scan API | Scanning/quarantine không cho mở file nguy hiểm | P1 |
+| M6.13 | Call domain model | M5 | `CallSession`, `CallParticipant`, `CallState`, `CallDirection`, `CallEndReason` test được ở domain | P0 |
+| M6.14 | Call signaling repository | Backend call API/WebSocket | Invite/accept/reject/cancel/hangup/timeout/reconnect qua use case, không gọi socket từ widget | P0 |
+| M6.15 | Incoming call UX | M6.14 | Bên nhận thấy màn hình/cuộc gọi đến, có chuông/rung, accept/reject đúng | P0 |
+| M6.16 | Outgoing call UX | M6.14 | Bên gọi thấy ringing/connecting/failed/timeout rõ ràng | P0 |
+| M6.17 | Active audio call | M6.14 | Mic mute, speaker, timer, network drop/reconnect, hangup | P0 |
+| M6.18 | Active video call | M6.17 | Camera on/off, switch camera, local/remote preview, permission camera/mic | P0 |
+| M6.19 | Call event message card | M6.14 | Missed call, incoming answered, outgoing answered, duration, "Gọi lại" giống luồng chat | P0 |
+| M6.20 | Call notification bridge | M6.15/M7 | Background push mở incoming call; foreground không tạo notification trùng | P0 |
 
 ## Phase M7: Native push, background và deep link
 
@@ -281,16 +451,20 @@ Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
 | M9.1 | Phòng ban | M3 | Cây, chi tiết, member, channel liên kết theo permission | P0 |
-| M9.2 | Bot workspace | M3 | Danh sách, trạng thái, session riêng | P0 |
-| M9.3 | Bot CSKH/order tra ví | M9.2 | Dữ liệu API thật, lỗi rõ, không lộ thông tin chéo user | P0 |
-| M9.4 | Bot gia hạn | M9.2 | Danh sách sắp hết hạn và yêu cầu gia hạn | P0 |
-| M9.5 | Bot thanh toán | M9.2 | QR nạp ví/đơn hàng hiển thị native và lưu/chia sẻ theo policy | P0 |
-| M9.6 | Automation list/detail | M3 | Status, next run và history | P0 |
-| M9.7 | Automation CRUD/run/pause | M9.6 | Permission gate và API mutation đầy đủ | P0 |
-| M9.8 | Webhook/API token screens theo quyền | M9.6 | Secret không lưu cache/log trái policy | P1 |
-| M9.9 | Ticket lifecycle | Backend ticket API | Tạo/phân công/trạng thái/comment/attachment/notification | P0 trước final parity |
-| M9.10 | Announcement/system message | Backend producer | Hiển thị/acknowledge theo contract | P1 |
-| M9.11 | Admin external link | M3.2 | Chỉ admin thấy link mở Admin Panel browser | P1 |
+| M9.2 | Bot catalog theo workspace | M3 | Danh sách bot, trạng thái, kênh gắn bot, session riêng theo workspace | P0 |
+| M9.3 | AI provider/model config | Backend AI config API | Workspace admin cấu hình provider/model qua backend, không nhập/lưu secret plaintext trong mobile | P0 |
+| M9.4 | Bot flow mobile-friendly | M9.2-M9.3 | Xem/sửa flow dạng form đơn giản: prompt, trigger, fallback, handoff, approval | P0 |
+| M9.5 | Tool binding và knowledge source | M9.4 | Tool/API/knowledge lấy từ backend theo workspace; VPSTTT order chỉ là một tool tùy chọn | P0 |
+| M9.6 | Test bot flow | M9.4 | Admin chạy thử input mẫu, xem transcript/tool call/lỗi bằng tiếng Việt có dấu | P0 |
+| M9.7 | Bot audit và version | M9.4 | Xem ai sửa flow, version, publish/rollback theo quyền | P1 |
+| M9.8 | Automation list/detail | M3 | Status, next run và history | P0 |
+| M9.9 | Automation CRUD/run/pause | M9.8 | Permission gate và API mutation đầy đủ | P0 |
+| M9.10 | Webhook/API token screens theo quyền | M9.8 | Secret không lưu cache/log trái policy | P1 |
+| M9.11 | Ticket lifecycle | Backend ticket API | Tạo/phân công/trạng thái/comment/attachment/notification | P0 trước final parity |
+| M9.12 | Announcement/system message | Backend producer | Hiển thị/acknowledge theo contract | P1 |
+| M9.13 | Admin external link | M3.2 | Chỉ admin thấy link mở Admin Panel browser | P1 |
+| M9.14 | Workspace admin mobile | Backend admin API | Quản lý thành viên, role, channel request, bot/automation cơ bản theo permission | P1 |
+| M9.15 | Super admin mobile | Backend super admin API | Xem workspace, trạng thái, chuyển workspace theo quyền, không trộn cache tenant | P1 |
 
 ## Phase M10: Native UX, accessibility và performance
 
@@ -307,7 +481,7 @@ Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức 
 | M10.9 | Localization | M1 | Tiếng Việt hoàn chỉnh, sẵn đường thêm ngôn ngữ | P1 |
 | M10.10 | App update/version gate | Backend version API | Cảnh báo/bắt buộc update khi contract không tương thích | P0 |
 
-## Phase M11: Test, security và Android release
+## Phase M11: Test, security và Android packaging
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
@@ -319,23 +493,49 @@ Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức 
 | M11.6 | Security test | M2/M7/M8 | Token/cache/log/deep link/push payload được audit | P0 |
 | M11.7 | Device matrix Android | M10 | OS/version/screen/device tầm thấp-trung-cao | P0 |
 | M11.8 | Workflow `mobile.yml` | M1 | analyze/test/build/sign/upload artifact | P0 |
-| M11.9 | Firebase App Distribution | M11.8 | Nhóm nội bộ dùng tối thiểu một chu kỳ | P0 |
-| M11.10 | Play Internal/Closed testing | M11.9 | Crash/ANR/auth/realtime metric đạt ngưỡng | P0 |
-| M11.11 | Play production staged rollout | M11.10 | Rollout theo phần trăm và có khả năng dừng | P0 |
+| M11.9 | Chốt `applicationId`/package name | M1 | Package name production ổn định; hiểu rằng khi upload Play Console lần đầu sẽ bị khóa | P0 |
+| M11.10 | Android signing setup | M11.8 | Tạo upload keystore, lưu secret trong CI, không commit `.jks`/password; quyết định dùng Play App Signing | P0 |
+| M11.11 | Build signed AAB/APK | M11.10 | Sinh được `.aab` cho CH Play và `.apk` cho tải trực tiếp/test; versionCode tăng tự động | P0 |
+| M11.12 | Debug symbols/mapping | M11.11 | Upload mapping/native symbols nếu có để đọc crash/ANR đúng | P1 |
+| M11.13 | Firebase App Distribution | M11.11 | Nhóm nội bộ nhận email/link và cài được bản test trên thiết bị thật | P0 |
+| M11.14 | Direct APK download fallback | M11.11 | Upload APK lên `download.vpsttt.com`, có checksum SHA-256, version, release notes và hướng dẫn cài | P0 |
+| M11.15 | Mobile update metadata | Backend version API | Web/mobile hiển thị bản mới, minimum version, recommended version và link tải phù hợp | P0 |
+| M11.16 | Tài liệu cài Android nội bộ | M11.13-M11.14 | Có hướng dẫn rõ cho Firebase, CH Play internal test và APK sideload | P0 |
 
-## Phase M12: iOS hardening và release
+## Phase M12: CH Play và kênh tải Android
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
-| M12.1 | Bundle/signing/provisioning | M11 | Build signed trên macOS runner | P0 |
-| M12.2 | APNs/Firebase push | M7 | Foreground/background/terminated pass trên thiết bị thật | P0 |
-| M12.3 | Universal Links | M7 | Link đã xác minh domain mở đúng app/message | P0 |
-| M12.4 | Keychain/biometric/privacy screen | M2/M10 | Security behavior đúng iOS | P0 |
-| M12.5 | Camera/mic/photo/file UX | M6 | Permission và picker đúng iOS | P0 |
-| M12.6 | Background/lifecycle test | M5/M7/M8 | Resume/catch-up không trùng/mất message | P0 |
-| M12.7 | Privacy manifest/Store metadata | M10 | Khai báo data/permission đúng thực tế | P0 |
-| M12.8 | TestFlight internal/external | M12.1-M12.7 | Nhóm test xác nhận parity | P0 |
-| M12.9 | App Store submission/rollout | M12.8 | Release có monitoring và rollback version plan | P0 |
+| M12.1 | Tạo Play Console app | M11.9 | App name, default language, app/game, free/paid, package name production được chốt | P0 |
+| M12.2 | Play App Signing | M11.10 | App được enroll Play App Signing; lưu upload key an toàn; lấy SHA-1/SHA-256 cho OAuth/App Links | P0 |
+| M12.3 | Target SDK/API compliance | M11.11 | Target API đáp ứng yêu cầu Google Play hiện hành; kiểm tra lại trước mỗi release lớn | P0 |
+| M12.4 | Store listing assets | M1/M10 | Icon, screenshots phone/tablet, feature graphic, short/full description tiếng Việt có dấu | P0 |
+| M12.5 | Privacy policy và support | M2/M7/M8 | URL privacy policy, email hỗ trợ, account deletion/export policy nếu áp dụng | P0 |
+| M12.6 | Data safety/content rating | M2-M10 | Khai báo dữ liệu thu thập/chia sẻ, mã hóa, xóa dữ liệu, content rating đầy đủ | P0 |
+| M12.7 | Permission declarations | M6/M7 | Camera, microphone, photo/file, notification, background/network permission có lý do đúng | P0 |
+| M12.8 | Internal testing track | M11.11 | Tối đa nhóm tester nội bộ cài qua Play Store; link opt-in hoạt động | P0 |
+| M12.9 | Closed/open testing track | M12.8 | Nhóm khách hàng/thử nghiệm nhận build qua Play, feedback được thu thập | P0 |
+| M12.10 | Pre-launch report và Android vitals | M12.8 | Không còn crash/blocker lớn trong pre-launch report; crash/ANR metric đạt ngưỡng | P0 |
+| M12.11 | Production staged rollout | M12.9-M12.10 | Rollout theo phần trăm, có khả năng pause/halt; monitoring active | P0 |
+| M12.12 | Managed Google Play/private app | M12.1 | Nếu bán B2B theo workspace, có phương án private app cho tổ chức cần quản lý thiết bị | P1 |
+| M12.13 | APK download public fallback | M11.14 | Nếu chưa public CH Play, người dùng vẫn tải được APK signed tại `download.vpsttt.com` kèm checksum | P0 |
+| M12.14 | Landing/download page | M12.8/M12.13 | Trang web tự nhận Android/iOS/Desktop và đưa link CH Play/Firebase/APK phù hợp | P1 |
+
+Ghi chú chính sách Android tại thời điểm cập nhật roadmap: Google Play yêu cầu app mới và bản cập nhật nhắm Android 15/API 35 hoặc cao hơn để gửi lên Play, trừ một số ngoại lệ thiết bị; cần kiểm tra lại yêu cầu này trước ngày release vì Google cập nhật hằng năm.
+
+## Phase M13: iOS hardening và release
+
+| Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
+|---|---|---|---|---|
+| M13.1 | Bundle/signing/provisioning | M11 | Build signed trên macOS runner | P0 |
+| M13.2 | APNs/Firebase push | M7 | Foreground/background/terminated pass trên thiết bị thật | P0 |
+| M13.3 | Universal Links | M7 | Link đã xác minh domain mở đúng app/message | P0 |
+| M13.4 | Keychain/biometric/privacy screen | M2/M10 | Security behavior đúng iOS | P0 |
+| M13.5 | Camera/mic/photo/file UX | M6 | Permission và picker đúng iOS | P0 |
+| M13.6 | Background/lifecycle test | M5/M7/M8 | Resume/catch-up không trùng/mất message | P0 |
+| M13.7 | Privacy manifest/Store metadata | M10 | Khai báo data/permission đúng thực tế | P0 |
+| M13.8 | TestFlight internal/external | M13.1-M13.7 | Nhóm test xác nhận parity | P0 |
+| M13.9 | App Store submission/rollout | M13.8 | Release có monitoring và rollback version plan | P0 |
 
 ## 8. Backend backlog bắt buộc cho bản đầy đủ
 
@@ -351,6 +551,16 @@ Mỗi feature chia `data`, `domain`, `application` và `presentation` ở mức 
 | MB-8 | Upload resume/chunk nếu file lớn | Mạng mobile yếu và process interruption |
 | MB-9 | Notification target chuẩn | Deep link workspace/channel/message ổn định |
 | MB-10 | Account deletion/export policy nếu public store yêu cầu | Tuân thủ store/privacy policy |
+| MB-11 | Call session/signaling API và WebSocket event | Audio/video call, ringing, missed/ended call card |
+| MB-12 | Call push notification/call timeout worker | Bên nhận thấy cuộc gọi đến khi app nền hoặc bị kill theo giới hạn OS |
+| MB-13 | Bot installation/config/flow API theo workspace | Mỗi công ty có bot/flow riêng, không hard-code VPSTTT |
+| MB-14 | AI provider config và secret vault | Mobile không giữ API key, admin chỉ cấu hình tham chiếu/secret name |
+| MB-15 | Tool registry/knowledge source API theo workspace | Bot dùng tool khác nhau theo công ty |
+| MB-16 | Bot run/test/audit/version API | Test flow, publish/rollback và audit chỉnh sửa |
+| MB-17 | Super admin workspace API | Mobile có thể hiển thị danh sách/trạng thái workspace theo quyền |
+| MB-18 | Mobile release metadata/version API | App biết bản minimum/recommended, link CH Play/APK/TestFlight và release notes |
+| MB-19 | Public download page và checksum manifest | Người dùng tải APK/Desktop đúng bản, có SHA-256 để kiểm tra |
+| MB-20 | Account deletion/export endpoint nếu public store yêu cầu | Đáp ứng privacy policy và khai báo store |
 
 ## 9. CI/CD đề xuất
 
@@ -360,10 +570,12 @@ Tạo `.github/workflows/mobile.yml` gồm:
 2. `flutter pub get`, format check, analyze và unit/widget test.
 3. Sinh Dart client/model và fail nếu diff chưa commit.
 4. Build APK debug cho pull request.
-5. Build signed AAB cho staging/release bằng GitHub Environment secrets.
-6. Chạy integration test trên emulator/device farm theo lịch.
-7. Phân phối Firebase App Distribution hoặc Play Internal.
-8. macOS job riêng build/sign IPA và upload TestFlight.
+5. Build signed APK và AAB cho staging/release bằng GitHub Environment secrets.
+6. Upload APK staging lên Firebase App Distribution cho nhóm tester.
+7. Upload AAB lên Play Internal/Closed track bằng Play Developer API khi release manager approve.
+8. Upload APK fallback lên `download.vpsttt.com` kèm SHA-256 checksum và release notes.
+9. Chạy integration test trên emulator/device farm theo lịch.
+10. macOS job riêng build/sign IPA và upload TestFlight.
 
 ## 10. Release checklist chung
 
@@ -380,7 +592,20 @@ Tạo `.github/workflows/mobile.yml` gồm:
 - [ ] TalkBack/VoiceOver, font lớn và touch target đạt yêu cầu.
 - [ ] Crash report/log không chứa token hoặc nội dung chat.
 - [ ] Store privacy/permission declaration đúng thực tế.
+- [ ] Android upload keystore, Play Console access và CI signing secret được bảo vệ bằng secret store.
+- [ ] AAB dùng cho CH Play, APK signed dùng cho Firebase/direct download; versionCode luôn tăng.
+- [ ] APK download public có SHA-256 checksum, release notes và hướng dẫn cài đặt rõ.
+- [ ] Play Console có privacy policy, data safety, content rating, permission declaration và store listing đầy đủ.
+- [ ] Internal/closed testing hoặc Firebase App Distribution đã chạy tối thiểu một vòng trên thiết bị thật.
+- [ ] Production rollout có kế hoạch pause/rollback và monitoring crash/ANR.
 - [ ] Có tài liệu hỗ trợ đăng nhập, notification, microphone, cache và logout.
+- [ ] Các màn mobile P0 đã đối chiếu screenshot với `docs/design/mobile/references/webtui-mobile-zalo-reference.png`.
+- [ ] Domain layer không import Flutter/Dio/Drift/Firebase/generated DTO.
+- [ ] DTO không xuất hiện trong widget, controller hoặc use case.
+- [ ] Mỗi feature P0 có repository interface, use case, mapper và test tối thiểu.
+- [ ] Provider/controller không chứa URL API, query SQL hoặc logic tenant/permission phức tạp.
+- [ ] Bot/AI không hard-code provider/tool/flow của VPSTTT; toàn bộ lấy theo workspace config.
+- [ ] Cache, websocket event, notification và deep link đều có `workspace_id`/tenant context rõ.
 
 ## 11. Ước lượng
 
@@ -392,7 +617,8 @@ Với hai lập trình viên Flutter và một backend hỗ trợ bán thời gi
 | M3-M5 workspace/chat/realtime | 4–5 tuần |
 | M6-M8 media/push/offline | 4–5 tuần |
 | M9-M10 module đầy đủ/hardening | 3–4 tuần, chưa tính ticket backend |
-| M11 Android release | 2 tuần |
-| M12 iOS release | 2–3 tuần |
+| M11 Android packaging/internal distribution | 1–2 tuần |
+| M12 CH Play và kênh tải Android | 2–3 tuần, tùy tốc độ review và chuẩn bị tài khoản |
+| M13 iOS release | 2–3 tuần |
 
-Android MVP nội bộ nên được phát hành sau M8. Production “đầy đủ toàn bộ chức năng” chỉ đạt khi M9-M12 và các backend backlog P0 hoàn thành.
+Android MVP nội bộ nên được phát hành sau M8 qua Firebase App Distribution hoặc APK signed trên `download.vpsttt.com`. Production “đầy đủ toàn bộ chức năng” chỉ đạt khi M9-M13 và các backend backlog P0 hoàn thành.

@@ -25,13 +25,27 @@ type Notification struct {
 }
 
 type NotificationPreference struct {
+	UserID       string
+	WorkspaceID  string
+	Mode         string
+	Preview      bool
+	QuietHours   bool
+	QuietStart   string
+	QuietEnd     string
+	Sound        bool
+	Vibrate      bool
+	CallRinging  bool
+	BadgeEnabled bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type ChannelPreference struct {
 	UserID      string
 	WorkspaceID string
+	ChannelID   string
 	Mode        string
-	Preview     bool
-	QuietHours  bool
-	QuietStart  string
-	QuietEnd    string
+	MutedUntil  *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

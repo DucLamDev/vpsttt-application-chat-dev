@@ -54,6 +54,12 @@ type ClientConfig struct {
 	DesktopRecommendedVersion string
 	DesktopReleaseManifestDir string
 	DesktopUpdateURL          string
+	MobileMinimumVersion      string
+	MobileRecommendedVersion  string
+	MobileReleaseManifestDir  string
+	MobileDownloadURL         string
+	MobileStoreURL            string
+	DownloadManifestDir       string
 }
 
 type HTTPConfig struct {
@@ -149,7 +155,13 @@ func Load() (*Config, error) {
 			DesktopMinimumVersion:     getEnv("DESKTOP_MIN_VERSION", "0.1.0"),
 			DesktopRecommendedVersion: getEnv("DESKTOP_RECOMMENDED_VERSION", getEnv("APP_VERSION", "dev")),
 			DesktopReleaseManifestDir: getEnv("DESKTOP_RELEASE_MANIFEST_DIR", ""),
-			DesktopUpdateURL:          getEnv("DESKTOP_UPDATE_URL", "https://chat.vpsttt.com/downloads/desktop"),
+			DesktopUpdateURL:          getEnv("DESKTOP_UPDATE_URL", "https://download.vpsttt.com/desktop"),
+			MobileMinimumVersion:      getEnv("MOBILE_MIN_VERSION", "0.1.0"),
+			MobileRecommendedVersion:  getEnv("MOBILE_RECOMMENDED_VERSION", getEnv("APP_VERSION", "dev")),
+			MobileReleaseManifestDir:  getEnv("MOBILE_RELEASE_MANIFEST_DIR", ""),
+			MobileDownloadURL:         getEnv("MOBILE_DOWNLOAD_URL", "https://download.vpsttt.com/mobile"),
+			MobileStoreURL:            getEnv("MOBILE_STORE_URL", ""),
+			DownloadManifestDir:       getEnv("DOWNLOAD_MANIFEST_DIR", ""),
 		},
 		HTTP: HTTPConfig{
 			Host:                 getEnv("API_HTTP_HOST", "0.0.0.0"),
@@ -231,6 +243,18 @@ func (c *Config) Validate() error {
 		parsed, err := url.Parse(strings.TrimSpace(c.Client.DesktopUpdateURL))
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 			problems = append(problems, "DESKTOP_UPDATE_URL must be a valid http/https URL")
+		}
+	}
+	if strings.TrimSpace(c.Client.MobileDownloadURL) != "" {
+		parsed, err := url.Parse(strings.TrimSpace(c.Client.MobileDownloadURL))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			problems = append(problems, "MOBILE_DOWNLOAD_URL must be a valid http/https URL")
+		}
+	}
+	if strings.TrimSpace(c.Client.MobileStoreURL) != "" {
+		parsed, err := url.Parse(strings.TrimSpace(c.Client.MobileStoreURL))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			problems = append(problems, "MOBILE_STORE_URL must be a valid http/https URL")
 		}
 	}
 	if c.HTTP.Port <= 0 || c.HTTP.Port > 65535 {

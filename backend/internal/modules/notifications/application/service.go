@@ -20,6 +20,8 @@ type Repository interface {
 	MarkAllRead(ctx context.Context, userID string, workspaceID string) error
 	ProcessPendingJobs(ctx context.Context, limit int) (int, error)
 	UpsertPreference(ctx context.Context, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error)
+	GetChannelPreference(ctx context.Context, userID string, workspaceID string, channelID string) (notificationsdomain.ChannelPreference, error)
+	UpsertChannelPreference(ctx context.Context, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error)
 }
 
 type Service struct {
@@ -57,25 +59,51 @@ type NotificationDTO struct {
 }
 
 type PreferenceInput struct {
-	UserID      string
-	WorkspaceID string
-	Mode        string
-	Preview     *bool
-	QuietHours  *bool
-	QuietStart  string
-	QuietEnd    string
+	UserID       string
+	WorkspaceID  string
+	Mode         string
+	Preview      *bool
+	QuietHours   *bool
+	QuietStart   string
+	QuietEnd     string
+	Sound        *bool
+	Vibrate      *bool
+	CallRinging  *bool
+	BadgeEnabled *bool
 }
 
 type NotificationPreferenceDTO struct {
-	UserID      string `json:"user_id"`
-	WorkspaceID string `json:"workspace_id"`
-	Mode        string `json:"mode"`
-	Preview     bool   `json:"preview"`
-	QuietHours  bool   `json:"quiet_hours"`
-	QuietStart  string `json:"quiet_start"`
-	QuietEnd    string `json:"quiet_end"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	UserID       string `json:"user_id"`
+	WorkspaceID  string `json:"workspace_id"`
+	Mode         string `json:"mode"`
+	Preview      bool   `json:"preview"`
+	QuietHours   bool   `json:"quiet_hours"`
+	QuietStart   string `json:"quiet_start"`
+	QuietEnd     string `json:"quiet_end"`
+	Sound        bool   `json:"sound"`
+	Vibrate      bool   `json:"vibrate"`
+	CallRinging  bool   `json:"call_ringing"`
+	BadgeEnabled bool   `json:"badge_enabled"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type ChannelPreferenceInput struct {
+	UserID      string
+	WorkspaceID string
+	ChannelID   string
+	Mode        string
+	MutedUntil  string
+}
+
+type ChannelPreferenceDTO struct {
+	UserID      string  `json:"user_id"`
+	WorkspaceID string  `json:"workspace_id"`
+	ChannelID   string  `json:"channel_id"`
+	Mode        string  `json:"mode"`
+	MutedUntil  *string `json:"muted_until,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 func NewService(repo Repository) *Service {
@@ -130,6 +158,32 @@ func (s *Service) UpsertPreference(ctx context.Context, input PreferenceInput) (
 		return NotificationPreferenceDTO{}, mapNotificationError(err)
 	}
 	return toPreferenceDTO(stored), nil
+}
+
+func (s *Service) GetChannelPreference(ctx context.Context, userID string, workspaceID string, channelID string) (ChannelPreferenceDTO, error) {
+	userID = strings.TrimSpace(userID)
+	workspaceID = strings.TrimSpace(workspaceID)
+	channelID = strings.TrimSpace(channelID)
+	if workspaceID == "" || channelID == "" {
+		return ChannelPreferenceDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "workspace_id và channel_id là bắt buộc.")
+	}
+	preference, err := s.repo.GetChannelPreference(ctx, userID, workspaceID, channelID)
+	if err != nil {
+		return ChannelPreferenceDTO{}, mapNotificationError(err)
+	}
+	return toChannelPreferenceDTO(preference), nil
+}
+
+func (s *Service) UpsertChannelPreference(ctx context.Context, input ChannelPreferenceInput) (ChannelPreferenceDTO, error) {
+	preference, err := normalizeChannelPreferenceInput(input)
+	if err != nil {
+		return ChannelPreferenceDTO{}, err
+	}
+	stored, err := s.repo.UpsertChannelPreference(ctx, preference)
+	if err != nil {
+		return ChannelPreferenceDTO{}, mapNotificationError(err)
+	}
+	return toChannelPreferenceDTO(stored), nil
 }
 
 func (s *Service) Handle(ctx context.Context, event outboxdomain.Event) error {
@@ -211,15 +265,66 @@ func normalizePreferenceInput(input PreferenceInput) (notificationsdomain.Notifi
 	if !isHHMM(quietStart) || !isHHMM(quietEnd) {
 		return notificationsdomain.NotificationPreference{}, apperrors.BadRequest("INVALID_QUIET_HOURS", "Quiet hours must use HH:MM.")
 	}
+	sound := true
+	if input.Sound != nil {
+		sound = *input.Sound
+	}
+	vibrate := true
+	if input.Vibrate != nil {
+		vibrate = *input.Vibrate
+	}
+	callRinging := true
+	if input.CallRinging != nil {
+		callRinging = *input.CallRinging
+	}
+	badgeEnabled := true
+	if input.BadgeEnabled != nil {
+		badgeEnabled = *input.BadgeEnabled
+	}
 
 	return notificationsdomain.NotificationPreference{
+		UserID:       userID,
+		WorkspaceID:  workspaceID,
+		Mode:         mode,
+		Preview:      preview,
+		QuietHours:   quietHours,
+		QuietStart:   quietStart,
+		QuietEnd:     quietEnd,
+		Sound:        sound,
+		Vibrate:      vibrate,
+		CallRinging:  callRinging,
+		BadgeEnabled: badgeEnabled,
+	}, nil
+}
+
+func normalizeChannelPreferenceInput(input ChannelPreferenceInput) (notificationsdomain.ChannelPreference, error) {
+	userID := strings.TrimSpace(input.UserID)
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	channelID := strings.TrimSpace(input.ChannelID)
+	if workspaceID == "" || channelID == "" {
+		return notificationsdomain.ChannelPreference{}, apperrors.BadRequest("VALIDATION_ERROR", "workspace_id và channel_id là bắt buộc.")
+	}
+	mode := strings.TrimSpace(input.Mode)
+	if mode == "" {
+		mode = "all"
+	}
+	if mode != "all" && mode != "mentions" && mode != "muted" {
+		return notificationsdomain.ChannelPreference{}, apperrors.BadRequest("INVALID_NOTIFICATION_MODE", "Notification mode must be all, mentions, or muted.")
+	}
+	var mutedUntil *time.Time
+	if value := strings.TrimSpace(input.MutedUntil); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return notificationsdomain.ChannelPreference{}, apperrors.BadRequest("VALIDATION_ERROR", "muted_until phải dùng định dạng RFC3339.")
+		}
+		mutedUntil = &parsed
+	}
+	return notificationsdomain.ChannelPreference{
 		UserID:      userID,
 		WorkspaceID: workspaceID,
+		ChannelID:   channelID,
 		Mode:        mode,
-		Preview:     preview,
-		QuietHours:  quietHours,
-		QuietStart:  quietStart,
-		QuietEnd:    quietEnd,
+		MutedUntil:  mutedUntil,
 	}, nil
 }
 
@@ -254,13 +359,29 @@ func toDTO(notification notificationsdomain.Notification) NotificationDTO {
 
 func toPreferenceDTO(preference notificationsdomain.NotificationPreference) NotificationPreferenceDTO {
 	return NotificationPreferenceDTO{
+		UserID:       preference.UserID,
+		WorkspaceID:  preference.WorkspaceID,
+		Mode:         preference.Mode,
+		Preview:      preference.Preview,
+		QuietHours:   preference.QuietHours,
+		QuietStart:   preference.QuietStart,
+		QuietEnd:     preference.QuietEnd,
+		Sound:        preference.Sound,
+		Vibrate:      preference.Vibrate,
+		CallRinging:  preference.CallRinging,
+		BadgeEnabled: preference.BadgeEnabled,
+		CreatedAt:    formatTime(preference.CreatedAt),
+		UpdatedAt:    formatTime(preference.UpdatedAt),
+	}
+}
+
+func toChannelPreferenceDTO(preference notificationsdomain.ChannelPreference) ChannelPreferenceDTO {
+	return ChannelPreferenceDTO{
 		UserID:      preference.UserID,
 		WorkspaceID: preference.WorkspaceID,
+		ChannelID:   preference.ChannelID,
 		Mode:        preference.Mode,
-		Preview:     preference.Preview,
-		QuietHours:  preference.QuietHours,
-		QuietStart:  preference.QuietStart,
-		QuietEnd:    preference.QuietEnd,
+		MutedUntil:  formatOptionalTime(preference.MutedUntil),
 		CreatedAt:   formatTime(preference.CreatedAt),
 		UpdatedAt:   formatTime(preference.UpdatedAt),
 	}

@@ -23,6 +23,10 @@ import (
 	botsapp "github.com/duclamdev/application-chat/backend/internal/modules/bots/application"
 	botshttp "github.com/duclamdev/application-chat/backend/internal/modules/bots/delivery/http"
 	botspostgres "github.com/duclamdev/application-chat/backend/internal/modules/bots/infrastructure/postgres"
+	callsapp "github.com/duclamdev/application-chat/backend/internal/modules/calls/application"
+	callshttp "github.com/duclamdev/application-chat/backend/internal/modules/calls/delivery/http"
+	callspostgres "github.com/duclamdev/application-chat/backend/internal/modules/calls/infrastructure/postgres"
+	callsws "github.com/duclamdev/application-chat/backend/internal/modules/calls/infrastructure/websocket"
 	channelsapp "github.com/duclamdev/application-chat/backend/internal/modules/channels/application"
 	channelshttp "github.com/duclamdev/application-chat/backend/internal/modules/channels/delivery/http"
 	channelspostgres "github.com/duclamdev/application-chat/backend/internal/modules/channels/infrastructure/postgres"
@@ -55,9 +59,15 @@ import (
 	presenceapp "github.com/duclamdev/application-chat/backend/internal/modules/presence/application"
 	presencehttp "github.com/duclamdev/application-chat/backend/internal/modules/presence/delivery/http"
 	presencepostgres "github.com/duclamdev/application-chat/backend/internal/modules/presence/infrastructure/postgres"
+	pushdevicesapp "github.com/duclamdev/application-chat/backend/internal/modules/push_devices/application"
+	pushdeviceshttp "github.com/duclamdev/application-chat/backend/internal/modules/push_devices/delivery/http"
+	pushdevicespostgres "github.com/duclamdev/application-chat/backend/internal/modules/push_devices/infrastructure/postgres"
 	rbacapp "github.com/duclamdev/application-chat/backend/internal/modules/rbac/application"
 	rbachttp "github.com/duclamdev/application-chat/backend/internal/modules/rbac/delivery/http"
 	rbacpostgres "github.com/duclamdev/application-chat/backend/internal/modules/rbac/infrastructure/postgres"
+	syncapp "github.com/duclamdev/application-chat/backend/internal/modules/sync/application"
+	synchttp "github.com/duclamdev/application-chat/backend/internal/modules/sync/delivery/http"
+	syncpostgres "github.com/duclamdev/application-chat/backend/internal/modules/sync/infrastructure/postgres"
 	ticketsapp "github.com/duclamdev/application-chat/backend/internal/modules/tickets/application"
 	ticketshttp "github.com/duclamdev/application-chat/backend/internal/modules/tickets/delivery/http"
 	ticketspostgres "github.com/duclamdev/application-chat/backend/internal/modules/tickets/infrastructure/postgres"
@@ -86,6 +96,12 @@ func (a *API) registerRoutes() {
 		DesktopRecommendedVersion: a.cfg.Client.DesktopRecommendedVersion,
 		DesktopReleaseManifestDir: a.cfg.Client.DesktopReleaseManifestDir,
 		DesktopUpdateURL:          a.cfg.Client.DesktopUpdateURL,
+		MobileMinimumVersion:      a.cfg.Client.MobileMinimumVersion,
+		MobileRecommendedVersion:  a.cfg.Client.MobileRecommendedVersion,
+		MobileReleaseManifestDir:  a.cfg.Client.MobileReleaseManifestDir,
+		MobileDownloadURL:         a.cfg.Client.MobileDownloadURL,
+		MobileStoreURL:            a.cfg.Client.MobileStoreURL,
+		DownloadManifestDir:       a.cfg.Client.DownloadManifestDir,
 		StartedAt:                 a.cfg.App.StartedAt,
 		Now:                       time.Now,
 		Checks:                    a.healthChecks(),
@@ -131,6 +147,11 @@ func (a *API) registerAPIV1() {
 	usersService := usersapp.NewService(usersRepo, rbacService)
 	usersHandler := usershttp.NewHandler(usersService)
 	usersHandler.RegisterRoutes(v1.Group("/users"), authMiddleware)
+
+	pushDevicesRepo := pushdevicespostgres.NewRepository(pool)
+	pushDevicesService := pushdevicesapp.NewService(pushDevicesRepo, rbacService)
+	pushDevicesHandler := pushdeviceshttp.NewHandler(pushDevicesService)
+	pushDevicesHandler.RegisterRoutes(v1, authMiddleware)
 
 	contactsRepo := contactspostgres.NewRepository(pool)
 	var contactsRealtime contactsapp.RealtimePublisher
@@ -201,10 +222,24 @@ func (a *API) registerAPIV1() {
 	presenceHandler := presencehttp.NewHandler(presenceService)
 	presenceHandler.RegisterRoutes(v1, authMiddleware)
 
+	syncRepo := syncpostgres.NewRepository(pool)
+	syncService := syncapp.NewService(syncRepo, rbacService)
+	syncHandler := synchttp.NewHandler(syncService)
+	syncHandler.RegisterRoutes(v1, authMiddleware)
+
 	botsRepo := botspostgres.NewRepository(pool)
 	botsService := botsapp.NewService(botsRepo, rbacService)
 	botsHandler := botshttp.NewHandler(botsService)
 	botsHandler.RegisterRoutes(v1, authMiddleware)
+
+	callsRepo := callspostgres.NewRepository(pool)
+	var callsRealtime callsapp.RealtimePublisher
+	if a.resources.WebSocket != nil {
+		callsRealtime = callsws.NewPublisher(a.resources.WebSocket)
+	}
+	callsService := callsapp.NewService(callsRepo, rbacService, callsRealtime)
+	callsHandler := callshttp.NewHandler(callsService)
+	callsHandler.RegisterRoutes(v1, authMiddleware)
 
 	orderRepo := orderpostgres.NewRepository(pool)
 	orderAPIClient := orderclient.New(orderclient.Config{

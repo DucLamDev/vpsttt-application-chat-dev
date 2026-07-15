@@ -1,0 +1,7 @@
+interface:
+  display_name: "Mobile WebTui Chat"
+  short_description: "Quy ước Flutter mobile, Clean Architecture và UI reference Zalo-like của WebTui Chat"
+  default_prompt: "Use $webtui-chat-mobile to thiết kế, sinh code hoặc rà soát mobile app WebTui Chat theo Clean Architecture và ảnh reference UI."
+policy:
+  allow_implicit_invocation: true
+

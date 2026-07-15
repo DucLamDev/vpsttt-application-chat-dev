@@ -22,6 +22,12 @@ type BuildInfo struct {
 	DesktopRecommendedVersion string
 	DesktopReleaseManifestDir string
 	DesktopUpdateURL          string
+	MobileMinimumVersion      string
+	MobileRecommendedVersion  string
+	MobileReleaseManifestDir  string
+	MobileDownloadURL         string
+	MobileStoreURL            string
+	DownloadManifestDir       string
 	StartedAt                 time.Time
 	Now                       func() time.Time
 	Checks                    map[string]CheckFunc
@@ -47,6 +53,8 @@ func (h *Handler) Register(router gin.IRouter) {
 	router.GET("/ready", h.Ready)
 	router.GET("/version", h.Version)
 	router.GET("/desktop/releases/:channel/:target/:arch/:current_version", h.DesktopRelease)
+	router.GET("/mobile/releases/:platform/:channel/:current_version", h.MobileRelease)
+	router.GET("/downloads/manifest/:channel", h.DownloadManifest)
 }
 
 func (h *Handler) Health(c *gin.Context) {
@@ -94,10 +102,72 @@ func (h *Handler) Version(c *gin.Context) {
 				"recommended_version": h.build.DesktopRecommendedVersion,
 				"update_url":          h.build.DesktopUpdateURL,
 			},
+			"mobile": gin.H{
+				"minimum_version":     h.build.MobileMinimumVersion,
+				"recommended_version": h.build.MobileRecommendedVersion,
+				"download_url":        h.build.MobileDownloadURL,
+				"store_url":           h.build.MobileStoreURL,
+			},
 		},
 		"env":     h.build.Env,
 		"version": h.build.Version,
 	})
+}
+
+func (h *Handler) MobileRelease(c *gin.Context) {
+	platform := strings.ToLower(strings.TrimSpace(c.Param("platform")))
+	channel := strings.ToLower(strings.TrimSpace(c.Param("channel")))
+	currentVersion := strings.TrimSpace(c.Param("current_version"))
+	if platform != "android" && platform != "ios" {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_PLATFORM", "Nền tảng mobile không hợp lệ.", nil)
+		return
+	}
+	if channel != "stable" && channel != "beta" && channel != "internal" {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_CHANNEL", "Mobile release channel không hợp lệ.", nil)
+		return
+	}
+	if !safeDesktopReleasePart(currentVersion) {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_TARGET", "Phiên bản mobile không hợp lệ.", nil)
+		return
+	}
+	if root := strings.TrimSpace(h.build.MobileReleaseManifestDir); root != "" {
+		manifestPath, ok := safeManifestPath(root, channel, platform, "")
+		if !ok {
+			response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_TARGET", "Mobile release target không hợp lệ.", nil)
+			return
+		}
+		h.serveJSONManifest(c, manifestPath, "MOBILE_RELEASE")
+		return
+	}
+	response.OK(c, nethttp.StatusOK, gin.H{
+		"platform":            platform,
+		"channel":             channel,
+		"current_version":     currentVersion,
+		"minimum_version":     h.build.MobileMinimumVersion,
+		"recommended_version": h.build.MobileRecommendedVersion,
+		"download_url":        h.build.MobileDownloadURL,
+		"store_url":           h.build.MobileStoreURL,
+		"required":            false,
+	})
+}
+
+func (h *Handler) DownloadManifest(c *gin.Context) {
+	root := strings.TrimSpace(h.build.DownloadManifestDir)
+	if root == "" {
+		response.NoContent(c)
+		return
+	}
+	channel := strings.ToLower(strings.TrimSpace(c.Param("channel")))
+	if channel != "stable" && channel != "beta" && channel != "internal" {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_CHANNEL", "Download manifest channel không hợp lệ.", nil)
+		return
+	}
+	manifestPath, ok := safeDownloadManifestPath(root, channel)
+	if !ok {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_TARGET", "Download manifest target không hợp lệ.", nil)
+		return
+	}
+	h.serveJSONManifest(c, manifestPath, "DOWNLOAD_MANIFEST")
 }
 
 func (h *Handler) DesktopRelease(c *gin.Context) {
@@ -112,17 +182,17 @@ func (h *Handler) DesktopRelease(c *gin.Context) {
 	arch := strings.TrimSpace(c.Param("arch"))
 	currentVersion := strings.TrimSpace(c.Param("current_version"))
 	if channel != "stable" && channel != "beta" {
-		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_CHANNEL", "Desktop release channel khong hop le.", nil)
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_CHANNEL", "Desktop release channel không hợp lệ.", nil)
 		return
 	}
 	if !safeDesktopReleasePart(target) || !safeDesktopReleasePart(arch) || !safeDesktopReleasePart(currentVersion) {
-		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_TARGET", "Desktop release target khong hop le.", nil)
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_TARGET", "Desktop release target không hợp lệ.", nil)
 		return
 	}
 
 	manifestPath, ok := safeManifestPath(root, channel, target, arch)
 	if !ok {
-		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_TARGET", "Desktop release target khong hop le.", nil)
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_RELEASE_TARGET", "Desktop release target không hợp lệ.", nil)
 		return
 	}
 	content, err := os.ReadFile(manifestPath)
@@ -131,14 +201,31 @@ func (h *Handler) DesktopRelease(c *gin.Context) {
 			response.NoContent(c)
 			return
 		}
-		response.Fail(c, nethttp.StatusInternalServerError, "DESKTOP_RELEASE_UNAVAILABLE", "Khong doc duoc desktop release manifest.", nil)
+		response.Fail(c, nethttp.StatusInternalServerError, "DESKTOP_RELEASE_UNAVAILABLE", "Không đọc được desktop release manifest.", nil)
 		return
 	}
 	if !json.Valid(content) {
-		response.Fail(c, nethttp.StatusInternalServerError, "DESKTOP_RELEASE_INVALID", "Desktop release manifest khong phai JSON hop le.", nil)
+		response.Fail(c, nethttp.StatusInternalServerError, "DESKTOP_RELEASE_INVALID", "Desktop release manifest không phải JSON hợp lệ.", nil)
 		return
 	}
 
+	c.Data(nethttp.StatusOK, "application/json; charset=utf-8", content)
+}
+
+func (h *Handler) serveJSONManifest(c *gin.Context, manifestPath string, codePrefix string) {
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			response.NoContent(c)
+			return
+		}
+		response.Fail(c, nethttp.StatusInternalServerError, codePrefix+"_UNAVAILABLE", "Không đọc được manifest phát hành.", nil)
+		return
+	}
+	if !json.Valid(content) {
+		response.Fail(c, nethttp.StatusInternalServerError, codePrefix+"_INVALID", "Manifest phát hành không phải JSON hợp lệ.", nil)
+		return
+	}
 	c.Data(nethttp.StatusOK, "application/json; charset=utf-8", content)
 }
 
@@ -155,7 +242,29 @@ func safeManifestPath(root string, channel string, target string, arch string) (
 	if err != nil {
 		return "", false
 	}
-	manifestPath := filepath.Join(absRoot, channel, target, arch, "latest.json")
+	parts := []string{absRoot, channel, target}
+	if strings.TrimSpace(arch) != "" {
+		parts = append(parts, arch)
+	}
+	parts = append(parts, "latest.json")
+	manifestPath := filepath.Join(parts...)
+	absManifest, err := filepath.Abs(manifestPath)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(absRoot, absManifest)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return "", false
+	}
+	return absManifest, true
+}
+
+func safeDownloadManifestPath(root string, channel string) (string, bool) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	manifestPath := filepath.Join(absRoot, channel, "manifest.json")
 	absManifest, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return "", false

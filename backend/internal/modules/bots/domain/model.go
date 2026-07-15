@@ -47,3 +47,47 @@ type BotMessage struct {
 	Metadata    []byte
 	CreatedAt   time.Time
 }
+
+type AIConfig struct {
+	WorkspaceID string
+	BotID       string
+	Provider    string
+	Model       string
+	SecretRef   *string
+	Settings    []byte
+	CreatedBy   *string
+	UpdatedBy   *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type Flow struct {
+	ID              string
+	WorkspaceID     string
+	BotID           string
+	Version         int
+	Status          string
+	Name            string
+	Prompt          string
+	TriggerConfig   []byte
+	ToolConfig      []byte
+	KnowledgeConfig []byte
+	CreatedBy       *string
+	UpdatedBy       *string
+	PublishedAt     *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type FlowRun struct {
+	ID          string
+	WorkspaceID string
+	BotID       string
+	FlowID      string
+	Input       []byte
+	Transcript  []byte
+	Status      string
+	Error       *string
+	CreatedBy   *string
+	CreatedAt   time.Time
+}

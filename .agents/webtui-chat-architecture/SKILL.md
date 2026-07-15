@@ -22,6 +22,7 @@ Luôn bám kiến trúc trong `CleanArchitecture.md` và các tài liệu ở `d
    - `docs/database/postgresql-design.md` nếu có schema, migration hoặc repository PostgreSQL.
    - `backend/api/openapi/openapi.yaml` nếu có endpoint mới hoặc đang chuẩn bị frontend.
    - `.agents/webtui-chat-frontend/SKILL.md` nếu đang sinh code, thiết kế UI hoặc rà soát kiến trúc frontend.
+   - `.agents/webtui-chat-mobile/SKILL.md` nếu đang thiết kế, sinh code hoặc rà soát mobile app Flutter, Android/iOS release, CH Play hoặc UI mobile.
    - `backend/docs/files.md` nếu có upload, download, attachment, Local/MinIO/S3.
    - `backend/docs/notifications-worker-presence.md` nếu có outbox, notification, worker hoặc presence.
    - `backend/docs/integrations-phase-8.md` nếu có API token, bot, incoming webhook hoặc outgoing webhook.
@@ -51,7 +52,8 @@ Luôn bám kiến trúc trong `CleanArchitecture.md` và các tài liệu ở `d
 - WebSocket manager là platform dùng chung, không để từng module tự quản lý connection.
 - Event quan trọng phải idempotent và có retry/dead letter.
 - API server trả response nhanh, tác vụ nặng chuyển sang worker.
+- Mobile P0 backend đã có push devices, sync/catch-up cursor, call session/signaling, bot AI config/flow theo workspace và release/download manifest; khi làm mobile phải đối chiếu `backend/api/openapi/openapi.yaml`.
 
 ## Tài liệu tham khảo ngắn
 
-Đọc `references/architecture.md` khi cần bản tóm tắt nhanh các ranh giới kiến trúc, trạng thái phase backend và API backend đã có để chuẩn bị làm frontend. Khi triển khai frontend cụ thể, chuyển sang `.agents/webtui-chat-frontend/SKILL.md` để lấy API map, clean architecture và theme UI.
+Đọc `references/architecture.md` khi cần bản tóm tắt nhanh các ranh giới kiến trúc, trạng thái phase backend và API backend đã có để chuẩn bị làm frontend/mobile. Khi triển khai frontend cụ thể, chuyển sang `.agents/webtui-chat-frontend/SKILL.md` để lấy API map, clean architecture và theme UI. Khi triển khai mobile Flutter, chuyển sang `.agents/webtui-chat-mobile/SKILL.md` và bắt buộc đối chiếu ảnh `docs/design/mobile/references/webtui-mobile-zalo-reference.png` trước khi dựng UI.

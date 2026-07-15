@@ -36,8 +36,13 @@ var callSignalTypes = map[string]struct{}{
 	"CallOffer":        {},
 	"CallAnswer":       {},
 	"CallIceCandidate": {},
+	"CallInvited":      {},
+	"CallRinging":      {},
+	"CallAccepted":     {},
 	"CallRejected":     {},
+	"CallCancelled":    {},
 	"CallEnded":        {},
+	"CallMissed":       {},
 }
 
 func NewHandler(manager *platformws.Manager, tokens *sharedauth.Manager, authorizers ...RoomAuthorizer) *Handler {

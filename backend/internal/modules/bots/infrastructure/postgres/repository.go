@@ -182,6 +182,165 @@ RETURNING id::text, workspace_id::text, channel_id::text, kind, body, metadata::
 	return message, nil
 }
 
+func (r *Repository) GetAIConfig(ctx context.Context, workspaceID string, botID string) (botsdomain.AIConfig, error) {
+	row := r.pool.QueryRow(ctx, `
+SELECT workspace_id::text, bot_id::text, provider, model, secret_ref, settings::text,
+       created_by::text, updated_by::text, created_at, updated_at
+FROM bot_ai_configs
+WHERE workspace_id = $1::uuid AND bot_id = $2::uuid
+`, workspaceID, botID)
+	return scanAIConfig(row)
+}
+
+func (r *Repository) UpsertAIConfig(ctx context.Context, params botsapp.AIConfigParams) (botsdomain.AIConfig, error) {
+	row := r.pool.QueryRow(ctx, `
+WITH bot AS (
+    SELECT id, workspace_id
+    FROM bots
+    WHERE workspace_id = $1::uuid
+      AND id = $2::uuid
+      AND deleted_at IS NULL
+)
+INSERT INTO bot_ai_configs (workspace_id, bot_id, provider, model, secret_ref, settings, created_by, updated_by)
+SELECT workspace_id, id, $3, $4, NULLIF($5, ''), $6::jsonb, $7::uuid, $7::uuid
+FROM bot
+ON CONFLICT (workspace_id, bot_id) DO UPDATE SET
+    provider = EXCLUDED.provider,
+    model = EXCLUDED.model,
+    secret_ref = EXCLUDED.secret_ref,
+    settings = EXCLUDED.settings,
+    updated_by = EXCLUDED.updated_by
+RETURNING workspace_id::text, bot_id::text, provider, model, secret_ref, settings::text,
+          created_by::text, updated_by::text, created_at, updated_at
+`, params.WorkspaceID, params.BotID, params.Provider, params.Model, params.SecretRef, string(params.Settings), params.ActorUserID)
+	return scanAIConfig(row)
+}
+
+func (r *Repository) ListFlows(ctx context.Context, workspaceID string, botID string) ([]botsdomain.Flow, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT id::text, workspace_id::text, bot_id::text, version, status, name, prompt,
+       trigger_config::text, tool_config::text, knowledge_config::text,
+       created_by::text, updated_by::text, published_at, created_at, updated_at
+FROM bot_flows
+WHERE workspace_id = $1::uuid AND bot_id = $2::uuid
+ORDER BY version DESC, created_at DESC
+`, workspaceID, botID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	flows := make([]botsdomain.Flow, 0)
+	for rows.Next() {
+		flow, err := scanFlow(rows)
+		if err != nil {
+			return nil, err
+		}
+		flows = append(flows, flow)
+	}
+	return flows, rows.Err()
+}
+
+func (r *Repository) CreateFlow(ctx context.Context, params botsapp.FlowParams) (botsdomain.Flow, error) {
+	row := r.pool.QueryRow(ctx, `
+WITH next_version AS (
+    SELECT COALESCE(MAX(version), 0) + 1 AS value
+    FROM bot_flows
+    WHERE workspace_id = $1::uuid AND bot_id = $2::uuid
+),
+bot AS (
+    SELECT id, workspace_id
+    FROM bots
+    WHERE workspace_id = $1::uuid
+      AND id = $2::uuid
+      AND deleted_at IS NULL
+)
+INSERT INTO bot_flows (workspace_id, bot_id, version, name, prompt, trigger_config, tool_config, knowledge_config, created_by, updated_by)
+SELECT bot.workspace_id, bot.id, next_version.value, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::uuid, $8::uuid
+FROM bot, next_version
+RETURNING id::text, workspace_id::text, bot_id::text, version, status, name, prompt,
+          trigger_config::text, tool_config::text, knowledge_config::text,
+          created_by::text, updated_by::text, published_at, created_at, updated_at
+`, params.WorkspaceID, params.BotID, params.Name, params.Prompt, string(params.TriggerConfig), string(params.ToolConfig), string(params.KnowledgeConfig), params.ActorUserID)
+	return scanFlow(row)
+}
+
+func (r *Repository) UpdateFlow(ctx context.Context, params botsapp.FlowParams) (botsdomain.Flow, error) {
+	row := r.pool.QueryRow(ctx, `
+UPDATE bot_flows
+SET name = $4,
+    prompt = $5,
+    trigger_config = $6::jsonb,
+    tool_config = $7::jsonb,
+    knowledge_config = $8::jsonb,
+    updated_by = $9::uuid
+WHERE workspace_id = $1::uuid
+  AND bot_id = $2::uuid
+  AND id = $3::uuid
+  AND status = 'draft'
+RETURNING id::text, workspace_id::text, bot_id::text, version, status, name, prompt,
+          trigger_config::text, tool_config::text, knowledge_config::text,
+          created_by::text, updated_by::text, published_at, created_at, updated_at
+`, params.WorkspaceID, params.BotID, params.FlowID, params.Name, params.Prompt, string(params.TriggerConfig), string(params.ToolConfig), string(params.KnowledgeConfig), params.ActorUserID)
+	return scanFlow(row)
+}
+
+func (r *Repository) PublishFlow(ctx context.Context, params botsapp.PublishFlowParams) (botsdomain.Flow, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return botsdomain.Flow{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	if _, err := tx.Exec(ctx, `
+UPDATE bot_flows
+SET status = 'archived'
+WHERE workspace_id = $1::uuid
+  AND bot_id = $2::uuid
+  AND status = 'published'
+`, params.WorkspaceID, params.BotID); err != nil {
+		return botsdomain.Flow{}, err
+	}
+	row := tx.QueryRow(ctx, `
+UPDATE bot_flows
+SET status = 'published',
+    published_at = now(),
+    updated_by = $4::uuid
+WHERE workspace_id = $1::uuid
+  AND bot_id = $2::uuid
+  AND id = $3::uuid
+RETURNING id::text, workspace_id::text, bot_id::text, version, status, name, prompt,
+          trigger_config::text, tool_config::text, knowledge_config::text,
+          created_by::text, updated_by::text, published_at, created_at, updated_at
+`, params.WorkspaceID, params.BotID, params.FlowID, params.ActorUserID)
+	flow, err := scanFlow(row)
+	if err != nil {
+		return botsdomain.Flow{}, err
+	}
+	return flow, tx.Commit(ctx)
+}
+
+func (r *Repository) TestFlow(ctx context.Context, params botsapp.TestFlowParams) (botsdomain.FlowRun, error) {
+	transcript, err := json.Marshal(map[string]any{
+		"message":    "Flow đã được nhận để kiểm thử. Runtime AI thật sẽ xử lý ở worker khi được cấu hình.",
+		"tool_calls": []any{},
+	})
+	if err != nil {
+		return botsdomain.FlowRun{}, err
+	}
+	row := r.pool.QueryRow(ctx, `
+INSERT INTO bot_flow_runs (workspace_id, bot_id, flow_id, input, transcript, status, created_by)
+SELECT workspace_id, bot_id, id, $4::jsonb, $5::jsonb, 'success', $6::uuid
+FROM bot_flows
+WHERE workspace_id = $1::uuid
+  AND bot_id = $2::uuid
+  AND id = $3::uuid
+RETURNING id::text, workspace_id::text, bot_id::text, flow_id::text, input::text, transcript::text,
+          status, error, created_by::text, created_at
+`, params.WorkspaceID, params.BotID, params.FlowID, string(params.Input), string(transcript), params.ActorUserID)
+	return scanFlowRun(row)
+}
+
 type commandExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
@@ -300,6 +459,107 @@ func scanBotMessage(row rowScanner, botID string) (botsdomain.BotMessage, error)
 	message.BotID = botID
 	message.Metadata = []byte(metadata)
 	return message, nil
+}
+
+func scanAIConfig(row rowScanner) (botsdomain.AIConfig, error) {
+	var config botsdomain.AIConfig
+	var secretRef sql.NullString
+	var createdBy sql.NullString
+	var updatedBy sql.NullString
+	var settings string
+	if err := row.Scan(
+		&config.WorkspaceID,
+		&config.BotID,
+		&config.Provider,
+		&config.Model,
+		&secretRef,
+		&settings,
+		&createdBy,
+		&updatedBy,
+		&config.CreatedAt,
+		&config.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return botsdomain.AIConfig{}, botsdomain.ErrBotNotFound
+		}
+		return botsdomain.AIConfig{}, err
+	}
+	config.SecretRef = nullStringPtr(secretRef)
+	config.Settings = []byte(settings)
+	config.CreatedBy = nullStringPtr(createdBy)
+	config.UpdatedBy = nullStringPtr(updatedBy)
+	return config, nil
+}
+
+func scanFlow(row rowScanner) (botsdomain.Flow, error) {
+	var flow botsdomain.Flow
+	var triggerConfig string
+	var toolConfig string
+	var knowledgeConfig string
+	var createdBy sql.NullString
+	var updatedBy sql.NullString
+	var publishedAt sql.NullTime
+	if err := row.Scan(
+		&flow.ID,
+		&flow.WorkspaceID,
+		&flow.BotID,
+		&flow.Version,
+		&flow.Status,
+		&flow.Name,
+		&flow.Prompt,
+		&triggerConfig,
+		&toolConfig,
+		&knowledgeConfig,
+		&createdBy,
+		&updatedBy,
+		&publishedAt,
+		&flow.CreatedAt,
+		&flow.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return botsdomain.Flow{}, botsdomain.ErrBotNotFound
+		}
+		return botsdomain.Flow{}, err
+	}
+	flow.TriggerConfig = []byte(triggerConfig)
+	flow.ToolConfig = []byte(toolConfig)
+	flow.KnowledgeConfig = []byte(knowledgeConfig)
+	flow.CreatedBy = nullStringPtr(createdBy)
+	flow.UpdatedBy = nullStringPtr(updatedBy)
+	if publishedAt.Valid {
+		flow.PublishedAt = &publishedAt.Time
+	}
+	return flow, nil
+}
+
+func scanFlowRun(row rowScanner) (botsdomain.FlowRun, error) {
+	var run botsdomain.FlowRun
+	var input string
+	var transcript string
+	var errorMessage sql.NullString
+	var createdBy sql.NullString
+	if err := row.Scan(
+		&run.ID,
+		&run.WorkspaceID,
+		&run.BotID,
+		&run.FlowID,
+		&input,
+		&transcript,
+		&run.Status,
+		&errorMessage,
+		&createdBy,
+		&run.CreatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return botsdomain.FlowRun{}, botsdomain.ErrBotNotFound
+		}
+		return botsdomain.FlowRun{}, err
+	}
+	run.Input = []byte(input)
+	run.Transcript = []byte(transcript)
+	run.Error = nullStringPtr(errorMessage)
+	run.CreatedBy = nullStringPtr(createdBy)
+	return run, nil
 }
 
 func nullStringPtr(value sql.NullString) *string {

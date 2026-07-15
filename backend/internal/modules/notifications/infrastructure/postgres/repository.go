@@ -75,6 +75,10 @@ SELECT m.user_id::text, m.workspace_id::text,
        COALESCE(np.quiet_hours, false),
        COALESCE(np.quiet_start::text, '22:00'),
        COALESCE(np.quiet_end::text, '07:00'),
+       COALESCE(np.sound, true),
+       COALESCE(np.vibrate, true),
+       COALESCE(np.call_ringing, true),
+       COALESCE(np.badge_enabled, true),
        COALESCE(np.created_at, now()),
        COALESCE(np.updated_at, now())
 FROM member m
@@ -145,21 +149,85 @@ WITH member AS (
     )
 ),
 upserted AS (
-    INSERT INTO notification_preferences (user_id, workspace_id, mode, preview, quiet_hours, quiet_start, quiet_end)
-    SELECT user_id, workspace_id, $3, $4, $5, $6, $7
+    INSERT INTO notification_preferences (user_id, workspace_id, mode, preview, quiet_hours, quiet_start, quiet_end, sound, vibrate, call_ringing, badge_enabled)
+    SELECT user_id, workspace_id, $3, $4, $5, $6, $7, $8, $9, $10, $11
     FROM member
     ON CONFLICT (user_id, workspace_id) DO UPDATE SET
         mode = EXCLUDED.mode,
         preview = EXCLUDED.preview,
         quiet_hours = EXCLUDED.quiet_hours,
         quiet_start = EXCLUDED.quiet_start,
-        quiet_end = EXCLUDED.quiet_end
-    RETURNING user_id::text, workspace_id::text, mode, preview, quiet_hours, quiet_start::text, quiet_end::text, created_at, updated_at
+        quiet_end = EXCLUDED.quiet_end,
+        sound = EXCLUDED.sound,
+        vibrate = EXCLUDED.vibrate,
+        call_ringing = EXCLUDED.call_ringing,
+        badge_enabled = EXCLUDED.badge_enabled
+    RETURNING user_id::text, workspace_id::text, mode, preview, quiet_hours, quiet_start::text, quiet_end::text,
+              sound, vibrate, call_ringing, badge_enabled, created_at, updated_at
 )
-SELECT user_id, workspace_id, mode, preview, quiet_hours, quiet_start, quiet_end, created_at, updated_at
+SELECT user_id, workspace_id, mode, preview, quiet_hours, quiet_start, quiet_end,
+       sound, vibrate, call_ringing, badge_enabled, created_at, updated_at
 FROM upserted
-`, preference.UserID, preference.WorkspaceID, preference.Mode, preference.Preview, preference.QuietHours, preference.QuietStart, preference.QuietEnd)
+`, preference.UserID, preference.WorkspaceID, preference.Mode, preference.Preview, preference.QuietHours, preference.QuietStart, preference.QuietEnd,
+		preference.Sound, preference.Vibrate, preference.CallRinging, preference.BadgeEnabled)
 	return scanNotificationPreference(row)
+}
+
+func (r *Repository) GetChannelPreference(ctx context.Context, userID string, workspaceID string, channelID string) (notificationsdomain.ChannelPreference, error) {
+	row := r.pool.QueryRow(ctx, `
+WITH member AS (
+    SELECT $1::uuid AS user_id, $2::uuid AS workspace_id, $3::uuid AS channel_id
+    WHERE EXISTS (
+        SELECT 1
+        FROM channel_members cm
+        JOIN channels c ON c.id = cm.channel_id
+        WHERE cm.user_id = $1::uuid
+          AND c.workspace_id = $2::uuid
+          AND c.id = $3::uuid
+          AND cm.status IN ('active', 'muted')
+          AND c.deleted_at IS NULL
+    )
+)
+SELECT m.user_id::text, m.workspace_id::text, m.channel_id::text,
+       COALESCE(ncp.mode, 'all'),
+       ncp.muted_until,
+       COALESCE(ncp.created_at, now()),
+       COALESCE(ncp.updated_at, now())
+FROM member m
+LEFT JOIN notification_channel_preferences ncp
+  ON ncp.user_id = m.user_id AND ncp.workspace_id = m.workspace_id AND ncp.channel_id = m.channel_id
+`, userID, workspaceID, channelID)
+	return scanChannelPreference(row)
+}
+
+func (r *Repository) UpsertChannelPreference(ctx context.Context, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error) {
+	row := r.pool.QueryRow(ctx, `
+WITH member AS (
+    SELECT $1::uuid AS user_id, $2::uuid AS workspace_id, $3::uuid AS channel_id
+    WHERE EXISTS (
+        SELECT 1
+        FROM channel_members cm
+        JOIN channels c ON c.id = cm.channel_id
+        WHERE cm.user_id = $1::uuid
+          AND c.workspace_id = $2::uuid
+          AND c.id = $3::uuid
+          AND cm.status IN ('active', 'muted')
+          AND c.deleted_at IS NULL
+    )
+),
+upserted AS (
+    INSERT INTO notification_channel_preferences (user_id, workspace_id, channel_id, mode, muted_until)
+    SELECT user_id, workspace_id, channel_id, $4, $5
+    FROM member
+    ON CONFLICT (user_id, workspace_id, channel_id) DO UPDATE SET
+        mode = EXCLUDED.mode,
+        muted_until = EXCLUDED.muted_until
+    RETURNING user_id::text, workspace_id::text, channel_id::text, mode, muted_until, created_at, updated_at
+)
+SELECT user_id, workspace_id, channel_id, mode, muted_until, created_at, updated_at
+FROM upserted
+`, preference.UserID, preference.WorkspaceID, preference.ChannelID, preference.Mode, preference.MutedUntil)
+	return scanChannelPreference(row)
 }
 
 func (r *Repository) ProcessPendingJobs(ctx context.Context, limit int) (int, error) {
@@ -227,6 +295,10 @@ func scanNotificationPreference(row rowScanner) (notificationsdomain.Notificatio
 		&preference.QuietHours,
 		&preference.QuietStart,
 		&preference.QuietEnd,
+		&preference.Sound,
+		&preference.Vibrate,
+		&preference.CallRinging,
+		&preference.BadgeEnabled,
 		&preference.CreatedAt,
 		&preference.UpdatedAt,
 	); err != nil {
@@ -235,6 +307,27 @@ func scanNotificationPreference(row rowScanner) (notificationsdomain.Notificatio
 		}
 		return notificationsdomain.NotificationPreference{}, err
 	}
+	return preference, nil
+}
+
+func scanChannelPreference(row rowScanner) (notificationsdomain.ChannelPreference, error) {
+	var preference notificationsdomain.ChannelPreference
+	var mutedUntil sql.NullTime
+	if err := row.Scan(
+		&preference.UserID,
+		&preference.WorkspaceID,
+		&preference.ChannelID,
+		&preference.Mode,
+		&mutedUntil,
+		&preference.CreatedAt,
+		&preference.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return notificationsdomain.ChannelPreference{}, notificationsdomain.ErrNotificationPreferenceUnavailable
+		}
+		return notificationsdomain.ChannelPreference{}, err
+	}
+	preference.MutedUntil = nullTimePtr(mutedUntil)
 	return preference, nil
 }
 

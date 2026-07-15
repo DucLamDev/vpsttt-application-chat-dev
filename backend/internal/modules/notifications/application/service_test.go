@@ -11,10 +11,12 @@ import (
 )
 
 type fakeNotificationRepo struct {
-	mentionParams MentionParams
-	mentionCalled bool
-	preference    notificationsdomain.NotificationPreference
-	upsertCalled  bool
+	mentionParams       MentionParams
+	mentionCalled       bool
+	preference          notificationsdomain.NotificationPreference
+	upsertCalled        bool
+	channelPreference   notificationsdomain.ChannelPreference
+	channelUpsertCalled bool
 }
 
 func (r *fakeNotificationRepo) CreateMentionNotifications(_ context.Context, params MentionParams) error {
@@ -59,6 +61,28 @@ func (r *fakeNotificationRepo) UpsertPreference(_ context.Context, preference no
 		r.preference.UpdatedAt = r.preference.CreatedAt
 	}
 	return r.preference, nil
+}
+
+func (r *fakeNotificationRepo) GetChannelPreference(context.Context, string, string, string) (notificationsdomain.ChannelPreference, error) {
+	if r.channelPreference.CreatedAt.IsZero() {
+		r.channelPreference.CreatedAt = time.Now()
+	}
+	if r.channelPreference.UpdatedAt.IsZero() {
+		r.channelPreference.UpdatedAt = r.channelPreference.CreatedAt
+	}
+	return r.channelPreference, nil
+}
+
+func (r *fakeNotificationRepo) UpsertChannelPreference(_ context.Context, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error) {
+	r.channelPreference = preference
+	r.channelUpsertCalled = true
+	if r.channelPreference.CreatedAt.IsZero() {
+		r.channelPreference.CreatedAt = time.Now()
+	}
+	if r.channelPreference.UpdatedAt.IsZero() {
+		r.channelPreference.UpdatedAt = r.channelPreference.CreatedAt
+	}
+	return r.channelPreference, nil
 }
 
 func TestHandleCreatesMentionNotificationsFromMessageCreatedEvent(t *testing.T) {
@@ -116,13 +140,13 @@ func TestUpsertPreferenceValidatesAndStoresDesktopPolicy(t *testing.T) {
 		t.Fatalf("UpsertPreference() error = %v", err)
 	}
 	if !repo.upsertCalled {
-		t.Fatal("UpsertPreference() phai luu preference")
+		t.Fatal("UpsertPreference() phải lưu preference")
 	}
 	if preference.Mode != "mentions" || preference.Preview || !preference.QuietHours {
-		t.Fatalf("preference khong dung: %#v", preference)
+		t.Fatalf("preference không đúng: %#v", preference)
 	}
 	if repo.preference.QuietStart != "21:30" || repo.preference.QuietEnd != "06:45" {
-		t.Fatalf("quiet hours khong dung: %#v", repo.preference)
+		t.Fatalf("quiet hours không đúng: %#v", repo.preference)
 	}
 }
 
@@ -136,10 +160,57 @@ func TestUpsertPreferenceRejectsInvalidMode(t *testing.T) {
 		Mode:        "everything",
 	})
 	if err == nil {
-		t.Fatal("UpsertPreference() phai tra loi voi mode khong hop le")
+		t.Fatal("UpsertPreference() phải trả lỗi với mode không hợp lệ")
 	}
 	if repo.upsertCalled {
-		t.Fatal("UpsertPreference() khong duoc ghi repo khi input sai")
+		t.Fatal("UpsertPreference() không được ghi repo khi input sai")
+	}
+}
+
+func TestUpsertPreferenceStoresMobileToggles(t *testing.T) {
+	repo := &fakeNotificationRepo{}
+	service := NewService(repo)
+	sound := false
+	vibrate := false
+	callRinging := false
+	badgeEnabled := false
+
+	preference, err := service.UpsertPreference(context.Background(), PreferenceInput{
+		UserID:       "user-1",
+		WorkspaceID:  "workspace-1",
+		Mode:         "all",
+		Sound:        &sound,
+		Vibrate:      &vibrate,
+		CallRinging:  &callRinging,
+		BadgeEnabled: &badgeEnabled,
+	})
+	if err != nil {
+		t.Fatalf("UpsertPreference() error = %v", err)
+	}
+	if preference.Sound || preference.Vibrate || preference.CallRinging || preference.BadgeEnabled {
+		t.Fatalf("mobile toggles không đúng: %#v", preference)
+	}
+}
+
+func TestUpsertChannelPreferenceStoresMute(t *testing.T) {
+	repo := &fakeNotificationRepo{}
+	service := NewService(repo)
+
+	preference, err := service.UpsertChannelPreference(context.Background(), ChannelPreferenceInput{
+		UserID:      "user-1",
+		WorkspaceID: "workspace-1",
+		ChannelID:   "channel-1",
+		Mode:        "muted",
+		MutedUntil:  "2026-07-15T10:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("UpsertChannelPreference() error = %v", err)
+	}
+	if !repo.channelUpsertCalled {
+		t.Fatal("UpsertChannelPreference() phải lưu preference theo kênh")
+	}
+	if preference.Mode != "muted" || preference.MutedUntil == nil {
+		t.Fatalf("channel preference không đúng: %#v", preference)
 	}
 }
 
