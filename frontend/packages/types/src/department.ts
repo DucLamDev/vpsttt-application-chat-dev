@@ -35,6 +35,7 @@ export type DepartmentMember = {
   email?: string;
   username?: string;
   display_name?: string;
+  avatar_url?: string | null;
   role: "lead" | "member" | string;
   created_at?: ISODateTime;
 };

@@ -75,12 +75,15 @@ export function useWebRtcCall({
   const loggedOutcomeKeyRef = useRef("");
   const outgoingRingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callStateRef = useRef<WebRtcCallState>({ mode: "audio", status: "idle" });
+  const previousChannelIdRef = useRef(channelId);
+  const mediaSessionTokenRef = useRef(0);
 
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
 
   const cleanup = useCallback((nextState?: WebRtcCallState) => {
+    mediaSessionTokenRef.current += 1;
     if (outgoingRingTimerRef.current) {
       clearTimeout(outgoingRingTimerRef.current);
       outgoingRingTimerRef.current = null;
@@ -100,6 +103,23 @@ export function useWebRtcCall({
   }, []);
 
   useEffect(() => () => cleanup(), [cleanup]);
+
+  useEffect(() => {
+    const channelChanged = previousChannelIdRef.current !== channelId;
+    previousChannelIdRef.current = channelId;
+    if (channelChanged) {
+      lastSignalSequenceRef.current = 0;
+    }
+    const hasLiveResources = Boolean(
+      peerRef.current ||
+        localStreamRef.current ||
+        remoteStreamRef.current ||
+        (callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error")
+    );
+    if ((!enabled || channelChanged) && hasLiveResources) {
+      cleanup();
+    }
+  }, [channelId, cleanup, enabled]);
 
   useEffect(() => {
     if (callState.status !== "ended" && callState.status !== "error") {
@@ -226,11 +246,16 @@ export function useWebRtcCall({
         return;
       }
       const callId = newCallId();
+      const mediaSessionToken = ++mediaSessionTokenRef.current;
       try {
         loggedOutcomeKeyRef.current = "";
         const ringStartedAt = Date.now();
         setCallState({ callId, initiatorUserId: currentUserId, mode, peerName: peerName || channelName, status: "outgoing" });
         const stream = await openLocalMedia(mode);
+        if (mediaSessionToken !== mediaSessionTokenRef.current) {
+          cleanup();
+          return;
+        }
         const peer = createPeer(callId, mode);
         attachLocalTracks(peer, stream);
         const offer = await peer.createOffer();
@@ -283,10 +308,15 @@ export function useWebRtcCall({
     }
     const callId = signal.payload.call_id;
     const mode = signal.payload.mode ?? "audio";
+    const mediaSessionToken = ++mediaSessionTokenRef.current;
     try {
       loggedOutcomeKeyRef.current = "";
       setCallState({ callId, initiatorUserId: signal.userId, mode, peerName: peerName || channelName, peerUserId: signal.userId, status: "connecting" });
       const stream = await openLocalMedia(mode);
+      if (mediaSessionToken !== mediaSessionTokenRef.current) {
+        cleanup();
+        return;
+      }
       const peer = createPeer(callId, mode);
       attachLocalTracks(peer, stream);
       await peer.setRemoteDescription(new RTCSessionDescription(offer));
@@ -371,13 +401,20 @@ export function useWebRtcCall({
   }, [isCameraOff]);
 
   useEffect(() => {
-    if (!lastSignal || lastSignal.sequence <= lastSignalSequenceRef.current) {
+    if (!lastSignal) {
       return;
     }
-    lastSignalSequenceRef.current = lastSignal.sequence;
+    if (!enabled || !channelId) {
+      lastSignalSequenceRef.current = Math.max(lastSignalSequenceRef.current, lastSignal.sequence);
+      return;
+    }
     if (lastSignal.payload.channel_id && channelId && lastSignal.payload.channel_id !== channelId) {
       return;
     }
+    if (lastSignal.sequence <= lastSignalSequenceRef.current) {
+      return;
+    }
+    lastSignalSequenceRef.current = lastSignal.sequence;
 
     const handleSignal = async () => {
       const payload = lastSignal.payload;
@@ -451,7 +488,7 @@ export function useWebRtcCall({
     };
 
     void handleSignal();
-  }, [channelId, channelName, cleanup, currentUserId, emitOutcome, flushPendingCandidates, lastSignal, peerName, publish]);
+  }, [channelId, channelName, cleanup, currentUserId, emitOutcome, enabled, flushPendingCandidates, lastSignal, peerName, publish]);
 
   return {
     acceptCall,

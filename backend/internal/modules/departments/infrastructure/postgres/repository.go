@@ -220,7 +220,7 @@ WHERE dm.department_id = d.id
 
 func (r *Repository) ListMembers(ctx context.Context, workspaceID string, departmentID string) ([]departmentsdomain.Member, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT dm.department_id::text, dm.user_id::text, u.email::text, u.username::text, u.display_name, dm.role, dm.created_at
+SELECT dm.department_id::text, dm.user_id::text, u.email::text, u.username::text, u.display_name, u.avatar_url, dm.role, dm.created_at
 FROM department_members dm
 JOIN departments d ON d.id = dm.department_id AND d.deleted_at IS NULL
 JOIN users u ON u.id = dm.user_id AND u.deleted_at IS NULL
@@ -261,7 +261,7 @@ VALUES (NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, '')::uuid
 
 func (r *Repository) member(ctx context.Context, workspaceID string, departmentID string, userID string) (departmentsdomain.Member, error) {
 	row := r.pool.QueryRow(ctx, `
-SELECT dm.department_id::text, dm.user_id::text, u.email::text, u.username::text, u.display_name, dm.role, dm.created_at
+SELECT dm.department_id::text, dm.user_id::text, u.email::text, u.username::text, u.display_name, u.avatar_url, dm.role, dm.created_at
 FROM department_members dm
 JOIN departments d ON d.id = dm.department_id AND d.deleted_at IS NULL
 JOIN users u ON u.id = dm.user_id AND u.deleted_at IS NULL
@@ -303,12 +303,14 @@ func scanDepartment(row rowScanner) (departmentsdomain.Department, error) {
 
 func scanMember(row rowScanner) (departmentsdomain.Member, error) {
 	var member departmentsdomain.Member
+	var avatarURL sql.NullString
 	if err := row.Scan(
 		&member.DepartmentID,
 		&member.UserID,
 		&member.Email,
 		&member.Username,
 		&member.DisplayName,
+		&avatarURL,
 		&member.Role,
 		&member.CreatedAt,
 	); err != nil {
@@ -317,6 +319,7 @@ func scanMember(row rowScanner) (departmentsdomain.Member, error) {
 		}
 		return departmentsdomain.Member{}, err
 	}
+	member.AvatarURL = nullStringPtr(avatarURL)
 	return member, nil
 }
 

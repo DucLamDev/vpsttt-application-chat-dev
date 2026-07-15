@@ -122,8 +122,9 @@ function createUploadId() {
 }
 
 function createUploadItem(file: File, durationSeconds?: number): UploadQueueItem {
-  const isImage = file.type.startsWith("image/");
-  const isAudio = file.type.startsWith("audio/") || file.type === "application/ogg";
+  const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
+  const isImage = file.type.startsWith("image/") || ["gif", "jpeg", "jpg", "png", "webp"].includes(extension);
+  const isAudio = Boolean(durationSeconds) || file.type.startsWith("audio/") || file.type === "application/ogg";
 
   return {
     durationSeconds,

@@ -32,6 +32,7 @@ type Member struct {
 	Email       string
 	Username    string
 	DisplayName string
+	AvatarURL   *string
 	PhoneNumber *string
 	Status      string
 	Title       *string

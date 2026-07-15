@@ -117,6 +117,7 @@ type MemberDTO struct {
 	Email        string `json:"email"`
 	Username     string `json:"username"`
 	DisplayName  string `json:"display_name"`
+	AvatarURL    *string `json:"avatar_url,omitempty"`
 	Role         string `json:"role"`
 	CreatedAt    string `json:"created_at"`
 }
@@ -367,6 +368,7 @@ func toMemberDTO(member departmentsdomain.Member) MemberDTO {
 		Email:        member.Email,
 		Username:     member.Username,
 		DisplayName:  member.DisplayName,
+		AvatarURL:    member.AvatarURL,
 		Role:         member.Role,
 		CreatedAt:    formatTime(member.CreatedAt),
 	}
