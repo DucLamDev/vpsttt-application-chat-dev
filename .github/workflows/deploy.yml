@@ -1,0 +1,148 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - Docker
+    branches:
+      - main
+      - master
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Moi truong trien khai"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: "Tag image can deploy. De trong de dung SHA commit hien tai; dung latest neu muon deploy latest"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: webtui-chat-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/webtui-chat' }}
+  API_HEALTH_URL: ${{ vars.API_HEALTH_URL || 'https://chat.vpsttt.com/ready' }}
+  IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || (inputs.image_tag != '' && inputs.image_tag || github.sha) }}
+
+jobs:
+  deploy:
+    name: Deploy Docker Compose
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Normalize image namespace
+        id: image
+        run: echo "namespace=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate deployment secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          test -n "$DEPLOY_HOST" || (echo "Missing DEPLOY_HOST secret" && exit 1)
+          test -n "$DEPLOY_USER" || (echo "Missing DEPLOY_USER secret" && exit 1)
+          if [ -z "$DEPLOY_PASSWORD" ] && [ -z "$DEPLOY_SSH_KEY" ]; then
+            echo "Missing DEPLOY_PASSWORD or DEPLOY_SSH_KEY secret"
+            exit 1
+          fi
+          test -n "$GHCR_TOKEN" || (echo "Missing GHCR_TOKEN secret with read:packages permission" && exit 1)
+
+      - name: Preflight GHCR pull access
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAMESPACE: ${{ steps.image.outputs.namespace }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
+          echo "Checking GHCR images for tag: $IMAGE_TAG"
+          missing=0
+          for service in api worker web; do
+            image="$REGISTRY/$IMAGE_NAMESPACE/$service:$IMAGE_TAG"
+            echo "Checking $image"
+            if ! docker manifest inspect "$image" >/dev/null; then
+              echo "::error title=Missing GHCR image::$image is not available. Run the Docker workflow for this commit/tag first, or pass an existing image_tag."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Tao thu muc deploy tren VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            mkdir -p "${{ env.DEPLOY_PATH }}"
+
+      - name: Dong bo cau hinh deploy
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "deploy"
+          target: ${{ env.DEPLOY_PATH }}
+          overwrite: true
+
+      - name: Deploy tren VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAMESPACE: ${{ steps.image.outputs.namespace }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
+          API_HEALTH_URL: ${{ env.API_HEALTH_URL }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: REGISTRY,IMAGE_NAMESPACE,IMAGE_TAG,GHCR_USERNAME,GHCR_TOKEN,DEPLOY_PATH,API_HEALTH_URL
+          script: |
+            set -eu
+            cd "$DEPLOY_PATH"
+            test -f .env
+            if [ -n "${GHCR_TOKEN:-}" ]; then
+              printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
+            fi
+            export WEBTUI_API_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/api:$IMAGE_TAG"
+            export WEBTUI_WORKER_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
+            export WEBTUI_WEB_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/web:$IMAGE_TAG"
+            export API_HEALTH_URL="$API_HEALTH_URL"
+            sh deploy/scripts/deploy-compose.sh
+
+      - name: Health check public
+        run: curl -fsS "${{ env.API_HEALTH_URL }}"

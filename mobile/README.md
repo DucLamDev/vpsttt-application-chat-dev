@@ -1,0 +1,90 @@
+# WebTui Chat Mobile
+
+Flutter mobile app nằm trong `mobile/` và đi theo feature-first Clean Architecture:
+
+```text
+Presentation -> Application -> Domain <- Data
+```
+
+## Phase M1 Foundation
+
+- `lib/app`: bootstrap, flavor config, router và root app.
+- `lib/core`: Result/Failure, error mapper, request ID, Dio boundary, OpenAPI boundary, Drift database foundation, secure storage abstraction và logger redaction.
+- `lib/design_system`: token màu, typography, spacing, radius, shadow, list density, bottom tab và segmented control theo reference Zalo-like/WebTui.
+- `lib/features/<feature>`: mỗi feature tự chia `domain`, `application`, `data`, `presentation` khi bắt đầu có nghiệp vụ.
+
+## Phase M2 Auth/Session
+
+- `features/auth/domain`: entity và repository interface thuần Dart, không biết Dio, Flutter secure storage, Drift hay DTO.
+- `features/auth/application`: login, refresh, logout, session revoke/list và app-lock PIN use case.
+- `features/auth/data`: remote datasource, DTO mapper, repository implementation, token source và interceptor refresh.
+- `features/auth/presentation`: login controller/screen; widget chỉ gọi controller/use case.
+
+Token policy:
+
+- Access token chỉ nằm trong memory của `SecureAuthTokenRepository`.
+- Refresh token lưu qua `SecureKeyValueStore`, tương ứng Keychain/Keystore khi chạy mobile.
+- Login/refresh/logout dùng `authDioProvider` không gắn auth interceptor; request nghiệp vụ dùng `dioProvider` có `AuthRefreshInterceptor`.
+- Nhiều request 401 đồng thời đi qua `RefreshAccessTokenUseCase` single-flight, chỉ gọi `/auth/refresh` một lần.
+- Logout luôn clear access token, refresh token, active workspace id và các key-value scope `session`/`workspace:*`.
+- Device identity là UUID ngẫu nhiên do app tạo và lưu secure; không đọc hardware identifier nhạy cảm.
+
+App lock/privacy:
+
+- PIN app-lock lưu hash SHA-256 có salt theo device id trong secure storage.
+- Biometric adapter sẽ gắn khi UX/backend có contract rõ; M2 đặt sẵn boundary use case/repository cho app lock.
+- `PrivacyGuard` phủ nội dung khi app inactive/paused; Android `MainActivity` bật `FLAG_SECURE` qua MethodChannel `webtui/privacy`.
+
+## Phase M3 Workspace/RBAC/Profile/Settings
+
+- `features/workspace`: gọi API thật `GET /api/v1/workspaces` và `GET /api/v1/rbac/me?workspace_id=...`; UI gate bằng permission code qua `PermissionSet`, không suy từ tên role.
+- Active workspace lưu trong secure store bằng `SecureStoreKey.activeWorkspaceId`.
+- Khi đổi workspace, app reset runtime scope trong Drift (`workspace_runtime`, `workspace:{id}:runtime`) và tăng generation để rebuild shell/provider phụ thuộc workspace; route chọn workspace dùng `context.go('/')` để reset navigation stack.
+- `features/profile`: gọi `GET|PATCH /api/v1/users/me`; avatar chọn bằng camera/gallery qua `image_picker`, upload multipart vào `POST /api/v1/workspaces/{workspace_id}/files`, rồi cập nhật `avatar_url`.
+- `features/settings`: lưu theme/language/notification/privacy preview theo session scope local; màn quyền riêng tư dùng session API từ M2 để list/revoke phiên.
+- 403 từ backend được giữ message tiếng Việt trong `FailureKind.forbidden` và hiển thị như lỗi quyền, không map thành lỗi hệ thống chung.
+
+## Flavor Và Base URL
+
+Android có 3 product flavors: `dev`, `staging`, `prod`. Dart entrypoint tương ứng:
+
+```sh
+flutter run --flavor dev -t lib/main_dev.dart
+flutter run --flavor staging -t lib/main_staging.dart
+flutter run --flavor prod -t lib/main_prod.dart
+```
+
+Base URL không nằm trong widget. Cấu hình mặc định của cả 3 flavor đều trỏ backend thật `https://api.vpsttt.com` để các chức năng sử dụng được ngay. Khi cần test backend local, có thể override bằng:
+
+```sh
+flutter run --flavor dev -t lib/main_dev.dart --dart-define=WEBTUI_API_BASE_URL=http://10.0.2.2:8080
+```
+
+## Ranh Giới Phụ Thuộc
+
+- Presentation chỉ gọi controller/use case và design system.
+- Dio, Drift, secure storage, Firebase và generated DTO/OpenAPI client không được import trong presentation/widget.
+- Repository interface đặt trong domain; implementation nằm trong data.
+- Access token giữ trong memory; refresh token đi qua `SecureKeyValueStore`.
+- Cache/local data luôn phải có scope tenant như `workspace_id` khi thêm bảng nghiệp vụ.
+
+Chạy rule kiến trúc:
+
+```sh
+dart run tool/check_architecture.dart
+```
+
+## Lệnh Kiểm Tra
+
+```sh
+flutter pub get
+dart format --set-exit-if-changed lib test tool
+dart run tool/check_architecture.dart
+flutter analyze
+flutter test
+flutter build apk --debug --flavor dev -t lib/main_dev.dart
+```
+
+## Reference UI
+
+Ảnh reference đã tồn tại tại `../docs/design/mobile/references/webtui-mobile-zalo-reference.png`. Phase M1 dựng shell và design tokens; Phase M2 thêm auth/session foundation và login entrypoint, chưa phụ thuộc backend/mock production trong widget test.

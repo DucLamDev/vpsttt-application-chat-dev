@@ -1,0 +1,16 @@
+{
+  "name": "@webtui/desktop",
+  "version": "0.1.4",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "npm --workspace @webtui/web run build:desktop && tauri build",
+    "build:release": "node ./scripts/build-release.mjs",
+    "write-updater-manifest": "node ./scripts/write-updater-manifest.mjs",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

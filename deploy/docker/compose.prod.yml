@@ -1,0 +1,144 @@
+name: webtui-chat
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - path: ../../.env
+        required: true
+        format: raw
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: ${WEBTUI_API_IMAGE}
+    profiles: ["migration"]
+    env_file:
+      - path: ../../.env
+        required: true
+        format: raw
+    command: ["migrate", "up"]
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ${WEBTUI_API_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - path: ../../.env
+        required: true
+        format: raw
+    environment:
+      REGISTRATION_DEFAULT_WORKSPACE_ID: ${REGISTRATION_DEFAULT_WORKSPACE_ID:-3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c}
+    volumes:
+      - ../../data/desktop-releases:/var/lib/webtui/desktop-releases:ro
+      - ../../data/download-manifests:/var/lib/webtui/download-manifests:ro
+    expose:
+      - "8080"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  worker:
+    image: ${WEBTUI_WORKER_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - path: ../../.env
+        required: true
+        format: raw
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    image: ${WEBTUI_WEB_IMAGE}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://chat.vpsttt.com}
+      NEXT_PUBLIC_WS_BASE_URL: ${NEXT_PUBLIC_WS_BASE_URL:-wss://chat.vpsttt.com/ws}
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+      NEXT_PUBLIC_RTC_ICE_SERVERS: ${NEXT_PUBLIC_RTC_ICE_SERVERS:-stun:stun.l.google.com:19302}
+      NEXT_TELEMETRY_DISABLED: "1"
+      PORT: "3000"
+    expose:
+      - "3000"
+    networks:
+      - backend
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-chat.vpsttt.com}
+      FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:-chat.vpsttt.com}
+      API_UPSTREAM: api:8080
+      FRONTEND_UPSTREAM: web:3000
+    volumes:
+      - ../nginx/templates:/etc/nginx/templates:ro
+      - ../../data/downloads:/var/www/downloads:ro
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot:ro
+    networks:
+      - backend
+
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["certbot"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  letsencrypt:
+  certbot_www:
