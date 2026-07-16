@@ -2829,6 +2829,7 @@ export function ChatWorkspace() {
                 onPreviewAttachment={handlePreviewAttachment}
                 onResolveAttachment={data.downloadAttachment}
                 onLoadOlderMessages={handleLoadOlderMessages}
+                onOpenThread={handleOpenThread}
                 onReplyMessage={handleReplyToMessage}
                 onFocusedMessageSettled={handleFocusedMessageSettled}
                 onRetryCall={(mode) => void callControls.startCall(mode)}
@@ -6533,6 +6534,7 @@ function MessageTimeline({
   onPreviewAttachment,
   onResolveAttachment,
   onLoadOlderMessages,
+  onOpenThread,
   onReplyMessage,
   onFocusedMessageSettled,
   onRetryCall,
@@ -6565,6 +6567,7 @@ function MessageTimeline({
   onPreviewAttachment: (attachment: MessageAttachmentItem, source?: string) => void;
   onResolveAttachment: (fileId: string) => Promise<Blob>;
   onLoadOlderMessages: () => Promise<unknown> | void;
+  onOpenThread: (messageId: string) => void;
   onReplyMessage: (message: ChatMessage, author: ChatUser) => void;
   onFocusedMessageSettled: () => void;
   onRetryCall: (mode: "audio" | "video") => void;
@@ -6610,6 +6613,13 @@ function MessageTimeline({
     [currentUserId, messageOrderById, messages, readMembers]
   );
 
+  const jumpTimelineToBottom = useCallback((timeline: HTMLDivElement) => {
+    const previousScrollBehavior = timeline.style.scrollBehavior;
+    timeline.style.scrollBehavior = "auto";
+    timeline.scrollTop = timeline.scrollHeight;
+    timeline.style.scrollBehavior = previousScrollBehavior;
+  }, []);
+
   useLayoutEffect(() => {
     const timeline = timelineRef.current;
     if (!timeline || !lastMessageId || timelineIdRef.current === timelineId) {
@@ -6618,8 +6628,10 @@ function MessageTimeline({
 
     timelineIdRef.current = timelineId;
     lastAutoScrollMessageIdRef.current = lastMessageId;
-    timeline.scrollTop = timeline.scrollHeight;
-  }, [lastMessageId, timelineId]);
+    jumpTimelineToBottom(timeline);
+    const frame = window.requestAnimationFrame(() => jumpTimelineToBottom(timeline));
+    return () => window.cancelAnimationFrame(frame);
+  }, [jumpTimelineToBottom, lastMessageId, timelineId]);
 
   useEffect(() => {
     if (!actionMenuMessageId && !reactionPickerMessageId) {
@@ -6904,6 +6916,19 @@ function MessageTimeline({
                     <Tooltip label="Mở luồng trả lời">
                       <button
                         aria-label="Mở luồng trả lời"
+                        onClick={() => {
+                          setActionMenuMessageId(null);
+                          onOpenThread(message.id);
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <MessageCircle size={15} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="Trả lời">
+                      <button
+                        aria-label="Trả lời"
                         onClick={() => {
                           setActionMenuMessageId(null);
                           onReplyMessage(message, messageAuthor);
