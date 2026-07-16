@@ -7,13 +7,17 @@ import '../../core/database/app_database.dart';
 import '../../core/logging/redacting_logger.dart';
 import '../../core/network/api_transport.dart';
 import '../../core/network/request_id.dart';
+import '../../core/notifications/push_notification_service.dart';
 import '../../core/security/secure_key_value_store.dart';
 import '../../features/auth/application/use_cases/app_lock_use_cases.dart';
+import '../../features/auth/application/use_cases/google_login_use_case.dart';
 import '../../features/auth/application/use_cases/login_use_case.dart';
 import '../../features/auth/application/use_cases/logout_use_case.dart';
 import '../../features/auth/application/use_cases/refresh_access_token_use_case.dart';
+import '../../features/auth/application/use_cases/register_use_case.dart';
 import '../../features/auth/application/use_cases/session_use_cases.dart';
 import '../../features/auth/data/datasources/auth_remote_data_source.dart';
+import '../../features/auth/data/google/google_sign_in_identity_provider.dart';
 import '../../features/auth/data/network/auth_refresh_interceptor.dart';
 import '../../features/auth/data/repositories/auth_repository_impl.dart';
 import '../../features/auth/data/repositories/local_session_state_repository.dart';
@@ -24,11 +28,13 @@ import '../../features/auth/domain/repositories/app_lock_repository.dart';
 import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../../features/auth/domain/repositories/auth_token_repository.dart';
 import '../../features/auth/domain/repositories/device_identity_repository.dart';
+import '../../features/auth/domain/repositories/google_identity_provider.dart';
 import '../../features/auth/domain/repositories/session_state_repository.dart';
 import '../../features/conversations/application/use_cases/channel_use_cases.dart';
 import '../../features/conversations/application/use_cases/load_conversation_home_use_case.dart';
 import '../../features/conversations/application/use_cases/message_use_cases.dart';
 import '../../features/conversations/application/use_cases/open_direct_conversation_use_case.dart';
+import '../../features/conversations/application/use_cases/presence_use_cases.dart';
 import '../../features/conversations/data/datasources/conversation_remote_data_source.dart';
 import '../../features/conversations/data/repositories/conversation_repository_impl.dart';
 import '../../features/conversations/data/repositories/local_conversation_draft_repository.dart';
@@ -113,6 +119,15 @@ final openApiClientBoundaryProvider = Provider<WebTuiOpenApiClientBoundary>((
   return WebTuiOpenApiClientBoundary(ref.watch(dioProvider));
 });
 
+final pushNotificationServiceProvider = Provider<PushNotificationService>((
+  ref,
+) {
+  return PushNotificationService(
+    api: ref.watch(apiTransportProvider),
+    deviceIdentityRepository: ref.watch(deviceIdentityRepositoryProvider),
+  );
+});
+
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase(createDriftConnection());
   ref.onDispose(database.close);
@@ -143,6 +158,10 @@ final deviceIdentityRepositoryProvider = Provider<DeviceIdentityRepository>((
   );
 });
 
+final googleIdentityProvider = Provider<GoogleIdentityProvider>((_) {
+  return GoogleSignInIdentityProvider();
+});
+
 final sessionStateRepositoryProvider = Provider<SessionStateRepository>((ref) {
   return LocalSessionStateRepository(
     secureStore: ref.watch(secureKeyValueStoreProvider),
@@ -156,6 +175,23 @@ final appLockRepositoryProvider = Provider<AppLockRepository>((ref) {
 
 final loginUseCaseProvider = Provider<LoginUseCase>((ref) {
   return LoginUseCase(
+    authRepository: ref.watch(authRepositoryProvider),
+    tokenRepository: ref.watch(authTokenRepositoryProvider),
+    deviceIdentityRepository: ref.watch(deviceIdentityRepositoryProvider),
+  );
+});
+
+final registerUseCaseProvider = Provider<RegisterUseCase>((ref) {
+  return RegisterUseCase(
+    authRepository: ref.watch(authRepositoryProvider),
+    tokenRepository: ref.watch(authTokenRepositoryProvider),
+    deviceIdentityRepository: ref.watch(deviceIdentityRepositoryProvider),
+  );
+});
+
+final googleLoginUseCaseProvider = Provider<GoogleLoginUseCase>((ref) {
+  return GoogleLoginUseCase(
+    identityProvider: ref.watch(googleIdentityProvider),
     authRepository: ref.watch(authRepositoryProvider),
     tokenRepository: ref.watch(authTokenRepositoryProvider),
     deviceIdentityRepository: ref.watch(deviceIdentityRepositoryProvider),
@@ -317,6 +353,13 @@ final conversationRemoteDataSourceProvider =
 final conversationRepositoryProvider = Provider<ConversationRepository>((ref) {
   return ConversationRepositoryImpl(
     ref.watch(conversationRemoteDataSourceProvider),
+  );
+});
+
+final updatePresenceUseCaseProvider = Provider<UpdatePresenceUseCase>((ref) {
+  return UpdatePresenceUseCase(
+    conversationRepository: ref.watch(conversationRepositoryProvider),
+    deviceIdentityRepository: ref.watch(deviceIdentityRepositoryProvider),
   );
 });
 

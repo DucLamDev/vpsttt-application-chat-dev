@@ -1,5 +1,7 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../design_system/components/webtui_components.dart';
 import '../../../../design_system/tokens/webtui_colors.dart';
@@ -50,6 +52,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Quay lại',
+          onPressed: () {
+            final navigator = Navigator.of(context);
+            if (navigator.canPop()) {
+              navigator.pop();
+              return;
+            }
+            context.go('/');
+          },
+          icon: const Icon(CupertinoIcons.back),
+        ),
         title: const Text('Hồ sơ cá nhân'),
         actions: [
           IconButton(
@@ -93,6 +107,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     children: [
                       WebTuiAvatar(
                         label: profile?.displayName ?? 'WebTui',
+                        imageUrl: profile?.avatarUrl,
                         size: 76,
                         status: WebTuiPresenceStatus.online,
                       ),

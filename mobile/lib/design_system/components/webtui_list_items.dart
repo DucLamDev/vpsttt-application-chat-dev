@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
@@ -13,9 +14,11 @@ class WebTuiConversationListItem extends StatelessWidget {
     required this.preview,
     required this.timeLabel,
     required this.avatarLabel,
+    this.avatarUrl,
     this.unreadCount = 0,
     this.status,
     this.muted = false,
+    this.selected = false,
     this.onTap,
     super.key,
   });
@@ -24,15 +27,19 @@ class WebTuiConversationListItem extends StatelessWidget {
   final String preview;
   final String timeLabel;
   final String avatarLabel;
+  final String? avatarUrl;
   final int unreadCount;
   final WebTuiPresenceStatus? status;
   final bool muted;
+  final bool selected;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.transparent,
+      color: selected
+          ? WebTuiColors.primarySoft.withValues(alpha: 0.72)
+          : Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: SizedBox(
@@ -41,7 +48,11 @@ class WebTuiConversationListItem extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.lg),
             child: Row(
               children: [
-                WebTuiAvatar(label: avatarLabel, status: status),
+                WebTuiAvatar(
+                  label: avatarLabel,
+                  imageUrl: avatarUrl,
+                  status: status,
+                ),
                 const SizedBox(width: WebTuiSpacing.md),
                 Expanded(
                   child: Column(
@@ -64,7 +75,7 @@ class WebTuiConversationListItem extends StatelessWidget {
                         children: [
                           if (muted) ...[
                             const Icon(
-                              Icons.notifications_off_outlined,
+                              CupertinoIcons.bell_slash,
                               size: 14,
                               color: WebTuiColors.textMuted,
                             ),
@@ -196,7 +207,7 @@ class WebTuiChannelBotListItem extends StatelessWidget {
                   )
                 else
                   const Icon(
-                    Icons.chevron_right_rounded,
+                    CupertinoIcons.chevron_right,
                     color: WebTuiColors.textMuted,
                   ),
               ],
@@ -242,15 +253,8 @@ class WebTuiListSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: WebTuiColors.surface,
-        border: Border.symmetric(
-          horizontal: BorderSide(
-            color: WebTuiColors.border.withValues(alpha: 0.8),
-          ),
-        ),
-      ),
+    return ColoredBox(
+      color: WebTuiColors.surface,
       child: Column(
         children: [
           for (var index = 0; index < children.length; index++) ...[

@@ -27,10 +27,7 @@ final class AppConfig {
   final Uri apiBaseUri;
 
   String get appTitle {
-    return switch (flavor) {
-      AppFlavor.prod => 'WebTui Chat',
-      _ => 'WebTui Chat ${flavor.label}',
-    };
+    return 'Webtui Chat';
   }
 
   bool get showDebugBanner => flavor != AppFlavor.prod;

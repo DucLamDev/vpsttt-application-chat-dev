@@ -1,9 +1,9 @@
 final class WebTuiListDensity {
   const WebTuiListDensity._();
 
-  static const double conversationItemHeight = 68;
+  static const double conversationItemHeight = 72;
   static const double compactItemHeight = 56;
-  static const double avatarSize = 44;
+  static const double avatarSize = 46;
   static const double compactAvatarSize = 36;
   static const double unreadBadgeMinSize = 18;
 }
@@ -19,6 +19,6 @@ final class WebTuiBottomTabTokens {
 final class WebTuiSegmentedControlTokens {
   const WebTuiSegmentedControlTokens._();
 
-  static const double height = 34;
+  static const double height = 42;
   static const double minSegmentWidth = 72;
 }

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/providers/foundation_providers.dart';
 import '../../../../core/result/result.dart';
+import '../../../profile/application/use_cases/profile_use_cases.dart';
 import '../../application/use_cases/message_use_cases.dart';
 import '../../domain/entities/chat_message.dart';
 
@@ -17,6 +18,7 @@ final chatRoomControllerProvider = StateNotifierProvider.autoDispose
         readDraftUseCase: ref.watch(readDraftUseCaseProvider),
         saveDraftUseCase: ref.watch(saveDraftUseCaseProvider),
         clearDraftUseCase: ref.watch(clearDraftUseCaseProvider),
+        loadProfileUseCase: ref.watch(loadProfileUseCaseProvider),
       )..load();
     });
 
@@ -51,6 +53,7 @@ final class ChatRoomState {
     this.isLoading = false,
     this.isSending = false,
     this.errorMessage,
+    this.currentUserId,
   });
 
   final ChatRoomScope scope;
@@ -59,6 +62,7 @@ final class ChatRoomState {
   final bool isLoading;
   final bool isSending;
   final String? errorMessage;
+  final String? currentUserId;
 
   ChatRoomState copyWith({
     List<ChatMessage>? messages,
@@ -66,6 +70,7 @@ final class ChatRoomState {
     bool? isLoading,
     bool? isSending,
     String? errorMessage,
+    String? currentUserId,
     bool clearError = false,
   }) {
     return ChatRoomState(
@@ -75,6 +80,7 @@ final class ChatRoomState {
       isLoading: isLoading ?? this.isLoading,
       isSending: isSending ?? this.isSending,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+      currentUserId: currentUserId ?? this.currentUserId,
     );
   }
 }
@@ -88,12 +94,14 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     required ReadDraftUseCase readDraftUseCase,
     required SaveDraftUseCase saveDraftUseCase,
     required ClearDraftUseCase clearDraftUseCase,
+    required LoadProfileUseCase loadProfileUseCase,
   }) : _loadMessagesUseCase = loadMessagesUseCase,
        _sendMessageUseCase = sendMessageUseCase,
        _markConversationReadUseCase = markConversationReadUseCase,
        _readDraftUseCase = readDraftUseCase,
        _saveDraftUseCase = saveDraftUseCase,
        _clearDraftUseCase = clearDraftUseCase,
+       _loadProfileUseCase = loadProfileUseCase,
        super(ChatRoomState(scope: scope));
 
   final LoadMessagesUseCase _loadMessagesUseCase;
@@ -102,22 +110,36 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
   final ReadDraftUseCase _readDraftUseCase;
   final SaveDraftUseCase _saveDraftUseCase;
   final ClearDraftUseCase _clearDraftUseCase;
+  final LoadProfileUseCase _loadProfileUseCase;
 
   Future<void> load() async {
     state = state.copyWith(isLoading: true, clearError: true);
-    final draft = await _readDraftUseCase.execute(
+    final draftFuture = _readDraftUseCase.execute(
       workspaceId: state.scope.workspaceId,
       channelId: state.scope.channelId,
     );
+    final profileFuture = _loadProfileUseCase.execute();
     final result = await _loadMessagesUseCase.execute(
       workspaceId: state.scope.workspaceId,
       channelId: state.scope.channelId,
     );
+    final draft = await draftFuture;
+    final profileResult = await profileFuture;
+    final currentUserId = profileResult.valueOrNull?.id;
     switch (result) {
       case Success<List<ChatMessage>>(value: final messages):
         state = state.copyWith(
-          messages: messages.reversed.toList(growable: false),
+          messages: messages.reversed
+              .map(
+                (message) => message.copyWith(
+                  isMine:
+                      currentUserId != null &&
+                      message.senderId == currentUserId,
+                ),
+              )
+              .toList(growable: false),
           draft: draft,
+          currentUserId: currentUserId,
           isLoading: false,
           clearError: true,
         );
@@ -125,6 +147,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
       case FailureResult<List<ChatMessage>>(failure: final failure):
         state = state.copyWith(
           draft: draft,
+          currentUserId: currentUserId,
           isLoading: false,
           errorMessage: failure.message,
         );
@@ -156,7 +179,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     );
     switch (result) {
       case Success<ChatMessage>(value: final message):
-        final messages = [...state.messages, message];
+        final messages = [...state.messages, message.copyWith(isMine: true)];
         state = state.copyWith(
           messages: messages,
           draft: '',

@@ -27,10 +27,56 @@ final class WebTuiTheme {
         elevation: 0,
         centerTitle: false,
       ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: WebTuiColors.primary,
+        foregroundColor: WebTuiColors.textOnPrimary,
+        elevation: 0,
+        focusElevation: 0,
+        hoverElevation: 1,
+        highlightElevation: 0,
+        shape: CircleBorder(),
+      ),
       dividerTheme: const DividerThemeData(
         color: WebTuiColors.border,
         thickness: 1,
         space: 1,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: WebTuiColors.surface,
+        hintStyle: WebTuiTypography.bodyMedium.copyWith(
+          color: WebTuiColors.textMuted,
+        ),
+        labelStyle: WebTuiTypography.bodyMedium.copyWith(
+          color: WebTuiColors.textSecondary,
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: WebTuiSpacing.md,
+          vertical: WebTuiSpacing.md,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(WebTuiRadii.md),
+          borderSide: const BorderSide(color: WebTuiColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(WebTuiRadii.md),
+          borderSide: const BorderSide(color: WebTuiColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(WebTuiRadii.md),
+          borderSide: const BorderSide(color: WebTuiColors.primary, width: 1.4),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(48, 46),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(WebTuiRadii.md),
+          ),
+          textStyle: WebTuiTypography.bodyMedium.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         height: 64,

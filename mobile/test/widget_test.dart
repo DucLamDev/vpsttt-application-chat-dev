@@ -20,7 +20,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Đăng nhập WebTui'), findsOneWidget);
+    expect(find.text('Chào mừng trở lại'), findsOneWidget);
     expect(find.text('Email hoặc username'), findsOneWidget);
     expect(find.text('Mật khẩu'), findsOneWidget);
     expect(find.text('Đăng nhập'), findsOneWidget);

@@ -33,16 +33,16 @@ android {
         create("dev") {
             dimension = "environment"
             applicationIdSuffix = ".dev"
-            resValue("string", "app_name", "WebTui Dev")
+            resValue("string", "app_name", "Webtui Chat")
         }
         create("staging") {
             dimension = "environment"
             applicationIdSuffix = ".staging"
-            resValue("string", "app_name", "WebTui Staging")
+            resValue("string", "app_name", "Webtui Chat")
         }
         create("prod") {
             dimension = "environment"
-            resValue("string", "app_name", "WebTui Chat")
+            resValue("string", "app_name", "Webtui Chat")
         }
     }
 

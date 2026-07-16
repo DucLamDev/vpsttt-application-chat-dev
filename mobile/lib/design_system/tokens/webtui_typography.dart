@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 final class WebTuiTypography {
   const WebTuiTypography._();
 
-  static const fontFamily = 'Roboto';
+  static const fontFamily = 'WebTuiRoboto';
 
   static const titleLarge = TextStyle(
     fontFamily: fontFamily,

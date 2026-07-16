@@ -72,6 +72,7 @@ final class ChannelMember {
     required this.displayName,
     required this.status,
     required this.joinedAt,
+    this.avatarUrl,
     this.lastReadMessageId,
   });
 
@@ -82,5 +83,6 @@ final class ChannelMember {
   final String displayName;
   final String status;
   final DateTime joinedAt;
+  final String? avatarUrl;
   final String? lastReadMessageId;
 }

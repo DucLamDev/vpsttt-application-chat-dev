@@ -97,6 +97,9 @@ class _ChannelDetailScreenState extends ConsumerState<ChannelDetailScreen> {
                     channel: state.channel,
                     fallbackTitle: state.title,
                     submitting: state.isSubmitting,
+                    joinPending:
+                        state.channel?.membershipStatus ==
+                        MembershipStatus.invited,
                     onOpenChat: state.channel?.isMember == true
                         ? () => _openChat(context, state)
                         : null,
@@ -136,13 +139,16 @@ class _ChannelDetailScreenState extends ConsumerState<ChannelDetailScreen> {
                       messages: state.pinnedMessages,
                       errorMessage: state.pinsErrorMessage,
                     ),
-                    2 => const WebTuiEmptyState(
-                      title: 'Chưa có media',
-                      message: 'Ảnh và video trong kênh sẽ xuất hiện tại đây.',
-                      icon: Icons.photo_library_outlined,
+                    2 => _MediaTab(
+                      files: state.files
+                          .where(_isMedia)
+                          .toList(growable: false),
+                      errorMessage: state.filesErrorMessage,
                     ),
                     3 => _FilesTab(
-                      files: state.files,
+                      files: state.files
+                          .where((file) => !_isMedia(file))
+                          .toList(growable: false),
                       errorMessage: state.filesErrorMessage,
                     ),
                     _ => _SettingsTab(channel: state.channel),
@@ -159,6 +165,7 @@ class _ChannelHeader extends StatelessWidget {
     required this.channel,
     required this.fallbackTitle,
     required this.submitting,
+    required this.joinPending,
     this.onOpenChat,
     this.onRequestJoin,
   });
@@ -166,6 +173,7 @@ class _ChannelHeader extends StatelessWidget {
   final ConversationSummary? channel;
   final String fallbackTitle;
   final bool submitting;
+  final bool joinPending;
   final VoidCallback? onOpenChat;
   final VoidCallback? onRequestJoin;
 
@@ -183,6 +191,7 @@ class _ChannelHeader extends StatelessWidget {
         children: [
           WebTuiAvatar(
             label: title,
+            imageUrl: channel?.avatarUrl,
             icon: Icons.tag_rounded,
             color: WebTuiColors.primary.withValues(alpha: 0.12),
             foregroundColor: WebTuiColors.primary,
@@ -223,13 +232,13 @@ class _ChannelHeader extends StatelessWidget {
             )
           else
             FilledButton(
-              onPressed: submitting ? null : onRequestJoin,
+              onPressed: submitting || joinPending ? null : onRequestJoin,
               child: submitting
                   ? const SizedBox.square(
                       dimension: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Tham gia'),
+                  : Text(joinPending ? 'Đang chờ' : 'Tham gia'),
             ),
         ],
       ),
@@ -319,6 +328,7 @@ class _MembersTab extends StatelessWidget {
                   preview: member.email,
                   timeLabel: member.status,
                   avatarLabel: member.displayName,
+                  avatarUrl: member.avatarUrl,
                   status: member.status == 'active'
                       ? WebTuiPresenceStatus.online
                       : null,
@@ -350,7 +360,7 @@ class _JoinRequestTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.lg),
         child: Row(
           children: [
-            WebTuiAvatar(label: member.displayName),
+            WebTuiAvatar(label: member.displayName, imageUrl: member.avatarUrl),
             const SizedBox(width: WebTuiSpacing.md),
             Expanded(
               child: Text(
@@ -449,6 +459,45 @@ class _FilesTab extends StatelessWidget {
   }
 }
 
+class _MediaTab extends StatelessWidget {
+  const _MediaTab({required this.files, this.errorMessage});
+
+  final List<ChannelFile> files;
+  final String? errorMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    if (errorMessage != null) {
+      return WebTuiErrorState(
+        title: 'Không tải được media',
+        message: errorMessage!,
+      );
+    }
+    if (files.isEmpty) {
+      return const WebTuiEmptyState(
+        title: 'Chưa có media',
+        message: 'Ảnh và video đã chia sẻ sẽ xuất hiện tại đây.',
+        icon: Icons.photo_library_outlined,
+      );
+    }
+    return WebTuiListSurface(
+      children: [
+        for (final file in files)
+          WebTuiChannelBotListItem(
+            title: file.name,
+            subtitle: _fileSubtitle(file),
+            icon: file.mimeType.startsWith('video/')
+                ? Icons.play_circle_outline_rounded
+                : Icons.image_outlined,
+            color: file.mimeType.startsWith('video/')
+                ? WebTuiColors.danger
+                : WebTuiColors.accentGreen,
+          ),
+      ],
+    );
+  }
+}
+
 class _SettingsTab extends StatelessWidget {
   const _SettingsTab({required this.channel});
 
@@ -515,10 +564,15 @@ class _Notice extends StatelessWidget {
 }
 
 void _openChat(BuildContext context, ChannelDetailState state) {
+  final queryParameters = {'title': state.title};
+  final avatarUrl = state.channel?.avatarUrl?.trim();
+  if (avatarUrl != null && avatarUrl.isNotEmpty) {
+    queryParameters['avatarUrl'] = avatarUrl;
+  }
   context.push(
     Uri(
       path: '/conversations/${state.scope.channelId}',
-      queryParameters: {'title': state.title},
+      queryParameters: queryParameters,
     ).toString(),
   );
 }
@@ -540,4 +594,9 @@ String _visibilityLabel(ChannelVisibility? visibility) {
     ChannelVisibility.public => 'Công khai',
     null => 'Chưa xác định',
   };
+}
+
+bool _isMedia(ChannelFile file) {
+  return file.mimeType.startsWith('image/') ||
+      file.mimeType.startsWith('video/');
 }

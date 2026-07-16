@@ -5,9 +5,11 @@ import 'package:webtui_chat/core/database/app_database.dart';
 import 'package:webtui_chat/core/error/failure.dart';
 import 'package:webtui_chat/core/result/result.dart';
 import 'package:webtui_chat/core/security/secure_key_value_store.dart';
+import 'package:webtui_chat/features/auth/application/use_cases/google_login_use_case.dart';
 import 'package:webtui_chat/features/auth/application/use_cases/login_use_case.dart';
 import 'package:webtui_chat/features/auth/application/use_cases/logout_use_case.dart';
 import 'package:webtui_chat/features/auth/application/use_cases/refresh_access_token_use_case.dart';
+import 'package:webtui_chat/features/auth/application/use_cases/register_use_case.dart';
 import 'package:webtui_chat/features/auth/data/repositories/local_session_state_repository.dart';
 import 'package:webtui_chat/features/auth/data/repositories/secure_auth_token_repository.dart';
 import 'package:webtui_chat/features/auth/domain/entities/auth_session.dart';
@@ -18,6 +20,7 @@ import 'package:webtui_chat/features/auth/domain/entities/user_session.dart';
 import 'package:webtui_chat/features/auth/domain/repositories/auth_repository.dart';
 import 'package:webtui_chat/features/auth/domain/repositories/auth_token_repository.dart';
 import 'package:webtui_chat/features/auth/domain/repositories/device_identity_repository.dart';
+import 'package:webtui_chat/features/auth/domain/repositories/google_identity_provider.dart';
 
 void main() {
   group('LoginUseCase', () {
@@ -58,6 +61,80 @@ void main() {
       expect(result.failureOrNull?.kind, FailureKind.validation);
       expect(auth.loginCalls, 0);
     });
+  });
+
+  group('RegisterUseCase', () {
+    test('registers through backend repository and saves tokens', () async {
+      final auth = _FakeAuthRepository(registerResult: Success(_session()));
+      final tokens = _FakeTokenRepository();
+      final useCase = RegisterUseCase(
+        authRepository: auth,
+        tokenRepository: tokens,
+        deviceIdentityRepository: _FakeDeviceIdentityRepository(),
+      );
+
+      final result = await useCase.execute(
+        const RegisterCommand(
+          displayName: ' Lâm Đức ',
+          email: ' lam@example.com ',
+          username: ' lamduc ',
+          domain: ' https://chat.company.com/path ',
+          password: ' matkhau123 ',
+          confirmPassword: ' matkhau123 ',
+        ),
+      );
+
+      expect(result, isA<Success<AuthSession>>());
+      expect(auth.registerCalls, 1);
+      expect(auth.lastDisplayName, 'Lâm Đức');
+      expect(auth.lastEmail, 'lam@example.com');
+      expect(auth.lastUsername, 'lamduc');
+      expect(auth.lastDomain, 'chat.company.com');
+      expect(auth.lastPassword, 'matkhau123');
+      expect(tokens.accessToken, 'access-token');
+      expect(tokens.refreshToken, 'refresh-token');
+    });
+
+    test('validates password confirmation before calling repository', () async {
+      final auth = _FakeAuthRepository();
+      final useCase = RegisterUseCase(
+        authRepository: auth,
+        tokenRepository: _FakeTokenRepository(),
+        deviceIdentityRepository: _FakeDeviceIdentityRepository(),
+      );
+
+      final result = await useCase.execute(
+        const RegisterCommand(
+          displayName: 'Lâm Đức',
+          email: 'lam@example.com',
+          username: 'lamduc',
+          domain: '',
+          password: 'matkhau123',
+          confirmPassword: 'matkhau456',
+        ),
+      );
+
+      expect(result.failureOrNull?.kind, FailureKind.validation);
+      expect(auth.registerCalls, 0);
+    });
+  });
+
+  test('GoogleLoginUseCase exchanges an ID token with the backend', () async {
+    final auth = _FakeAuthRepository();
+    final tokens = _FakeTokenRepository();
+    final useCase = GoogleLoginUseCase(
+      identityProvider: const _FakeGoogleIdentityProvider(),
+      authRepository: auth,
+      tokenRepository: tokens,
+      deviceIdentityRepository: _FakeDeviceIdentityRepository(),
+    );
+
+    final result = await useCase.execute();
+
+    expect(result, isA<Success<AuthSession>>());
+    expect(auth.googleLoginCalls, 1);
+    expect(auth.lastGoogleCredential, 'google-id-token');
+    expect(tokens.accessToken, 'access-token');
   });
 
   test('refresh queue fans out concurrent 401 refreshes to one call', () async {
@@ -156,15 +233,27 @@ AuthSession _session({
 }
 
 final class _FakeAuthRepository implements AuthRepository {
-  _FakeAuthRepository({this.loginResult, this.refreshHandler});
+  _FakeAuthRepository({
+    this.loginResult,
+    this.registerResult,
+    this.refreshHandler,
+  });
 
   final Result<AuthSession>? loginResult;
+  final Result<AuthSession>? registerResult;
   final Future<Result<AuthSession>> Function(String refreshToken)?
   refreshHandler;
   int loginCalls = 0;
+  int registerCalls = 0;
   int refreshCalls = 0;
+  int googleLoginCalls = 0;
+  String? lastDisplayName;
+  String? lastEmail;
+  String? lastUsername;
+  String? lastDomain;
   String? lastIdentifier;
   String? lastPassword;
+  String? lastGoogleCredential;
 
   @override
   Future<Result<AuthSession>> login({
@@ -176,6 +265,34 @@ final class _FakeAuthRepository implements AuthRepository {
     lastIdentifier = identifier;
     lastPassword = password;
     return loginResult ?? Success(_session());
+  }
+
+  @override
+  Future<Result<AuthSession>> register({
+    required String displayName,
+    required String email,
+    required String username,
+    required String domain,
+    required String password,
+    required DeviceIdentity device,
+  }) async {
+    registerCalls += 1;
+    lastDisplayName = displayName;
+    lastEmail = email;
+    lastUsername = username;
+    lastDomain = domain;
+    lastPassword = password;
+    return registerResult ?? Success(_session());
+  }
+
+  @override
+  Future<Result<AuthSession>> loginWithGoogle({
+    required String credential,
+    required DeviceIdentity device,
+  }) async {
+    googleLoginCalls += 1;
+    lastGoogleCredential = credential;
+    return Success(_session());
   }
 
   @override
@@ -201,6 +318,15 @@ final class _FakeAuthRepository implements AuthRepository {
   @override
   Future<Result<void>> revokeSession(String sessionId) {
     throw UnimplementedError();
+  }
+}
+
+final class _FakeGoogleIdentityProvider implements GoogleIdentityProvider {
+  const _FakeGoogleIdentityProvider();
+
+  @override
+  Future<Result<String>> authenticate() async {
+    return const Success('google-id-token');
   }
 }
 

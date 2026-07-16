@@ -1,6 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 enum SecureStoreKey {
+  accessToken('access_token'),
   refreshToken('refresh_token'),
   deviceId('device_id'),
   activeWorkspaceId('active_workspace_id'),
@@ -42,6 +43,7 @@ final class FlutterSecureKeyValueStore implements SecureKeyValueStore {
   @override
   Future<void> clearSession() async {
     await Future.wait([
+      delete(SecureStoreKey.accessToken),
       delete(SecureStoreKey.refreshToken),
       delete(SecureStoreKey.activeWorkspaceId),
     ]);

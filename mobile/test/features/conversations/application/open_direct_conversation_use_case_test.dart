@@ -189,6 +189,23 @@ final class _FakeConversationRepository implements ConversationRepository {
   }
 
   @override
+  Future<Result<List<PresenceSummary>>> listPresence({
+    required String workspaceId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<void>> updatePresence({
+    required String workspaceId,
+    required String deviceId,
+    required ConversationPresence status,
+    required String platform,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<Result<void>> markRead({
     required String workspaceId,
     required String channelId,

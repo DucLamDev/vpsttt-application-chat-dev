@@ -4,6 +4,8 @@ import 'failure.dart';
 
 Failure mapDioExceptionToFailure(DioException exception) {
   final requestId = _requestIdFrom(exception);
+  final host = exception.requestOptions.uri.host;
+  final serverLabel = host.isEmpty ? 'máy chủ' : host;
 
   return switch (exception.type) {
     DioExceptionType.connectionTimeout ||
@@ -28,13 +30,14 @@ Failure mapDioExceptionToFailure(DioException exception) {
     ),
     DioExceptionType.connectionError => Failure(
       kind: FailureKind.network,
-      message: 'Không thể kết nối máy chủ.',
+      message:
+          'Không thể kết nối $serverLabel. Kiểm tra Internet hoặc trạng thái máy chủ.',
       requestId: requestId,
       cause: exception,
     ),
     DioExceptionType.badCertificate => Failure(
       kind: FailureKind.network,
-      message: 'Chứng chỉ máy chủ không hợp lệ.',
+      message: 'Chứng chỉ HTTPS của $serverLabel không hợp lệ.',
       requestId: requestId,
       cause: exception,
     ),

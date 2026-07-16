@@ -42,6 +42,7 @@ final appRouterProvider = Provider<GoRouter>((_) {
         builder: (context, state) {
           return ChatRoomScreen(
             channelId: state.pathParameters['channel_id'] ?? '',
+            avatarUrl: state.uri.queryParameters['avatarUrl'],
             title: state.uri.queryParameters['title'] ?? 'Hội thoại',
           );
         },

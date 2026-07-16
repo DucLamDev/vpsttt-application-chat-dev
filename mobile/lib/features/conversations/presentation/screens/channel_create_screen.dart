@@ -116,37 +116,52 @@ class _ChannelCreateScreenState extends ConsumerState<ChannelCreateScreen> {
                 );
               },
             ),
-            const SizedBox(height: WebTuiSpacing.lg),
-            FilledButton.icon(
-              onPressed: state.isSubmitting
-                  ? null
-                  : () async {
-                      final channel = await controller.submit(
-                        name: _nameController.text,
-                        slug: _slugController.text,
-                        description: _descriptionController.text,
-                      );
-                      if (channel != null && context.mounted) {
-                        context.replace(
-                          Uri(
-                            path: '/channels/${channel.channelId}',
-                            queryParameters: {'title': channel.title},
-                          ).toString(),
-                        );
-                      }
-                    },
-              icon: state.isSubmitting
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.add_rounded),
-              label: const Text('Tạo kênh'),
-            ),
           ],
         ),
       ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            WebTuiSpacing.lg,
+            WebTuiSpacing.sm,
+            WebTuiSpacing.lg,
+            WebTuiSpacing.md,
+          ),
+          child: FilledButton.icon(
+            onPressed: state.isSubmitting
+                ? null
+                : () => _submit(context, controller),
+            icon: state.isSubmitting
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.add_rounded),
+            label: const Text('Tạo kênh'),
+          ),
+        ),
+      ),
     );
+  }
+
+  Future<void> _submit(
+    BuildContext context,
+    ChannelCreateController controller,
+  ) async {
+    final channel = await controller.submit(
+      name: _nameController.text,
+      slug: _slugController.text,
+      description: _descriptionController.text,
+    );
+    if (channel != null && context.mounted) {
+      context.replace(
+        Uri(
+          path: '/channels/${channel.channelId}',
+          queryParameters: {'title': channel.title},
+        ).toString(),
+      );
+    }
   }
 }
 

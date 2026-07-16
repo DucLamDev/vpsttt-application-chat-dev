@@ -10,6 +10,20 @@ abstract interface class AuthRepository {
     required DeviceIdentity device,
   });
 
+  Future<Result<AuthSession>> register({
+    required String displayName,
+    required String email,
+    required String username,
+    required String domain,
+    required String password,
+    required DeviceIdentity device,
+  });
+
+  Future<Result<AuthSession>> loginWithGoogle({
+    required String credential,
+    required DeviceIdentity device,
+  });
+
   Future<Result<AuthSession>> refresh(String refreshToken);
 
   Future<Result<void>> logout(String refreshToken);

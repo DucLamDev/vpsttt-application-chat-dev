@@ -1,8 +1,8 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
 import '../tokens/webtui_density.dart';
-import '../tokens/webtui_spacing.dart';
 import '../tokens/webtui_typography.dart';
 
 class WebTuiMobileScaffold extends StatelessWidget {
@@ -11,7 +11,9 @@ class WebTuiMobileScaffold extends StatelessWidget {
     required this.body,
     required this.selectedTab,
     required this.onTabSelected,
+    this.leading,
     this.actions = const [],
+    this.floatingActionButton,
     super.key,
   });
 
@@ -19,14 +21,22 @@ class WebTuiMobileScaffold extends StatelessWidget {
   final Widget body;
   final int selectedTab;
   final ValueChanged<int> onTabSelected;
+  final Widget? leading;
   final List<Widget> actions;
+  final Widget? floatingActionButton;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 48,
-        titleSpacing: WebTuiSpacing.lg,
+        toolbarHeight: 52,
+        centerTitle: true,
+        leading: leading,
+        surfaceTintColor: Colors.transparent,
+        shape: Border(
+          bottom: BorderSide(color: WebTuiColors.border.withValues(alpha: 0.7)),
+        ),
+        titleSpacing: 0,
         title: Text(
           title,
           maxLines: 1,
@@ -38,30 +48,31 @@ class WebTuiMobileScaffold extends StatelessWidget {
         actions: actions,
       ),
       body: SafeArea(top: false, child: body),
+      floatingActionButton: floatingActionButton,
       bottomNavigationBar: NavigationBar(
         height: WebTuiBottomTabTokens.height,
         selectedIndex: selectedTab,
         onDestinationSelected: onTabSelected,
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline_rounded),
-            selectedIcon: Icon(Icons.chat_bubble_rounded),
+            icon: Icon(CupertinoIcons.chat_bubble_2),
+            selectedIcon: Icon(CupertinoIcons.chat_bubble_2_fill),
             label: 'Tin nhắn',
           ),
           NavigationDestination(
-            icon: Icon(Icons.contacts_outlined),
-            selectedIcon: Icon(Icons.contacts_rounded),
-            label: 'Danh bạ',
+            icon: Icon(CupertinoIcons.person_2),
+            selectedIcon: Icon(CupertinoIcons.person_2_fill),
+            label: 'Bạn bè',
           ),
           NavigationDestination(
-            icon: Icon(Icons.tag_outlined),
-            selectedIcon: Icon(Icons.tag_rounded),
-            label: 'Khám phá',
+            icon: Icon(CupertinoIcons.number),
+            selectedIcon: Icon(CupertinoIcons.number_circle_fill),
+            label: 'Kênh',
           ),
           NavigationDestination(
-            icon: Icon(Icons.more_horiz_rounded),
-            selectedIcon: Icon(Icons.more_horiz_rounded),
-            label: 'Thêm',
+            icon: Icon(CupertinoIcons.gear),
+            selectedIcon: Icon(CupertinoIcons.gear_solid),
+            label: 'Cài đặt',
           ),
         ],
       ),

@@ -18,6 +18,17 @@ abstract interface class ConversationRepository {
     required String workspaceId,
   });
 
+  Future<Result<List<PresenceSummary>>> listPresence({
+    required String workspaceId,
+  });
+
+  Future<Result<void>> updatePresence({
+    required String workspaceId,
+    required String deviceId,
+    required ConversationPresence status,
+    required String platform,
+  });
+
   Future<Result<ConversationSummary>> getChannel({
     required String workspaceId,
     required String channelId,

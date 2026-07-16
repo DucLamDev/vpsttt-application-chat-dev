@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/providers/foundation_providers.dart';
 import '../../../../core/result/result.dart';
+import '../../application/use_cases/channel_use_cases.dart';
 import '../../application/use_cases/load_conversation_home_use_case.dart';
 import '../../application/use_cases/open_direct_conversation_use_case.dart';
 import '../../domain/entities/conversation_summary.dart';
@@ -19,6 +20,9 @@ final conversationHomeControllerProvider = StateNotifierProvider.autoDispose
         openDirectConversationUseCase: ref.watch(
           openDirectConversationUseCaseProvider,
         ),
+        openPrivateChannelSessionUseCase: ref.watch(
+          openPrivateChannelSessionUseCaseProvider,
+        ),
       )..load();
     });
 
@@ -31,12 +35,14 @@ final class ConversationHomeState {
     this.channels = const [],
     this.contacts = const [],
     this.workspaceMembers = const [],
+    this.presenceByUserId = const {},
     this.isLoading = false,
     this.isRefreshing = false,
     this.errorMessage,
     this.noticeMessage,
     this.contactsErrorMessage,
     this.membersErrorMessage,
+    this.presenceErrorMessage,
     this.messageFilter = ConversationListFilter.all,
     this.contactsTab = 0,
     this.channelTab = 0,
@@ -49,17 +55,30 @@ final class ConversationHomeState {
   final List<ConversationSummary> channels;
   final List<ContactSummary> contacts;
   final List<ContactSummary> workspaceMembers;
+  final Map<String, ConversationPresence> presenceByUserId;
   final bool isLoading;
   final bool isRefreshing;
   final String? errorMessage;
   final String? noticeMessage;
   final String? contactsErrorMessage;
   final String? membersErrorMessage;
+  final String? presenceErrorMessage;
   final ConversationListFilter messageFilter;
   final int contactsTab;
   final int channelTab;
   final String searchQuery;
   final ConversationSummary? selectedConversation;
+
+  ConversationPresence? presenceForUser(String userId) {
+    return presenceByUserId[userId];
+  }
+
+  ConversationPresence? presenceForConversation(
+    ConversationSummary conversation,
+  ) {
+    final peerUserId = conversation.peerUserId;
+    return peerUserId == null ? null : presenceForUser(peerUserId);
+  }
 
   List<ConversationSummary> get filteredConversations {
     return _filterConversations(conversations, messageFilter, searchQuery);
@@ -103,12 +122,14 @@ final class ConversationHomeState {
     List<ConversationSummary>? channels,
     List<ContactSummary>? contacts,
     List<ContactSummary>? workspaceMembers,
+    Map<String, ConversationPresence>? presenceByUserId,
     bool? isLoading,
     bool? isRefreshing,
     String? errorMessage,
     String? noticeMessage,
     String? contactsErrorMessage,
     String? membersErrorMessage,
+    String? presenceErrorMessage,
     ConversationListFilter? messageFilter,
     int? contactsTab,
     int? channelTab,
@@ -124,12 +145,14 @@ final class ConversationHomeState {
       channels: channels ?? this.channels,
       contacts: contacts ?? this.contacts,
       workspaceMembers: workspaceMembers ?? this.workspaceMembers,
+      presenceByUserId: presenceByUserId ?? this.presenceByUserId,
       isLoading: isLoading ?? this.isLoading,
       isRefreshing: isRefreshing ?? this.isRefreshing,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       noticeMessage: clearNotice ? null : noticeMessage ?? this.noticeMessage,
       contactsErrorMessage: contactsErrorMessage ?? this.contactsErrorMessage,
       membersErrorMessage: membersErrorMessage ?? this.membersErrorMessage,
+      presenceErrorMessage: presenceErrorMessage ?? this.presenceErrorMessage,
       messageFilter: messageFilter ?? this.messageFilter,
       contactsTab: contactsTab ?? this.contactsTab,
       channelTab: channelTab ?? this.channelTab,
@@ -147,12 +170,15 @@ final class ConversationHomeController
     required String workspaceId,
     required LoadConversationHomeUseCase loadConversationHomeUseCase,
     required OpenDirectConversationUseCase openDirectConversationUseCase,
+    required OpenPrivateChannelSessionUseCase openPrivateChannelSessionUseCase,
   }) : _loadConversationHomeUseCase = loadConversationHomeUseCase,
        _openDirectConversationUseCase = openDirectConversationUseCase,
+       _openPrivateChannelSessionUseCase = openPrivateChannelSessionUseCase,
        super(ConversationHomeState(workspaceId: workspaceId));
 
   final LoadConversationHomeUseCase _loadConversationHomeUseCase;
   final OpenDirectConversationUseCase _openDirectConversationUseCase;
+  final OpenPrivateChannelSessionUseCase _openPrivateChannelSessionUseCase;
 
   Future<void> load() async {
     state = state.copyWith(
@@ -170,8 +196,10 @@ final class ConversationHomeController
           channels: data.channels,
           contacts: data.contacts,
           workspaceMembers: data.workspaceMembers,
+          presenceByUserId: data.presenceByUserId,
           contactsErrorMessage: data.contactsErrorMessage,
           membersErrorMessage: data.membersErrorMessage,
+          presenceErrorMessage: data.presenceErrorMessage,
           isLoading: false,
           clearError: true,
         );
@@ -203,7 +231,25 @@ final class ConversationHomeController
   }
 
   void selectConversation(ConversationSummary conversation) {
-    state = state.copyWith(selectedConversation: conversation);
+    final opened = _withoutUnread(conversation);
+    state = state.copyWith(
+      conversations: state.conversations
+          .map((item) => item.id == opened.id ? opened : item)
+          .toList(growable: false),
+      selectedConversation: opened,
+    );
+  }
+
+  void markConversationOpened(ConversationSummary conversation) {
+    if (!conversation.isUnread) {
+      return;
+    }
+    final opened = _withoutUnread(conversation);
+    state = state.copyWith(
+      conversations: state.conversations
+          .map((item) => item.id == opened.id ? opened : item)
+          .toList(growable: false),
+    );
   }
 
   Future<ConversationSummary?> openDirect(ContactSummary contact) async {
@@ -225,6 +271,33 @@ final class ConversationHomeController
         return null;
     }
   }
+
+  Future<ConversationSummary?> openChannel(ConversationSummary channel) async {
+    if (!channel.privateSessionMode) {
+      return channel;
+    }
+    state = state.copyWith(clearError: true, clearNotice: true);
+    final result = await _openPrivateChannelSessionUseCase.execute(
+      workspaceId: state.workspaceId,
+      channelId: channel.channelId,
+    );
+    switch (result) {
+      case Success<ConversationSummary>(value: final conversation):
+        state = state.copyWith(
+          selectedConversation: conversation,
+          noticeMessage: 'Đã mở phiên hỗ trợ riêng tư.',
+        );
+        await refresh();
+        return conversation;
+      case FailureResult<ConversationSummary>(failure: final failure):
+        state = state.copyWith(errorMessage: failure.message);
+        return null;
+    }
+  }
+}
+
+ConversationSummary _withoutUnread(ConversationSummary conversation) {
+  return conversation.copyWith(unreadCount: 0);
 }
 
 List<ConversationSummary> _filterConversations(

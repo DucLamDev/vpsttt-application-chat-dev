@@ -7,6 +7,7 @@ import 'package:webtui_chat/app/providers/foundation_providers.dart';
 import 'package:webtui_chat/core/error/failure.dart';
 import 'package:webtui_chat/core/result/result.dart';
 import 'package:webtui_chat/features/auth/application/use_cases/login_use_case.dart';
+import 'package:webtui_chat/features/auth/application/use_cases/register_use_case.dart';
 import 'package:webtui_chat/features/auth/domain/entities/auth_session.dart';
 import 'package:webtui_chat/features/auth/domain/entities/auth_tokens.dart';
 import 'package:webtui_chat/features/auth/domain/entities/auth_user.dart';
@@ -76,6 +77,21 @@ void main() {
     expect(find.text('Đăng nhập thành công.'), findsOneWidget);
     expect(successCount, 1);
   });
+
+  testWidgets('switches to register form', (tester) async {
+    await _pumpLogin(tester, authRepository: _WidgetAuthRepository());
+
+    final registerLink = find.text('Đăng ký ngay');
+    await tester.ensureVisible(registerLink);
+    await tester.pumpAndSettle();
+    await tester.tap(registerLink);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tạo tài khoản mới'), findsOneWidget);
+    expect(find.text('Xác nhận mật khẩu'), findsOneWidget);
+    expect(find.text('Domain công ty (không bắt buộc)'), findsOneWidget);
+    expect(find.byKey(const Key('register_submit_button')), findsOneWidget);
+  });
 }
 
 Future<void> _pumpLogin(
@@ -88,6 +104,13 @@ Future<void> _pumpLogin(
       overrides: [
         loginUseCaseProvider.overrideWithValue(
           LoginUseCase(
+            authRepository: authRepository,
+            tokenRepository: _WidgetTokenRepository(),
+            deviceIdentityRepository: _WidgetDeviceIdentityRepository(),
+          ),
+        ),
+        registerUseCaseProvider.overrideWithValue(
+          RegisterUseCase(
             authRepository: authRepository,
             tokenRepository: _WidgetTokenRepository(),
             deviceIdentityRepository: _WidgetDeviceIdentityRepository(),
@@ -131,9 +154,9 @@ AuthSession _session() {
 }
 
 final class _WidgetAuthRepository implements AuthRepository {
-  const _WidgetAuthRepository({required this.loginHandler});
+  const _WidgetAuthRepository({this.loginHandler});
 
-  final Future<Result<AuthSession>> Function() loginHandler;
+  final Future<Result<AuthSession>> Function()? loginHandler;
 
   @override
   Future<Result<AuthSession>> login({
@@ -141,7 +164,27 @@ final class _WidgetAuthRepository implements AuthRepository {
     required String password,
     required DeviceIdentity device,
   }) {
-    return loginHandler();
+    return loginHandler?.call() ?? Future.value(Success(_session()));
+  }
+
+  @override
+  Future<Result<AuthSession>> register({
+    required String displayName,
+    required String email,
+    required String username,
+    required String domain,
+    required String password,
+    required DeviceIdentity device,
+  }) {
+    return loginHandler?.call() ?? Future.value(Success(_session()));
+  }
+
+  @override
+  Future<Result<AuthSession>> loginWithGoogle({
+    required String credential,
+    required DeviceIdentity device,
+  }) {
+    return loginHandler?.call() ?? Future.value(Success(_session()));
   }
 
   @override

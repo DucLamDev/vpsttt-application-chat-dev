@@ -2,8 +2,29 @@ import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
 import '../tokens/webtui_density.dart';
-import '../tokens/webtui_radii.dart';
 import '../tokens/webtui_typography.dart';
+
+class WebTuiAvatarNetworkScope extends InheritedWidget {
+  const WebTuiAvatarNetworkScope({
+    required super.child,
+    this.apiBaseUri,
+    this.headers,
+    super.key,
+  });
+
+  final Uri? apiBaseUri;
+  final Map<String, String>? headers;
+
+  static WebTuiAvatarNetworkScope? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<WebTuiAvatarNetworkScope>();
+  }
+
+  @override
+  bool updateShouldNotify(WebTuiAvatarNetworkScope oldWidget) {
+    return apiBaseUri != oldWidget.apiBaseUri || headers != oldWidget.headers;
+  }
+}
 
 enum WebTuiPresenceStatus {
   online,
@@ -23,6 +44,7 @@ class WebTuiAvatar extends StatelessWidget {
   const WebTuiAvatar({
     required this.label,
     this.icon,
+    this.imageUrl,
     this.status,
     this.color = WebTuiColors.primarySoft,
     this.foregroundColor = WebTuiColors.primary,
@@ -32,6 +54,7 @@ class WebTuiAvatar extends StatelessWidget {
 
   final String label;
   final IconData? icon;
+  final String? imageUrl;
   final WebTuiPresenceStatus? status;
   final Color color;
   final Color foregroundColor;
@@ -39,29 +62,25 @@ class WebTuiAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final resolvedImageUrl = _resolvedImageUrl(context);
+    final imageHeaders = WebTuiAvatarNetworkScope.maybeOf(context)?.headers;
     return SizedBox.square(
       dimension: size,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(WebTuiRadii.avatar),
-              ),
-              child: Center(
-                child: icon == null
-                    ? Text(
-                        _initials,
-                        maxLines: 1,
-                        overflow: TextOverflow.clip,
-                        style: WebTuiTypography.bodyMedium.copyWith(
-                          color: foregroundColor,
-                          fontWeight: FontWeight.w800,
-                        ),
+            child: ClipOval(
+              child: DecoratedBox(
+                decoration: BoxDecoration(color: color),
+                child: resolvedImageUrl != null
+                    ? Image.network(
+                        resolvedImageUrl,
+                        fit: BoxFit.cover,
+                        headers: imageHeaders,
+                        errorBuilder: (_, _, _) => _fallback,
                       )
-                    : Icon(icon, color: foregroundColor, size: size * 0.5),
+                    : _fallback,
               ),
             ),
           ),
@@ -97,5 +116,39 @@ class WebTuiAvatar extends StatelessWidget {
 
     return '${words.first.characters.first}${words.last.characters.first}'
         .toUpperCase();
+  }
+
+  String? _resolvedImageUrl(BuildContext context) {
+    final value = imageUrl?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+
+    final parsed = Uri.tryParse(value);
+    if (parsed != null && parsed.hasScheme) {
+      return value;
+    }
+
+    final baseUri = WebTuiAvatarNetworkScope.maybeOf(context)?.apiBaseUri;
+    if (baseUri == null) {
+      return value;
+    }
+    return baseUri.resolve(value).toString();
+  }
+
+  Widget get _fallback {
+    return Center(
+      child: icon == null
+          ? Text(
+              _initials,
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              style: WebTuiTypography.bodyMedium.copyWith(
+                color: foregroundColor,
+                fontWeight: FontWeight.w800,
+              ),
+            )
+          : Icon(icon, color: foregroundColor, size: size * 0.5),
+    );
   }
 }

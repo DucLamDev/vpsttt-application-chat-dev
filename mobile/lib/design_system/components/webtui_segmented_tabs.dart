@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
 import '../tokens/webtui_density.dart';
-import '../tokens/webtui_radii.dart';
 import '../tokens/webtui_spacing.dart';
 import '../tokens/webtui_typography.dart';
 
@@ -22,23 +21,39 @@ class WebTuiSegmentedTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: WebTuiSegmentedControlTokens.height,
-      padding: const EdgeInsets.all(WebTuiSpacing.xxs),
-      decoration: BoxDecoration(
-        color: WebTuiColors.backgroundMuted,
-        borderRadius: BorderRadius.circular(WebTuiRadii.segmented),
+      decoration: const BoxDecoration(
+        color: WebTuiColors.surface,
+        border: Border(bottom: BorderSide(color: WebTuiColors.border)),
       ),
-      child: Row(
-        children: [
-          for (var index = 0; index < tabs.length; index++)
-            Expanded(
-              child: _SegmentButton(
-                label: tabs[index],
-                selected: selectedIndex == index,
-                onTap: () => onChanged(index),
-              ),
+      child: tabs.length <= 3
+          ? Row(
+              children: [
+                for (var index = 0; index < tabs.length; index++)
+                  Expanded(
+                    child: _SegmentButton(
+                      label: tabs[index],
+                      selected: selectedIndex == index,
+                      onTap: () => onChanged(index),
+                    ),
+                  ),
+              ],
+            )
+          : ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: tabs.length,
+              separatorBuilder: (_, _) => const SizedBox.shrink(),
+              itemBuilder: (context, index) {
+                return SizedBox(
+                  width: 92,
+                  child: _SegmentButton(
+                    label: tabs[index],
+                    selected: selectedIndex == index,
+                    onTap: () => onChanged(index),
+                  ),
+                );
+              },
             ),
-        ],
-      ),
     );
   }
 }
@@ -57,26 +72,44 @@ class _SegmentButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? WebTuiColors.surface : Colors.transparent,
-      borderRadius: BorderRadius.circular(WebTuiRadii.sm),
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(WebTuiRadii.sm),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.xs),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: WebTuiTypography.labelSmall.copyWith(
-                color: selected
-                    ? WebTuiColors.primary
-                    : WebTuiColors.textSecondary,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: WebTuiSpacing.xs,
+                ),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: WebTuiTypography.bodySmall.copyWith(
+                    color: selected
+                        ? WebTuiColors.primary
+                        : WebTuiColors.textMuted,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
               ),
             ),
-          ),
+            if (selected)
+              Positioned(
+                left: WebTuiSpacing.md,
+                right: WebTuiSpacing.md,
+                bottom: 0,
+                child: Container(
+                  height: 2,
+                  decoration: BoxDecoration(
+                    color: WebTuiColors.primary,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

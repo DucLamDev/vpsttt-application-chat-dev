@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/providers/foundation_providers.dart';
 import '../../../../design_system/components/webtui_components.dart';
 import '../../../../design_system/tokens/webtui_spacing.dart';
+import '../../../conversations/domain/entities/conversation_summary.dart';
 import '../../../conversations/presentation/widgets/conversation_home_views.dart';
 import '../../../workspace/presentation/controllers/workspace_controller.dart';
 
@@ -17,8 +21,12 @@ class HomeShellScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeShellScreen> createState() => _HomeShellScreenState();
 }
 
-class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
+class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
+    with WidgetsBindingObserver {
   late int _tabIndex;
+  String? _pushRegisteredWorkspaceId;
+  String? _presenceWorkspaceId;
+  Timer? _presenceTimer;
   bool _notificationEnabled = true;
   bool _compactMode = false;
   double _soundLevel = 0.64;
@@ -27,7 +35,33 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabIndex = widget.initialTabIndex.clamp(0, _titles.length - 1).toInt();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _presenceTimer?.cancel();
+    final workspaceId = _presenceWorkspaceId;
+    if (workspaceId != null) {
+      unawaited(_setPresence(workspaceId, ConversationPresence.offline));
+    }
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final workspaceId = _presenceWorkspaceId;
+    if (workspaceId == null) {
+      return;
+    }
+    final presence = switch (state) {
+      AppLifecycleState.resumed => ConversationPresence.online,
+      AppLifecycleState.detached => ConversationPresence.offline,
+      _ => ConversationPresence.away,
+    };
+    unawaited(_setPresence(workspaceId, presence));
   }
 
   @override
@@ -64,31 +98,66 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
       );
     }
 
+    if (_pushRegisteredWorkspaceId != activeWorkspace.id) {
+      _pushRegisteredWorkspaceId = activeWorkspace.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(
+          ref
+              .read(pushNotificationServiceProvider)
+              .registerForWorkspace(activeWorkspace.id),
+        );
+      });
+    }
+
+    if (_presenceWorkspaceId != activeWorkspace.id) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _activatePresence(activeWorkspace.id);
+        }
+      });
+    }
+
     return KeyedSubtree(
       key: ValueKey('workspace-shell-${workspaceState.generation}'),
       child: WebTuiMobileScaffold(
         title: _titles[_tabIndex],
         selectedTab: _tabIndex,
         onTabSelected: (index) => setState(() => _tabIndex = index),
+        leading: IconButton(
+          tooltip: activeWorkspace.name,
+          onPressed: () => context.go('/workspaces'),
+          icon: const Icon(CupertinoIcons.person),
+        ),
         actions: [
-          IconButton(
-            tooltip: activeWorkspace.name,
-            onPressed: () => context.go('/workspaces'),
-            icon: const Icon(Icons.business_rounded),
-          ),
           if (_tabIndex == 2)
             IconButton(
               tooltip: 'Tạo kênh',
               onPressed: () => context.push('/channels/new'),
-              icon: const Icon(Icons.add_circle_outline_rounded),
+              icon: const Icon(CupertinoIcons.square_pencil),
             )
           else if (_tabIndex == 0)
             IconButton(
               tooltip: 'Tạo hội thoại',
               onPressed: () => setState(() => _tabIndex = 1),
-              icon: const Icon(Icons.person_add_alt_1_rounded),
+              icon: const Icon(CupertinoIcons.square_pencil),
             ),
         ],
+        floatingActionButton: switch (_tabIndex) {
+          0 => FloatingActionButton(
+            tooltip: 'Tạo hội thoại',
+            onPressed: () => setState(() => _tabIndex = 1),
+            child: const Icon(CupertinoIcons.chat_bubble_2),
+          ),
+          2 => FloatingActionButton(
+            tooltip: 'Tạo kênh',
+            onPressed: () => context.push('/channels/new'),
+            child: const Icon(CupertinoIcons.plus),
+          ),
+          _ => null,
+        },
         body: switch (_tabIndex) {
           0 => MessagesHomeView(workspaceId: activeWorkspace.id),
           1 => ContactsHomeView(workspaceId: activeWorkspace.id),
@@ -99,7 +168,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
             compactMode: _compactMode,
             soundLevel: _soundLevel,
             textScalePreview: _textScalePreview,
-            onProfileTap: () => context.go('/profile'),
+            onProfileTap: () => context.push('/profile'),
             onAdvancedTap: () => context.go('/settings'),
             onPrivacyTap: () => context.go('/privacy'),
             onLogoutTap: () async {
@@ -122,7 +191,29 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
     );
   }
 
-  static const _titles = ['Tin nhắn', 'Danh bạ', 'Kênh', 'Cài đặt'];
+  void _activatePresence(String workspaceId) {
+    _presenceWorkspaceId = workspaceId;
+    _presenceTimer?.cancel();
+    unawaited(_setPresence(workspaceId, ConversationPresence.online));
+    _presenceTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      unawaited(_setPresence(workspaceId, ConversationPresence.online));
+    });
+  }
+
+  Future<void> _setPresence(
+    String workspaceId,
+    ConversationPresence status,
+  ) async {
+    try {
+      await ref
+          .read(updatePresenceUseCaseProvider)
+          .execute(workspaceId: workspaceId, status: status);
+    } on Object {
+      // Presence must never block navigation or messaging.
+    }
+  }
+
+  static const _titles = ['WebTui', 'Bạn bè', 'Kênh', 'Cài đặt'];
 }
 
 class _SettingsTab extends StatelessWidget {

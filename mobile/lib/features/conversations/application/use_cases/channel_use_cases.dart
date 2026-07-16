@@ -1,3 +1,4 @@
+import '../../../../core/error/failure.dart';
 import '../../../../core/result/result.dart';
 import '../../domain/entities/channel_file.dart';
 import '../../domain/entities/chat_message.dart';
@@ -16,11 +17,37 @@ final class CreateChannelUseCase {
     required String description,
     required ChannelVisibility visibility,
   }) {
+    final normalizedName = name.trim();
+    final normalizedSlug = slug.trim().toLowerCase();
+    if (normalizedName.isEmpty || normalizedSlug.isEmpty) {
+      return Future.value(
+        const FailureResult(
+          Failure(
+            kind: FailureKind.validation,
+            message: 'Vui lòng nhập tên và slug của kênh.',
+            code: 'CHANNEL_INPUT_REQUIRED',
+          ),
+        ),
+      );
+    }
+    if (!RegExp(
+      r'^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$',
+    ).hasMatch(normalizedSlug)) {
+      return Future.value(
+        const FailureResult(
+          Failure(
+            kind: FailureKind.validation,
+            message: 'Slug chỉ gồm chữ thường, số và dấu gạch ngang.',
+            code: 'CHANNEL_SLUG_INVALID',
+          ),
+        ),
+      );
+    }
     return _repository.createChannel(
       workspaceId: workspaceId,
-      slug: slug,
-      name: name,
-      description: description,
+      slug: normalizedSlug,
+      name: normalizedName,
+      description: description.trim(),
       visibility: visibility,
     );
   }

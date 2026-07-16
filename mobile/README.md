@@ -54,11 +54,52 @@ flutter run --flavor staging -t lib/main_staging.dart
 flutter run --flavor prod -t lib/main_prod.dart
 ```
 
-Base URL không nằm trong widget. Cấu hình mặc định của cả 3 flavor đều trỏ backend thật `https://api.vpsttt.com` để các chức năng sử dụng được ngay. Khi cần test backend local, có thể override bằng:
+Base URL không nằm trong widget. Cấu hình mặc định của cả 3 flavor đều trỏ backend thật `https://chat.vpsttt.com` để các chức năng sử dụng được ngay. Khi cần test backend local, có thể override bằng:
 
 ```sh
 flutter run --flavor dev -t lib/main_dev.dart --dart-define=WEBTUI_API_BASE_URL=http://10.0.2.2:8080
 ```
+
+## Google Sign-In
+
+Nút Google lấy ID token bằng plugin `google_sign_in`, sau đó gửi token tới backend qua `POST /api/v1/auth/google`. Cấu hình OAuth client bằng `--dart-define`:
+
+```sh
+flutter run --flavor prod -t lib/main_prod.dart \
+  --dart-define=GOOGLE_OAUTH_CLIENT_ID=your-platform-client-id.apps.googleusercontent.com \
+  --dart-define=GOOGLE_OAUTH_SERVER_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+```
+
+`GOOGLE_OAUTH_SERVER_CLIENT_ID` phải trùng với `GOOGLE_CLIENT_ID` trên backend để backend xác minh đúng audience của ID token. Android vẫn cần khai báo package name và SHA-1/SHA-256 của app trong Google Cloud/Firebase Console.
+
+## Kết Nối API Mobile
+
+Flutter chạy native trên Android/iOS không bị chính sách CORS của trình duyệt. Khi app báo không thể kết nối máy chủ, kiểm tra DNS, chứng chỉ HTTPS, firewall và Nginx trước. Base URL production hiện là `https://chat.vpsttt.com`.
+
+```sh
+curl -I https://chat.vpsttt.com/ready
+sudo ss -lntp | grep -E ':80|:443'
+docker compose --env-file .compose.env -f deploy/docker/compose.prod.yml ps
+docker compose --env-file .compose.env -f deploy/docker/compose.prod.yml logs --tail=100 nginx
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+```
+
+## Firebase Push Notification
+
+Mobile đăng ký thiết bị với backend qua `POST /api/v1/mobile/devices`. Nếu Firebase đã được cấu hình, app sẽ lấy FCM token và gửi lên backend; nếu chưa có cấu hình Firebase, app vẫn chạy và chỉ đăng ký thiết bị với `push_provider=none`.
+
+Có thể cấu hình Firebase bằng native config của FlutterFire, hoặc truyền nhanh bằng `--dart-define`:
+
+```sh
+flutter run --flavor prod -t lib/main_prod.dart \
+  --dart-define=FIREBASE_PROJECT_ID=your-project-id \
+  --dart-define=FIREBASE_MESSAGING_SENDER_ID=123456789 \
+  --dart-define=FIREBASE_API_KEY=AIza... \
+  --dart-define=FIREBASE_ANDROID_APP_ID=1:123456789:android:abc
+```
+
+Với iOS, dùng `FIREBASE_IOS_APP_ID` và có thể bổ sung `FIREBASE_IOS_BUNDLE_ID` nếu cần.
 
 ## Ranh Giới Phụ Thuộc
 

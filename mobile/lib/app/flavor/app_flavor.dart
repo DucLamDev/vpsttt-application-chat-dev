@@ -27,9 +27,9 @@ enum AppFlavor {
 
   Uri get defaultApiBaseUri {
     return switch (this) {
-      AppFlavor.dev => Uri.parse('https://api.vpsttt.com'),
-      AppFlavor.staging => Uri.parse('https://api.vpsttt.com'),
-      AppFlavor.prod => Uri.parse('https://api.vpsttt.com'),
+      AppFlavor.dev => Uri.parse('https://chat.vpsttt.com'),
+      AppFlavor.staging => Uri.parse('https://chat.vpsttt.com'),
+      AppFlavor.prod => Uri.parse('https://chat.vpsttt.com'),
     };
   }
 }

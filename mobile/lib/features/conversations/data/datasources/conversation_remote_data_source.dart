@@ -1,0 +1,594 @@
+import '../../../../core/network/api_response.dart';
+import '../../../../core/network/api_transport.dart';
+import '../../domain/entities/channel_file.dart';
+import '../../domain/entities/chat_message.dart';
+import '../../domain/entities/conversation_summary.dart';
+
+final class ConversationRemoteDataSource {
+  const ConversationRemoteDataSource(this._api);
+
+  final ApiTransport _api;
+
+  Future<List<ConversationSummary>> listDirectConversations({
+    required String workspaceId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/direct-conversations',
+    );
+    return envelopeList(
+      response.data,
+      'direct_conversations',
+    ).map(_directConversationFromMap).toList(growable: false);
+  }
+
+  Future<List<ConversationSummary>> listChannels({
+    required String workspaceId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels',
+    );
+    return envelopeList(
+      response.data,
+      'channels',
+    ).map(_channelFromMap).toList(growable: false);
+  }
+
+  Future<List<ContactSummary>> listContacts() async {
+    final response = await _api.get<Object>('/api/v1/contacts');
+    return envelopeList(
+      response.data,
+      'contacts',
+    ).map(_contactFromMap).toList(growable: false);
+  }
+
+  Future<List<ContactSummary>> listWorkspaceMembers({
+    required String workspaceId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/members',
+    );
+    return envelopeList(
+      response.data,
+      'members',
+    ).map(_workspaceMemberFromMap).toList(growable: false);
+  }
+
+  Future<List<PresenceSummary>> listPresence({
+    required String workspaceId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/presence',
+      queryParameters: const {'limit': 200},
+    );
+    return envelopeList(
+      response.data,
+      'presence',
+    ).map(_presenceFromMap).toList(growable: false);
+  }
+
+  Future<void> updatePresence({
+    required String workspaceId,
+    required String deviceId,
+    required ConversationPresence status,
+    required String platform,
+  }) async {
+    await _api.put<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/presence/heartbeat',
+      data: {
+        'device_id': deviceId,
+        'status': status.name,
+        'metadata': {'platform': platform},
+      },
+    );
+  }
+
+  Future<ConversationSummary> getChannel({
+    required String workspaceId,
+    required String channelId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}',
+    );
+    return _channelFromMap(envelopeItem(response.data, 'channel'));
+  }
+
+  Future<ConversationSummary> createChannel({
+    required String workspaceId,
+    required String slug,
+    required String name,
+    required String description,
+    required ChannelVisibility visibility,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels',
+      data: compactMap({
+        'slug': slug,
+        'name': name,
+        'description': description,
+        'type': _visibilityToApi(visibility),
+      }),
+    );
+    return _channelFromMap(envelopeItem(response.data, 'channel'));
+  }
+
+  Future<ChannelMember> requestJoinChannel({
+    required String workspaceId,
+    required String channelId,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/join-requests',
+      data: const {},
+    );
+    return _channelMemberFromMap(
+      envelopeItem(response.data, 'member'),
+      channelId: channelId,
+    );
+  }
+
+  Future<ConversationSummary> openPrivateSession({
+    required String workspaceId,
+    required String channelId,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/private-session',
+      data: const {},
+    );
+    return _channelFromMap(envelopeItem(response.data, 'channel'));
+  }
+
+  Future<ConversationSummary> createDirectConversation({
+    required String workspaceId,
+    required List<String> participantIds,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/direct-conversations',
+      data: {'participant_ids': participantIds},
+    );
+    return _directConversationFromMap(
+      envelopeItem(response.data, 'direct_conversation'),
+    );
+  }
+
+  Future<void> markRead({
+    required String workspaceId,
+    required String channelId,
+    required String lastReadMessageId,
+  }) async {
+    await _api.put<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/read-state',
+      data: {'last_read_message_id': lastReadMessageId},
+    );
+  }
+
+  Future<List<ChannelMember>> listMembers({
+    required String workspaceId,
+    required String channelId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/members',
+    );
+    return envelopeList(response.data, 'members')
+        .map((map) => _channelMemberFromMap(map, channelId: channelId))
+        .toList(growable: false);
+  }
+
+  Future<ChannelMember> addMember({
+    required String workspaceId,
+    required String channelId,
+    required String userId,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/members',
+      data: {'user_id': userId},
+    );
+    return _channelMemberFromMap(
+      envelopeItem(response.data, 'member'),
+      channelId: channelId,
+    );
+  }
+
+  Future<List<ChannelMember>> listJoinRequests({
+    required String workspaceId,
+    required String channelId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/join-requests',
+    );
+    return envelopeList(response.data, 'join_requests')
+        .map((map) => _channelMemberFromMap(map, channelId: channelId))
+        .toList(growable: false);
+  }
+
+  Future<ChannelMember> approveJoinRequest({
+    required String workspaceId,
+    required String channelId,
+    required String userId,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/join-requests/${_e(userId)}/approve',
+      data: const {},
+    );
+    return _channelMemberFromMap(
+      envelopeItem(response.data, 'member'),
+      channelId: channelId,
+    );
+  }
+
+  Future<void> rejectJoinRequest({
+    required String workspaceId,
+    required String channelId,
+    required String userId,
+  }) async {
+    await _api.delete<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/join-requests/${_e(userId)}',
+    );
+  }
+
+  Future<List<ChatMessage>> listMessages({
+    required String workspaceId,
+    required String channelId,
+    int limit = 50,
+    String? beforeId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages',
+      queryParameters: compactMap({'limit': limit, 'before_id': beforeId}),
+    );
+    return envelopeList(response.data, 'messages')
+        .map((map) => _messageFromMap(map, workspaceId, channelId))
+        .toList(growable: false);
+  }
+
+  Future<List<ChatMessage>> searchMessages({
+    required String workspaceId,
+    required String query,
+    String? channelId,
+    int limit = 30,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/messages/search',
+      queryParameters: compactMap({
+        'q': query,
+        'channel_id': channelId,
+        'limit': limit,
+      }),
+    );
+    return envelopeList(response.data, 'messages')
+        .map((map) {
+          final resolvedChannelId = stringField(map, const [
+            'channel_id',
+            'channelId',
+          ], fallback: channelId ?? '');
+          return _messageFromMap(map, workspaceId, resolvedChannelId);
+        })
+        .toList(growable: false);
+  }
+
+  Future<List<ChatMessage>> listPins({
+    required String workspaceId,
+    required String channelId,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/pins',
+    );
+    return envelopeList(response.data, 'messages')
+        .map((map) => _messageFromMap(map, workspaceId, channelId))
+        .toList(growable: false);
+  }
+
+  Future<ChatMessage> sendMessage({
+    required String workspaceId,
+    required String channelId,
+    required String body,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages',
+      data: {'body': body, 'kind': 'text'},
+    );
+    return _messageFromMap(
+      envelopeItem(response.data, 'message'),
+      workspaceId,
+      channelId,
+    );
+  }
+
+  Future<List<ChannelFile>> listFiles({
+    required String workspaceId,
+    int limit = 40,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/files',
+      queryParameters: {'limit': limit},
+    );
+    return envelopeList(
+      response.data,
+      'files',
+    ).map(_fileFromMap).toList(growable: false);
+  }
+}
+
+ConversationSummary _channelFromMap(JsonMap map) {
+  final channelId = stringField(map, const ['id', 'channel_id', 'channelId']);
+  final workspaceId = stringField(map, const ['workspace_id', 'workspaceId']);
+  final visibility = _visibilityFromApi(
+    stringField(map, const ['type', 'kind'], fallback: 'public'),
+  );
+  return ConversationSummary(
+    id: channelId,
+    workspaceId: workspaceId,
+    channelId: channelId,
+    kind: visibility == ChannelVisibility.direct
+        ? ConversationKind.direct
+        : ConversationKind.channel,
+    title: stringField(map, const ['name', 'title'], fallback: channelId),
+    preview: stringField(map, const ['description', 'preview']),
+    avatarLabel: _avatarLabel(stringField(map, const ['name', 'title'])),
+    avatarUrl: nullableStringField(map, const ['avatar_url', 'avatarUrl']),
+    updatedAt: dateTimeField(map, const ['updated_at', 'updatedAt']),
+    unreadCount: intField(map, const ['unread_count', 'unreadCount']),
+    favorite: boolField(map, const ['is_favorite', 'favorite']),
+    muted:
+        stringField(map, const ['membership_status', 'membershipStatus']) ==
+        'muted',
+    memberCount: intField(map, const ['member_count', 'memberCount']),
+    channelVisibility: visibility,
+    membershipStatus: _membershipFromApi(
+      stringField(map, const ['membership_status', 'membershipStatus']),
+    ),
+    canManage: boolField(map, const ['can_manage', 'canManage']),
+    privateSessionMode: boolField(map, const [
+      'private_session_mode',
+      'privateSessionMode',
+    ]),
+  );
+}
+
+ConversationSummary _directConversationFromMap(JsonMap map) {
+  final userMap = jsonMap(field(map, const ['user']));
+  final participantMaps = jsonMapList(field(map, const ['participants']));
+  final firstParticipant = participantMaps.isEmpty
+      ? const <String, dynamic>{}
+      : participantMaps.first;
+  final displaySource = userMap.isNotEmpty ? userMap : firstParticipant;
+  final lastMessage = jsonMap(
+    field(map, const ['last_message', 'lastMessage']),
+  );
+  final channelId = stringField(map, const ['channel_id', 'channelId', 'id']);
+  final workspaceId = stringField(map, const ['workspace_id', 'workspaceId']);
+  final participantIds = <String>{
+    for (final participant in participantMaps)
+      stringField(participant, const ['user_id', 'userId', 'id']),
+    stringField(displaySource, const ['user_id', 'userId', 'id']),
+  }..removeWhere((id) => id.isEmpty);
+
+  return ConversationSummary(
+    id: stringField(map, const ['id'], fallback: channelId),
+    workspaceId: workspaceId,
+    channelId: channelId,
+    kind: ConversationKind.direct,
+    title: stringField(displaySource, const [
+      'display_name',
+      'displayName',
+      'username',
+      'email',
+    ], fallback: 'Tin nhan rieng'),
+    preview: stringField(lastMessage, const ['body']),
+    avatarLabel: _avatarLabel(
+      stringField(displaySource, const [
+        'display_name',
+        'displayName',
+        'username',
+        'email',
+      ]),
+    ),
+    avatarUrl: nullableStringField(displaySource, const [
+      'avatar_url',
+      'avatarUrl',
+    ]),
+    peerUserId: nullableStringField(displaySource, const [
+      'user_id',
+      'userId',
+      'id',
+    ]),
+    updatedAt: dateTimeField(map, const [
+      'updated_at',
+      'updatedAt',
+    ], fallback: nullableDateTimeField(lastMessage, const ['created_at'])),
+    unreadCount: intField(map, const ['unread_count', 'unreadCount']),
+    participantIds: participantIds.toList(growable: false),
+    channelVisibility: ChannelVisibility.direct,
+    membershipStatus: MembershipStatus.active,
+  );
+}
+
+PresenceSummary _presenceFromMap(JsonMap map) {
+  return PresenceSummary(
+    userId: stringField(map, const ['user_id', 'userId']),
+    status: switch (stringField(map, const [
+      'status',
+    ], fallback: 'offline').toLowerCase()) {
+      'online' => ConversationPresence.online,
+      'away' => ConversationPresence.away,
+      _ => ConversationPresence.offline,
+    },
+    lastHeartbeatAt: dateTimeField(map, const [
+      'last_heartbeat_at',
+      'lastHeartbeatAt',
+    ]),
+  );
+}
+
+ContactSummary _contactFromMap(JsonMap map) {
+  final userMap = jsonMap(field(map, const ['user']));
+  final source = userMap.isEmpty ? map : userMap;
+  return ContactSummary(
+    userId: stringField(source, const [
+      'id',
+      'user_id',
+      'userId',
+    ], fallback: stringField(map, const ['requester_id', 'receiver_id'])),
+    displayName: stringField(source, const [
+      'display_name',
+      'displayName',
+      'username',
+      'email',
+    ]),
+    username: stringField(source, const ['username']),
+    email: stringField(source, const ['email']),
+    status: stringField(source, const ['status'], fallback: 'active'),
+    avatarUrl: nullableStringField(source, const ['avatar_url', 'avatarUrl']),
+    title: nullableStringField(source, const ['title', 'role']),
+  );
+}
+
+ContactSummary _workspaceMemberFromMap(JsonMap map) {
+  final userMap = jsonMap(field(map, const ['user']));
+  final source = userMap.isEmpty ? map : {...userMap, ...map};
+  return ContactSummary(
+    userId: stringField(source, const ['user_id', 'userId', 'id']),
+    displayName: stringField(source, const [
+      'display_name',
+      'displayName',
+      'username',
+      'email',
+    ]),
+    username: stringField(source, const ['username']),
+    email: stringField(source, const ['email']),
+    status: stringField(source, const ['status'], fallback: 'active'),
+    avatarUrl: nullableStringField(source, const ['avatar_url', 'avatarUrl']),
+    title: nullableStringField(source, const ['title', 'role']),
+  );
+}
+
+ChannelMember _channelMemberFromMap(JsonMap map, {required String channelId}) {
+  final userMap = jsonMap(field(map, const ['user']));
+  final source = userMap.isEmpty ? map : {...userMap, ...map};
+  return ChannelMember(
+    channelId: stringField(source, const [
+      'channel_id',
+      'channelId',
+    ], fallback: channelId),
+    userId: stringField(source, const ['user_id', 'userId', 'id']),
+    email: stringField(source, const ['email']),
+    username: stringField(source, const ['username']),
+    displayName: stringField(source, const [
+      'display_name',
+      'displayName',
+      'username',
+      'email',
+    ]),
+    status: stringField(source, const ['status'], fallback: 'active'),
+    joinedAt: dateTimeField(source, const ['joined_at', 'joinedAt']),
+    avatarUrl: nullableStringField(source, const ['avatar_url', 'avatarUrl']),
+    lastReadMessageId: nullableStringField(source, const [
+      'last_read_message_id',
+      'lastReadMessageId',
+    ]),
+  );
+}
+
+ChatMessage _messageFromMap(JsonMap map, String workspaceId, String channelId) {
+  return ChatMessage(
+    id: stringField(map, const ['id']),
+    workspaceId: stringField(map, const [
+      'workspace_id',
+      'workspaceId',
+    ], fallback: workspaceId),
+    channelId: stringField(map, const [
+      'channel_id',
+      'channelId',
+    ], fallback: channelId),
+    kind: stringField(map, const ['kind'], fallback: 'text'),
+    body: stringField(map, const ['body']),
+    createdAt: dateTimeField(map, const ['created_at', 'sent_at', 'createdAt']),
+    senderId: nullableStringField(map, const [
+      'sender_id',
+      'author_id',
+      'senderId',
+      'authorId',
+    ]),
+    parentId: nullableStringField(map, const ['parent_id', 'parentId']),
+    threadRootId: nullableStringField(map, const [
+      'thread_root_id',
+      'threadRootId',
+    ]),
+    editedAt: nullableDateTimeField(map, const ['edited_at', 'editedAt']),
+    deletedAt: nullableDateTimeField(map, const ['deleted_at', 'deletedAt']),
+    reactions: jsonMapList(
+      field(map, const ['reactions']),
+    ).map(_reactionFromMap).toList(growable: false),
+  );
+}
+
+MessageReactionSummary _reactionFromMap(JsonMap map) {
+  return MessageReactionSummary(
+    emoji: stringField(map, const ['emoji']),
+    count: intField(map, const ['count']),
+    reactedByMe: boolField(map, const ['reacted_by_me', 'reactedByMe']),
+  );
+}
+
+ChannelFile _fileFromMap(JsonMap map) {
+  return ChannelFile(
+    id: stringField(map, const ['id', 'file_id']),
+    name: stringField(map, const [
+      'name',
+      'file_name',
+      'original_name',
+    ], fallback: 'file'),
+    mimeType: stringField(map, const [
+      'mime_type',
+      'mimeType',
+    ], fallback: 'application/octet-stream'),
+    byteSize: intField(map, const ['byte_size', 'size_bytes', 'size']),
+    createdAt: dateTimeField(map, const ['created_at', 'createdAt']),
+  );
+}
+
+ChannelVisibility _visibilityFromApi(String value) {
+  return switch (value.trim().toLowerCase()) {
+    'private' => ChannelVisibility.private,
+    'direct' => ChannelVisibility.direct,
+    _ => ChannelVisibility.public,
+  };
+}
+
+String _visibilityToApi(ChannelVisibility visibility) {
+  return switch (visibility) {
+    ChannelVisibility.private => 'private',
+    ChannelVisibility.direct => 'direct',
+    ChannelVisibility.public => 'public',
+  };
+}
+
+MembershipStatus _membershipFromApi(String value) {
+  return switch (value.trim().toLowerCase()) {
+    'active' => MembershipStatus.active,
+    'muted' => MembershipStatus.muted,
+    'invited' => MembershipStatus.invited,
+    'left' => MembershipStatus.left,
+    'removed' => MembershipStatus.removed,
+    _ => MembershipStatus.none,
+  };
+}
+
+String _avatarLabel(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return '';
+  }
+  final words = trimmed.split(RegExp(r'\s+'));
+  if (words.length == 1) {
+    return _prefix(words.first, 2).toUpperCase();
+  }
+  return '${_prefix(words.first, 1)}${_prefix(words.last, 1)}'.toUpperCase();
+}
+
+String _e(String value) => Uri.encodeComponent(value);
+
+String _prefix(String value, int length) {
+  if (value.length <= length) {
+    return value;
+  }
+  return value.substring(0, length);
+}

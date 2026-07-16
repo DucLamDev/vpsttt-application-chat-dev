@@ -23,8 +23,14 @@ class MessagesHomeView extends ConsumerWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 720;
+        final selected =
+            state.selectedConversation ??
+            (state.filteredConversations.isEmpty
+                ? null
+                : state.filteredConversations.first);
         final list = _MessagesList(
           state: state,
+          selectedId: wide ? selected?.id : null,
           onRetry: controller.load,
           onSearch: controller.setSearchQuery,
           onFilterChanged: (index) {
@@ -34,6 +40,7 @@ class MessagesHomeView extends ConsumerWidget {
             if (wide) {
               controller.selectConversation(conversation);
             } else {
+              controller.markConversationOpened(conversation);
               _openChat(context, conversation);
             }
           },
@@ -43,11 +50,6 @@ class MessagesHomeView extends ConsumerWidget {
           return list;
         }
 
-        final selected =
-            state.selectedConversation ??
-            (state.filteredConversations.isEmpty
-                ? null
-                : state.filteredConversations.first);
         return Row(
           children: [
             SizedBox(width: 360, child: list),
@@ -112,6 +114,7 @@ class ContactsHomeView extends ConsumerWidget {
           _ContactSections(
             contacts: state.filteredContacts,
             members: state.workspaceMembers,
+            presenceByUserId: state.presenceByUserId,
             membersErrorMessage: state.membersErrorMessage,
             onTap: (contact) async {
               final conversation = await controller.openDirect(contact);
@@ -124,7 +127,7 @@ class ContactsHomeView extends ConsumerWidget {
           _ChannelList(
             channels: state.filteredChannels,
             emptyTitle: 'Chưa có kênh hoặc bot',
-            onTap: (channel) => _openChannelDetail(context, channel),
+            onTap: (channel) => _handleChannelTap(context, controller, channel),
           ),
       ],
     );
@@ -169,7 +172,7 @@ class ChannelsHomeView extends ConsumerWidget {
           _ChannelList(
             channels: state.filteredChannels,
             emptyTitle: 'Chưa có kênh phù hợp',
-            onTap: (channel) => _openChannelDetail(context, channel),
+            onTap: (channel) => _handleChannelTap(context, controller, channel),
           ),
       ],
     );
@@ -183,6 +186,7 @@ class _MessagesList extends StatelessWidget {
     required this.onSearch,
     required this.onFilterChanged,
     required this.onTap,
+    this.selectedId,
   });
 
   final ConversationHomeState state;
@@ -190,6 +194,7 @@ class _MessagesList extends StatelessWidget {
   final ValueChanged<String> onSearch;
   final ValueChanged<int> onFilterChanged;
   final ValueChanged<ConversationSummary> onTap;
+  final String? selectedId;
 
   @override
   Widget build(BuildContext context) {
@@ -222,12 +227,14 @@ class _MessagesList extends StatelessWidget {
               icon: Icons.chat_bubble_outline_rounded,
             )
           else ...[
-            const WebTuiSectionLabel('Hội thoại gần đây'),
+            const SizedBox(height: WebTuiSpacing.xs),
             WebTuiListSurface(
               children: [
                 for (final conversation in state.filteredConversations)
                   _ConversationTile(
                     conversation: conversation,
+                    presence: state.presenceForConversation(conversation),
+                    selected: selectedId == conversation.id,
                     onTap: () => onTap(conversation),
                   ),
               ],
@@ -240,10 +247,17 @@ class _MessagesList extends StatelessWidget {
 }
 
 class _ConversationTile extends StatelessWidget {
-  const _ConversationTile({required this.conversation, required this.onTap});
+  const _ConversationTile({
+    required this.conversation,
+    required this.onTap,
+    this.presence,
+    this.selected = false,
+  });
 
   final ConversationSummary conversation;
   final VoidCallback onTap;
+  final ConversationPresence? presence;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -252,11 +266,13 @@ class _ConversationTile extends StatelessWidget {
       preview: conversation.preview,
       timeLabel: _timeLabel(conversation.updatedAt),
       avatarLabel: conversation.avatarLabel ?? conversation.title,
+      avatarUrl: conversation.avatarUrl,
       unreadCount: conversation.unreadCount,
       muted: conversation.muted,
       status: conversation.kind == ConversationKind.direct
-          ? WebTuiPresenceStatus.online
+          ? _presenceStatus(presence)
           : null,
+      selected: selected,
       onTap: onTap,
     );
   }
@@ -266,12 +282,14 @@ class _ContactSections extends StatelessWidget {
   const _ContactSections({
     required this.contacts,
     required this.members,
+    required this.presenceByUserId,
     required this.onTap,
     this.membersErrorMessage,
   });
 
   final List<ContactSummary> contacts;
   final List<ContactSummary> members;
+  final Map<String, ConversationPresence> presenceByUserId;
   final String? membersErrorMessage;
   final ValueChanged<ContactSummary> onTap;
 
@@ -302,7 +320,11 @@ class _ContactSections extends StatelessWidget {
           WebTuiListSurface(
             children: [
               for (final contact in contacts)
-                _ContactTile(contact: contact, onTap: () => onTap(contact)),
+                _ContactTile(
+                  contact: contact,
+                  presence: presenceByUserId[contact.userId],
+                  onTap: () => onTap(contact),
+                ),
             ],
           ),
         ],
@@ -311,7 +333,11 @@ class _ContactSections extends StatelessWidget {
           WebTuiListSurface(
             children: [
               for (final member in uniqueMembers)
-                _ContactTile(contact: member, onTap: () => onTap(member)),
+                _ContactTile(
+                  contact: member,
+                  presence: presenceByUserId[member.userId],
+                  onTap: () => onTap(member),
+                ),
             ],
           ),
         ],
@@ -326,19 +352,25 @@ class _ContactSections extends StatelessWidget {
 }
 
 class _ContactTile extends StatelessWidget {
-  const _ContactTile({required this.contact, required this.onTap});
+  const _ContactTile({
+    required this.contact,
+    required this.onTap,
+    this.presence,
+  });
 
   final ContactSummary contact;
   final VoidCallback onTap;
+  final ConversationPresence? presence;
 
   @override
   Widget build(BuildContext context) {
     return WebTuiConversationListItem(
       title: contact.displayName,
       preview: contact.title ?? contact.email,
-      timeLabel: contact.status == 'active' ? 'Online' : contact.status,
+      timeLabel: _presenceLabel(presence),
       avatarLabel: contact.displayName,
-      status: contact.status == 'active' ? WebTuiPresenceStatus.online : null,
+      avatarUrl: contact.avatarUrl,
+      status: _presenceStatus(presence),
       onTap: onTap,
     );
   }
@@ -399,9 +431,9 @@ class _TopSearch extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         WebTuiSpacing.lg,
-        WebTuiSpacing.sm,
+        WebTuiSpacing.md,
         WebTuiSpacing.lg,
-        WebTuiSpacing.sm,
+        WebTuiSpacing.md,
       ),
       child: WebTuiSearchBar(hintText: hintText, onChanged: onChanged),
     );
@@ -409,10 +441,15 @@ class _TopSearch extends StatelessWidget {
 }
 
 void _openChat(BuildContext context, ConversationSummary conversation) {
+  final queryParameters = {'title': conversation.title};
+  final avatarUrl = conversation.avatarUrl?.trim();
+  if (avatarUrl != null && avatarUrl.isNotEmpty) {
+    queryParameters['avatarUrl'] = avatarUrl;
+  }
   context.push(
     Uri(
       path: '/conversations/${conversation.channelId}',
-      queryParameters: {'title': conversation.title},
+      queryParameters: queryParameters,
     ).toString(),
   );
 }
@@ -424,6 +461,40 @@ void _openChannelDetail(BuildContext context, ConversationSummary channel) {
       queryParameters: {'title': channel.title},
     ).toString(),
   );
+}
+
+Future<void> _handleChannelTap(
+  BuildContext context,
+  ConversationHomeController controller,
+  ConversationSummary channel,
+) async {
+  final destination = await controller.openChannel(channel);
+  if (destination == null || !context.mounted) {
+    return;
+  }
+  if (channel.privateSessionMode) {
+    _openChat(context, destination);
+  } else {
+    _openChannelDetail(context, destination);
+  }
+}
+
+WebTuiPresenceStatus? _presenceStatus(ConversationPresence? presence) {
+  return switch (presence) {
+    ConversationPresence.online => WebTuiPresenceStatus.online,
+    ConversationPresence.away => WebTuiPresenceStatus.away,
+    ConversationPresence.offline => WebTuiPresenceStatus.offline,
+    null => null,
+  };
+}
+
+String _presenceLabel(ConversationPresence? presence) {
+  return switch (presence) {
+    ConversationPresence.online => 'Online',
+    ConversationPresence.away => 'Vắng mặt',
+    ConversationPresence.offline => 'Ngoại tuyến',
+    null => '',
+  };
 }
 
 String _timeLabel(DateTime value) {

@@ -4,6 +4,8 @@ enum ChannelVisibility { public, private, direct }
 
 enum MembershipStatus { active, muted, invited, left, removed, none }
 
+enum ConversationPresence { online, away, offline }
+
 final class ConversationSummary {
   const ConversationSummary({
     required this.id,
@@ -14,6 +16,8 @@ final class ConversationSummary {
     required this.preview,
     required this.updatedAt,
     this.avatarLabel,
+    this.avatarUrl,
+    this.peerUserId,
     this.unreadCount = 0,
     this.favorite = false,
     this.muted = false,
@@ -32,6 +36,8 @@ final class ConversationSummary {
   final String title;
   final String preview;
   final String? avatarLabel;
+  final String? avatarUrl;
+  final String? peerUserId;
   final DateTime updatedAt;
   final int unreadCount;
   final bool favorite;
@@ -47,6 +53,33 @@ final class ConversationSummary {
   bool get isMember =>
       membershipStatus == MembershipStatus.active ||
       membershipStatus == MembershipStatus.muted;
+
+  ConversationSummary copyWith({
+    int? unreadCount,
+    MembershipStatus? membershipStatus,
+  }) {
+    return ConversationSummary(
+      id: id,
+      workspaceId: workspaceId,
+      channelId: channelId,
+      kind: kind,
+      title: title,
+      preview: preview,
+      updatedAt: updatedAt,
+      avatarLabel: avatarLabel,
+      avatarUrl: avatarUrl,
+      peerUserId: peerUserId,
+      unreadCount: unreadCount ?? this.unreadCount,
+      favorite: favorite,
+      muted: muted,
+      memberCount: memberCount,
+      participantIds: participantIds,
+      channelVisibility: channelVisibility,
+      membershipStatus: membershipStatus ?? this.membershipStatus,
+      canManage: canManage,
+      privateSessionMode: privateSessionMode,
+    );
+  }
 }
 
 final class ConversationHomeData {
@@ -56,8 +89,10 @@ final class ConversationHomeData {
     required this.channels,
     required this.contacts,
     required this.workspaceMembers,
+    this.presenceByUserId = const {},
     this.contactsErrorMessage,
     this.membersErrorMessage,
+    this.presenceErrorMessage,
   });
 
   final String workspaceId;
@@ -65,8 +100,22 @@ final class ConversationHomeData {
   final List<ConversationSummary> channels;
   final List<ContactSummary> contacts;
   final List<ContactSummary> workspaceMembers;
+  final Map<String, ConversationPresence> presenceByUserId;
   final String? contactsErrorMessage;
   final String? membersErrorMessage;
+  final String? presenceErrorMessage;
+}
+
+final class PresenceSummary {
+  const PresenceSummary({
+    required this.userId,
+    required this.status,
+    required this.lastHeartbeatAt,
+  });
+
+  final String userId;
+  final ConversationPresence status;
+  final DateTime lastHeartbeatAt;
 }
 
 final class ContactSummary {

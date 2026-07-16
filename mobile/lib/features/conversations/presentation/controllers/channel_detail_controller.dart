@@ -182,10 +182,9 @@ final class ChannelDetailController extends StateNotifier<ChannelDetailState> {
     );
     switch (result) {
       case Success<ChannelMember>():
-        state = state.copyWith(
-          isSubmitting: false,
-          noticeMessage: 'Đã gửi yêu cầu tham gia kênh.',
-        );
+        state = state.copyWith(isSubmitting: false);
+        await load();
+        state = state.copyWith(noticeMessage: 'Đã gửi yêu cầu tham gia kênh.');
       case FailureResult<ChannelMember>(failure: final failure):
         state = state.copyWith(
           isSubmitting: false,
