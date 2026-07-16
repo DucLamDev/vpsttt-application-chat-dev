@@ -1,3 +1,5 @@
+import process from "node:process";
+
 const adminBasePath = process.env.ADMIN_BASE_PATH?.trim();
 
 const nextConfig = {
