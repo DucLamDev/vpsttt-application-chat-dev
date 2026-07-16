@@ -4733,7 +4733,6 @@
   align-content: start;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scroll-behavior: smooth;
   scroll-padding-bottom: 24px;
 }
 
