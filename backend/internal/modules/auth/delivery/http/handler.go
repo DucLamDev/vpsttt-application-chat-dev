@@ -26,6 +26,7 @@ type registerRequest struct {
 	Email       string `json:"email"`
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
+	Domain      string `json:"domain"`
 	Password    string `json:"password"`
 	DeviceName  string `json:"device_name"`
 }
@@ -158,6 +159,7 @@ func (h *Handler) Register(c *gin.Context) {
 		Email:       req.Email,
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
+		Domain:      req.Domain,
 		Password:    req.Password,
 		DeviceName:  req.DeviceName,
 		IPAddress:   clientIP(c),

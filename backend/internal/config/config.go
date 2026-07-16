@@ -16,6 +16,9 @@ var defaultCORSAllowedOrigins = []string{
 	"http://localhost:3000",
 	"http://localhost:3001",
 	"http://localhost:5173",
+	"http://tauri.localhost",
+	"https://tauri.localhost",
+	"tauri://localhost",
 	"https://chat.vpsttt.com",
 }
 

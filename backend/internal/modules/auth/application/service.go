@@ -18,6 +18,7 @@ import (
 )
 
 var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{2,39}$`)
+var companyDomainPattern = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 
 type Repository interface {
 	CreateUser(ctx context.Context, params CreateUserParams) (authdomain.User, error)
@@ -45,6 +46,7 @@ type RegisterInput struct {
 	Email       string
 	Username    string
 	DisplayName string
+	Domain      string
 	Password    string
 	DeviceName  string
 	IPAddress   string
@@ -220,6 +222,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (AuthResult
 		EntityID:    user.ID,
 		IPAddress:   normalized.IPAddress,
 		UserAgent:   normalized.UserAgent,
+		Metadata:    map[string]any{"domain": normalized.Domain},
 	})
 	return result, nil
 }
@@ -555,6 +558,11 @@ func normalizeRegister(input RegisterInput) (RegisterInput, error) {
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	input.Username = strings.ToLower(strings.TrimSpace(input.Username))
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
+	input.Domain = strings.TrimPrefix(input.Domain, "https://")
+	input.Domain = strings.TrimPrefix(input.Domain, "http://")
+	input.Domain = strings.Split(input.Domain, "/")[0]
+	input.Domain = strings.Split(input.Domain, ":")[0]
 	input.Password = strings.TrimSpace(input.Password)
 	input.DeviceName, input.IPAddress, input.UserAgent = normalizeClientInfo(input.DeviceName, input.IPAddress, input.UserAgent)
 
@@ -566,6 +574,9 @@ func normalizeRegister(input RegisterInput) (RegisterInput, error) {
 	}
 	if input.DisplayName == "" || len([]rune(input.DisplayName)) > 120 {
 		return input, apperrors.BadRequest("VALIDATION_ERROR", "Tên hiển thị phải dài từ 1 đến 120 ký tự.")
+	}
+	if input.Domain != "" && (len(input.Domain) > 253 || !companyDomainPattern.MatchString(input.Domain)) {
+		return input, apperrors.BadRequest("VALIDATION_ERROR", "Domain công ty không đúng định dạng.")
 	}
 	if len([]rune(input.Password)) < 8 {
 		return input, apperrors.BadRequest("VALIDATION_ERROR", "Mật khẩu phải có ít nhất 8 ký tự.")

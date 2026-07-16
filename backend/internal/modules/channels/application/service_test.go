@@ -182,6 +182,34 @@ func TestListIncludesActiveMemberCount(t *testing.T) {
 	}
 }
 
+type publicChannelListRepo struct {
+	channelListRepo
+}
+
+func (r *publicChannelListRepo) FindMember(context.Context, string, string, string) (channelsdomain.Member, error) {
+	return channelsdomain.Member{}, channelsdomain.ErrMemberNotFound
+}
+
+func TestListIncludesPublicChannelForNonMember(t *testing.T) {
+	now := time.Date(2026, 7, 15, 8, 0, 0, 0, time.UTC)
+	repo := &publicChannelListRepo{
+		channelListRepo: channelListRepo{
+			channel: channelsdomain.Channel{
+				ID: "channel-public", WorkspaceID: "workspace-1", Name: "Thông báo", Type: "public", CreatedAt: now, UpdatedAt: now,
+			},
+		},
+	}
+	service := NewService(repo, staticPermissionChecker{allowed: true})
+
+	channels, err := service.List(context.Background(), "user-1", "workspace-1")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(channels) != 1 || channels[0].IsMember {
+		t.Fatalf("List() public non-member = %#v, want visible and not joined", channels)
+	}
+}
+
 func TestCreateDirectRejectsSingleParticipant(t *testing.T) {
 	service := NewService(&directConversationRepo{}, staticPermissionChecker{allowed: true})
 

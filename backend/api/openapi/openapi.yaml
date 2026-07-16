@@ -3328,6 +3328,9 @@ components:
           type: string
         display_name:
           type: string
+        domain:
+          type: string
+          description: Domain công ty, không bắt buộc. Ví dụ company.com.
         password:
           type: string
           format: password

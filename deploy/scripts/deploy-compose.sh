@@ -46,6 +46,8 @@ require_value WEBTUI_API_IMAGE "$WEBTUI_API_IMAGE"
 require_value WEBTUI_WORKER_IMAGE "$WEBTUI_WORKER_IMAGE"
 require_value WEBTUI_WEB_IMAGE "$WEBTUI_WEB_IMAGE"
 
+mkdir -p data/desktop-releases data/download-manifests data/downloads
+
 write_compose_env_file() {
   {
     printf 'API_DOMAIN=%s\n' "$API_DOMAIN"

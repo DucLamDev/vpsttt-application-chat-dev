@@ -117,6 +117,33 @@ func TestNormalizeClientInfoKeepsExplicitDeviceName(t *testing.T) {
 	}
 }
 
+func TestNormalizeRegisterAcceptsOptionalCompanyDomain(t *testing.T) {
+	normalized, err := normalizeRegister(RegisterInput{
+		Email:       "member@example.com",
+		Username:    "member",
+		DisplayName: "Member",
+		Domain:      " https://Chat.Company.com/path ",
+		Password:    "password-123",
+	})
+	if err != nil {
+		t.Fatalf("normalizeRegister() error = %v", err)
+	}
+	if normalized.Domain != "chat.company.com" {
+		t.Fatalf("domain = %q, want chat.company.com", normalized.Domain)
+	}
+
+	_, err = normalizeRegister(RegisterInput{
+		Email:       "member@example.com",
+		Username:    "member",
+		DisplayName: "Member",
+		Domain:      "not a domain",
+		Password:    "password-123",
+	})
+	if err == nil {
+		t.Fatal("normalizeRegister() expected invalid domain error")
+	}
+}
+
 func TestGoogleUsernameIsStableAndValid(t *testing.T) {
 	username := googleUsername("Ho.Duc.Lam@example.com", "google-subject-123")
 	if !usernamePattern.MatchString(username) {

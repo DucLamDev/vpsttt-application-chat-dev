@@ -16,6 +16,7 @@ func TestLoadIncludesLocalFrontendCORSOrigins(t *testing.T) {
 
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3000")
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3001")
+	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://tauri.localhost")
 }
 
 func TestLoadMergesConfiguredAndLocalFrontendCORSOrigins(t *testing.T) {
@@ -30,6 +31,7 @@ func TestLoadMergesConfiguredAndLocalFrontendCORSOrigins(t *testing.T) {
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "https://chat.vpsttt.com")
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3000")
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3001")
+	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://tauri.localhost")
 }
 
 func TestValidateRejectsWeakProductionSecrets(t *testing.T) {

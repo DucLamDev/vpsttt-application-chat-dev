@@ -1,1 +1,4 @@
+/.secrets/
 src-tauri/.generated/
+src-tauri/gen/
+src-tauri/target/

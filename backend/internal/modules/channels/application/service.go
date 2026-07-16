@@ -296,7 +296,7 @@ func (s *Service) List(ctx context.Context, actorUserID string, workspaceID stri
 		if err != nil {
 			return nil, err
 		}
-		if dto.IsMember || dto.PrivateSessionMode {
+		if dto.IsMember || dto.PrivateSessionMode || dto.Type == "public" {
 			dtos = append(dtos, dto)
 		}
 	}

@@ -57,6 +57,11 @@ npm --workspace @webtui/desktop run build
 If the build fails with `cargo metadata ... program not found`, install Rust from
 `rustup` and reopen the terminal so `cargo --version` works.
 
+If it fails with `can't find library webtui_desktop_lib`, the Tauri Rust entry
+points are out of shape. This app keeps the native host in
+`src-tauri/src/lib.rs`, and `src-tauri/src/main.rs` only calls
+`webtui_desktop_lib::run()`.
+
 ## Voice and Video Calls
 
 The desktop app uses the same WebRTC call UI and signaling flow as the web app.
@@ -117,6 +122,92 @@ npm --workspace @webtui/desktop run tauri -- signer generate --ci
 
 Only commit the public key through release configuration. Store the private key
 in the CI secret store or an offline signing vault.
+
+## Production User Downloads
+
+GitHub Actions artifacts are for the release team, not for end users. For
+production, build signed installers, upload them to a public HTTPS download
+host, then point the backend and web UI at that URL.
+
+1. Build on each target OS with release signing enabled:
+
+```bash
+cd frontend
+WEBTUI_RELEASE_CHANNEL=stable \
+WEBTUI_TAURI_UPDATER_PUBKEY=... \
+TAURI_SIGNING_PRIVATE_KEY=... \
+npm --workspace @webtui/desktop run build:release
+```
+
+2. Take the installer from the Tauri bundle output:
+
+- Windows: `apps/desktop/src-tauri/target/release/bundle/nsis/*.exe` or
+  `apps/desktop/src-tauri/target/release/bundle/msi/*.msi`
+- macOS: `apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg`
+- Linux: `apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage` or
+  `apps/desktop/src-tauri/target/release/bundle/deb/*.deb`
+
+3. Upload the public installers to the download host, for example:
+
+```text
+https://download.vpsttt.com/desktop/stable/windows/WebTui-Chat-0.2.0-setup.exe
+https://download.vpsttt.com/desktop/stable/macos/WebTui-Chat-0.2.0.dmg
+https://download.vpsttt.com/desktop/stable/linux/WebTui-Chat-0.2.0.AppImage
+```
+
+4. Configure the production backend so existing clients can show an update
+button:
+
+```bash
+DESKTOP_UPDATE_URL=https://download.vpsttt.com/desktop/stable
+DESKTOP_MIN_VERSION=0.1.0
+DESKTOP_RECOMMENDED_VERSION=0.2.0
+```
+
+The web/desktop settings screen reads `/version` and opens
+`clients.desktop.update_url` when an update is required or recommended.
+
+5. Optional but recommended: publish a public checksum manifest for download
+pages or support tooling. The backend serves
+`GET /downloads/manifest/stable` from
+`$DOWNLOAD_MANIFEST_DIR/stable/manifest.json`.
+
+```json
+{
+  "channel": "stable",
+  "files": [
+    {
+      "name": "WebTui Chat 0.2.0 Windows",
+      "url": "https://download.vpsttt.com/desktop/stable/windows/WebTui-Chat-0.2.0-setup.exe",
+      "byte_size": 123456789,
+      "checksum_sha256": "..."
+    }
+  ]
+}
+```
+
+6. For automatic Tauri updates, publish the signed updater artifact URL and
+signature into the backend updater manifest directory:
+
+```bash
+WEBTUI_DESKTOP_MANIFEST_DIR=/var/lib/webtui/desktop-releases \
+WEBTUI_RELEASE_CHANNEL=stable \
+WEBTUI_TAURI_TARGET=windows-x86_64 \
+WEBTUI_TAURI_ARCH=x86_64 \
+WEBTUI_DESKTOP_VERSION=0.2.0 \
+WEBTUI_RELEASE_ARTIFACT_URL=https://download.vpsttt.com/desktop/stable/windows/WebTui-Chat-0.2.0-updater.zip \
+WEBTUI_RELEASE_SIGNATURE=... \
+npm --workspace @webtui/desktop run write-updater-manifest
+```
+
+Then configure:
+
+```bash
+DESKTOP_RELEASE_MANIFEST_DIR=/var/lib/webtui/desktop-releases
+```
+
+The backend serves this to Tauri at
+`/desktop/releases/{channel}/{target}/{arch}/{current_version}`.
 
 ## Rollback
 

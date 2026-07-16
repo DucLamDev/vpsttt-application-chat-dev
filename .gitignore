@@ -35,7 +35,7 @@ test-results/
 *.tsbuildinfo
 
 # Dữ liệu deploy / runtime
-data/
+/data/
 deploy/.env
 deploy/data/
 

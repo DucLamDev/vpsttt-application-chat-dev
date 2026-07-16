@@ -30,7 +30,7 @@ Phase D10 hoan thien lop packaging, signing, updater channel va version compatib
 
 - `frontend/apps/desktop/scripts/build-release.mjs`: sinh config release tam thoi, verify signing env va goi Tauri CLI voi bundles theo OS.
 - `frontend/apps/desktop/scripts/write-updater-manifest.mjs`: sinh `latest.json` cho signed updater tu artifact URL va signature.
-- `frontend/apps/desktop/src-tauri/src/main.rs`: nap `tauri-plugin-updater`.
+- `frontend/apps/desktop/src-tauri/src/lib.rs`: nap `tauri-plugin-updater`.
 - `frontend/apps/desktop/src-tauri/capabilities/default.json`: them `updater:default`.
 - `backend/internal/modules/health/delivery/http/handler.go`: `/version` tra desktop version policy va `/desktop/releases/{channel}/{target}/{arch}/{current_version}` serve updater manifest.
 - `frontend/apps/web/src/features/platform/hooks/use-api-status.ts`: hook `useDesktopVersionStatus`.

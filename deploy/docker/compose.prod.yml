@@ -56,6 +56,9 @@ services:
         format: raw
     environment:
       REGISTRATION_DEFAULT_WORKSPACE_ID: ${REGISTRATION_DEFAULT_WORKSPACE_ID:-3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c}
+    volumes:
+      - ../../data/desktop-releases:/var/lib/webtui/desktop-releases:ro
+      - ../../data/download-manifests:/var/lib/webtui/download-manifests:ro
     expose:
       - "8080"
     networks:
@@ -115,6 +118,7 @@ services:
       FRONTEND_UPSTREAM: web:3000
     volumes:
       - ../nginx/templates:/etc/nginx/templates:ro
+      - ../../data/downloads:/var/www/downloads:ro
       - letsencrypt:/etc/letsencrypt
       - certbot_www:/var/www/certbot:ro
     networks:

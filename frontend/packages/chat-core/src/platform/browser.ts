@@ -83,6 +83,11 @@ export function createBrowserPlatformServices(): PlatformServices {
       setUnreadCount() {
         return undefined;
       }
+    },
+    updates: {
+      async checkAndInstall() {
+        return { available: false };
+      }
     }
   };
 }

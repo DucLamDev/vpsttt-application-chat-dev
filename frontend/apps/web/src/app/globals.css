@@ -2623,19 +2623,33 @@
   grid-template-columns: auto minmax(0, max-content);
 }
 
+.message-row--call .message-row__stack {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .message-row--call.message-row--local {
-  grid-template-columns: minmax(0, max-content) auto;
+  grid-template-columns: minmax(0, max-content);
   justify-content: end;
 }
 
-.message-row--call.message-row--local > .ui-avatar {
-  grid-column: 2;
-  grid-row: 1;
+.message-row--call.message-row--local .message-row__stack {
+  align-items: flex-end;
 }
 
-.message-row--call.message-row--local .message-call-card,
-.message-row--call.message-row--local .message-call-time {
-  grid-column: 1;
+.message-row--call.message-row--local > .ui-avatar {
+  display: none;
+}
+
+.message-row--call-missed {
+  grid-template-columns: minmax(0, max-content);
+  justify-content: end;
+}
+
+.message-row--call-missed > .ui-avatar {
+  display: none;
 }
 
 .message-call-card {
@@ -2704,15 +2718,13 @@
   font-size: 11px;
   font-weight: 700;
   justify-self: start;
-  margin-left: 48px;
   margin-top: 4px;
   padding: 3px 8px;
 }
 
 .message-row--local .message-call-time {
   justify-self: end;
-  margin-left: 0;
-  margin-right: 48px;
+  margin-right: 0;
 }
 
 .message-row header {
@@ -5778,12 +5790,12 @@
 }
 
 .chat-app-shell--zalo .message-row--call {
-  align-items: end;
+  align-items: start;
   grid-template-columns: auto minmax(0, max-content);
 }
 
 .chat-app-shell--zalo .message-row--call.message-row--local {
-  grid-template-columns: minmax(0, max-content) auto;
+  grid-template-columns: minmax(0, max-content);
   justify-content: end;
   justify-items: end;
 }
@@ -5801,6 +5813,10 @@
 
 .chat-app-shell--zalo .message-row--call .message-call-card span {
   white-space: nowrap;
+}
+
+.chat-app-shell--zalo .message-row--call .message-call-time {
+  margin-top: 4px;
 }
 
 @media (max-width: 1440px) {

@@ -9,7 +9,7 @@ runbook guardrails.
 | Item | Status | Notes |
 |---|---|---|
 | D11.1 Unit test chat-core/platform | Done | Added `chat-core-platform.test.ts` to verify platform service injection used by browser/Tauri adapters. |
-| D11.2 Rust unit test | Done | Added Rust tests for tray unread tooltip logic in `src-tauri/src/main.rs`. |
+| D11.2 Rust unit test | Done | Added Rust tests for tray unread tooltip logic in `src-tauri/src/lib.rs`. |
 | D11.3 Desktop E2E Windows | Prepared | `desktop.yml` builds Windows bundle; manual smoke still needs a real Windows runner with secrets and a staging account. |
 | D11.4 Cross-platform smoke test | Prepared | `desktop.yml` runs native bundle build on Windows, macOS, and Linux. |
 | D11.5 Security test | Done | CI runs typecheck/lint/unit/build; release checklist keeps CSP/capability/token redaction as a blocking review item. |

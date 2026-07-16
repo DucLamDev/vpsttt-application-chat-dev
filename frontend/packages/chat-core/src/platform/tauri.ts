@@ -101,6 +101,25 @@ export function createTauriPlatformServices(): PlatformServices {
           count: Math.max(0, Math.floor(count))
         });
       }
+    },
+    updates: {
+      async checkAndInstall() {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const update = await check();
+        if (!update) {
+          return { available: false };
+        }
+        try {
+          await update.downloadAndInstall();
+          return {
+            available: true,
+            currentVersion: update.currentVersion,
+            version: update.version
+          };
+        } finally {
+          await update.close();
+        }
+      }
     }
   };
 }

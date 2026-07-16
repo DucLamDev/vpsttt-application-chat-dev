@@ -84,6 +84,20 @@ export type TrayService = {
   setUnreadCount: (count: number) => Promise<void> | void;
 };
 
+export type UpdateInstallResult =
+  | {
+      available: false;
+    }
+  | {
+      available: true;
+      currentVersion: string;
+      version: string;
+    };
+
+export type UpdateService = {
+  checkAndInstall: () => Promise<UpdateInstallResult>;
+};
+
 export type LifecycleService = {
   platform: PlatformKind;
   isDesktop: boolean;
@@ -101,4 +115,5 @@ export type PlatformServices = {
   notifications: NotificationService;
   storage: PlatformStorage;
   tray: TrayService;
+  updates: UpdateService;
 };

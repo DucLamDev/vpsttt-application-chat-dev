@@ -534,6 +534,7 @@ export function ChatWorkspace() {
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(defaultNotificationPreferences);
   const [isAutoStartEnabled, setIsAutoStartEnabled] = useState(false);
   const [isAutoStartLoading, setIsAutoStartLoading] = useState(false);
+  const [isDesktopUpdateInstalling, setIsDesktopUpdateInstalling] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isRecordingPaused, setIsRecordingPaused] = useState(false);
   const [isComposerDragActive, setIsComposerDragActive] = useState(false);
@@ -1288,6 +1289,41 @@ export function ChatWorkspace() {
       setToast(error instanceof Error ? error.message : "Không cập nhật được tự khởi động.");
     } finally {
       setIsAutoStartLoading(false);
+    }
+  }
+
+  async function handleDesktopUpdateInstall() {
+    const services = getPlatformServices();
+
+    if (!services.lifecycle.isDesktop) {
+      if (desktopVersionStatus.updateUrl) {
+        await services.links.openExternal(desktopVersionStatus.updateUrl);
+        return;
+      }
+      setToast("Cập nhật tự động chỉ hỗ trợ trên ứng dụng desktop.");
+      return;
+    }
+
+    setIsDesktopUpdateInstalling(true);
+    setToast("Đang kiểm tra bản cập nhật desktop...", "info");
+
+    try {
+      const result = await services.updates.checkAndInstall();
+      if (!result.available) {
+        setToast("Phiên bản desktop đang là mới nhất.", "success");
+        return;
+      }
+
+      setToast(`Đã cài bản ${result.version}. Khởi động lại ứng dụng để hoàn tất.`, "success");
+    } catch (error) {
+      if (desktopVersionStatus.updateUrl) {
+        setToast("Không cập nhật tự động được, đang mở file cài đặt mới.", "info");
+        await services.links.openExternal(desktopVersionStatus.updateUrl);
+        return;
+      }
+      setToast(error instanceof Error ? error.message : "Không cập nhật được ứng dụng desktop.");
+    } finally {
+      setIsDesktopUpdateInstalling(false);
     }
   }
 
@@ -2511,8 +2547,10 @@ export function ChatWorkspace() {
             joinRequestsByChannelId={data.joinRequestsByChannelId}
             isAutoStartEnabled={isAutoStartEnabled}
             isAutoStartLoading={isAutoStartLoading}
+            isDesktopUpdateInstalling={isDesktopUpdateInstalling}
             onChannelSelect={handleChannelSelect}
             onAutoStartChange={(enabled) => void handleAutoStartChange(enabled)}
+            onDesktopUpdateInstall={() => void handleDesktopUpdateInstall()}
             onApproveChannelJoin={(channelId, userId) =>
               data.approveChannelJoinMutation.mutate({ channelId, userId }, {
                 onError: (error) => setToast(error instanceof Error ? error.message : "Không phê duyệt được yêu cầu."),
@@ -3097,12 +3135,14 @@ function WorkspaceSectionPage({
   isUpdatingProfile,
   isAutoStartEnabled,
   isAutoStartLoading,
+  isDesktopUpdateInstalling,
   joinRequestsByChannelId,
   notificationPreferences,
   onApproveChannelJoin,
   onAutoStartChange,
   onChannelSelect,
   onCreateDepartment,
+  onDesktopUpdateInstall,
   onDownloadFile,
   onInviteChannelMember,
   onRejectChannelJoin,
@@ -3145,12 +3185,14 @@ function WorkspaceSectionPage({
   isUpdatingProfile: boolean;
   isAutoStartEnabled: boolean;
   isAutoStartLoading: boolean;
+  isDesktopUpdateInstalling: boolean;
   joinRequestsByChannelId: Map<string, ChannelMember[]>;
   notificationPreferences: NotificationPreferences;
   onApproveChannelJoin: (channelId: string, userId: string) => void;
   onAutoStartChange: (enabled: boolean) => void;
   onChannelSelect: (channelId: string) => void;
   onCreateDepartment: (input: CreateDepartmentPayload) => void;
+  onDesktopUpdateInstall: () => void;
   onDownloadFile: (file: FileItem) => void;
   onInviteChannelMember: (channelId: string, userId: string) => void;
   onRejectChannelJoin: (channelId: string, userId: string) => void;
@@ -3241,10 +3283,12 @@ function WorkspaceSectionPage({
         desktopVersionStatus={desktopVersionStatus}
         isAutoStartEnabled={isAutoStartEnabled}
         isAutoStartLoading={isAutoStartLoading}
+        isDesktopUpdateInstalling={isDesktopUpdateInstalling}
         isUpdatingProfile={isUpdatingProfile}
         notificationPreferences={notificationPreferences}
         canOpenAdmin={canOpenAdmin}
         onAutoStartChange={onAutoStartChange}
+        onDesktopUpdateInstall={onDesktopUpdateInstall}
         onNotificationPreferencesChange={onNotificationPreferencesChange}
         onProfileSubmit={onProfileSubmit}
         onThemeToggle={onThemeToggle}
@@ -4471,9 +4515,11 @@ function SettingsPage({
   desktopVersionStatus,
   isAutoStartEnabled,
   isAutoStartLoading,
+  isDesktopUpdateInstalling,
   isUpdatingProfile,
   notificationPreferences,
   onAutoStartChange,
+  onDesktopUpdateInstall,
   onNotificationPreferencesChange,
   onProfileSubmit,
   onThemeToggle,
@@ -4484,9 +4530,11 @@ function SettingsPage({
   desktopVersionStatus: DesktopVersionStatus;
   isAutoStartEnabled: boolean;
   isAutoStartLoading: boolean;
+  isDesktopUpdateInstalling: boolean;
   isUpdatingProfile: boolean;
   notificationPreferences: NotificationPreferences;
   onAutoStartChange: (enabled: boolean) => void;
+  onDesktopUpdateInstall: () => void;
   onNotificationPreferencesChange: (preferences: NotificationPreferences) => void;
   onProfileSubmit: (input: {
     avatar_url?: string | null;
@@ -4537,6 +4585,7 @@ function SettingsPage({
     [currentSessionId, sessionsQuery.data]
   );
   const activeSessionCount = sessions.filter((session) => !session.revoked_at).length;
+  const isDesktopRuntime = getPlatformServices().lifecycle.isDesktop;
 
   async function handleAvatarFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -4656,14 +4705,16 @@ function SettingsPage({
                       ? "Đang kiểm tra"
                       : "Tương thích"}
             </Badge>
-            {desktopVersionStatus.updateUrl ? (
+            {isDesktopRuntime || desktopVersionStatus.updateUrl ? (
               <Button
-                onClick={() => void getPlatformServices().links.openExternal(desktopVersionStatus.updateUrl as string)}
+                disabled={isDesktopUpdateInstalling || desktopVersionStatus.status === "checking"}
+                onClick={onDesktopUpdateInstall}
                 size="sm"
                 type="button"
                 variant={desktopVersionStatus.status === "unsupported" ? "primary" : "secondary"}
               >
-                <Share2 size={15} /> Mở trang cập nhật
+                {isDesktopRuntime ? <Cloud size={15} /> : <Share2 size={15} />}
+                {isDesktopUpdateInstalling ? "Đang cập nhật..." : isDesktopRuntime ? "Cập nhật ngay" : "Mở trang cập nhật"}
               </Button>
             ) : null}
           </div>
@@ -6746,25 +6797,28 @@ function CallMessageRow({
   }
 
   const isMissed = callEvent.status === "missed";
+  const isLocalCallRow = Boolean(message.isMine || callEvent.direction === "outgoing" || isMissed);
   const CallIcon = isMissed ? PhoneOff : callEvent.mode === "video" ? Video : Phone;
 
   return (
     <article
-      className={`${message.isMine ? "message-row message-row--local" : "message-row"} message-row--call${focused ? " message-row--focused" : ""}`}
+      className={`${isLocalCallRow ? "message-row message-row--local" : "message-row"} message-row--call${isMissed ? " message-row--call-missed" : ""}${focused ? " message-row--focused" : ""}`}
       data-message-id={message.id}
     >
-      {!message.isMine ? <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} /> : null}
-      <div className={isMissed ? "message-call-card message-call-card--missed" : "message-call-card"}>
-        <strong>{callMessageTitle(callEvent)}</strong>
-        <span>
-          <CallIcon size={17} />
-          {callMessageDetail(callEvent)}
-        </span>
-        <button onClick={() => onRetryCall(callEvent.mode)} type="button">
-          Gọi lại
-        </button>
+      {!isLocalCallRow ? <Avatar name={messageAuthor.name} src={messageAuthor.avatarUrl} status={messageAuthor.status} /> : null}
+      <div className="message-row__stack">
+        <div className={isMissed ? "message-call-card message-call-card--missed" : "message-call-card"}>
+          <strong>{callMessageTitle(callEvent)}</strong>
+          <span>
+            <CallIcon size={17} />
+            {callMessageDetail(callEvent)}
+          </span>
+          <button onClick={() => onRetryCall(callEvent.mode)} type="button">
+            Gọi lại
+          </button>
+        </div>
+        <time className="message-call-time">{message.sentAt}</time>
       </div>
-      <time className="message-call-time">{message.sentAt}</time>
     </article>
   );
 }
