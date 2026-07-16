@@ -20,6 +20,7 @@ export LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-$(read_env_value LETSENCRYPT_EMAI
 export WEBTUI_API_IMAGE="${WEBTUI_API_IMAGE:-$(read_env_value WEBTUI_API_IMAGE)}"
 export WEBTUI_WORKER_IMAGE="${WEBTUI_WORKER_IMAGE:-$(read_env_value WEBTUI_WORKER_IMAGE)}"
 export WEBTUI_WEB_IMAGE="${WEBTUI_WEB_IMAGE:-$(read_env_value WEBTUI_WEB_IMAGE)}"
+export WEBTUI_ADMIN_IMAGE="${WEBTUI_ADMIN_IMAGE:-$(read_env_value WEBTUI_ADMIN_IMAGE)}"
 
 require_value() {
   name="$1"
@@ -34,6 +35,7 @@ require_value LETSENCRYPT_EMAIL "$LETSENCRYPT_EMAIL"
 require_value WEBTUI_API_IMAGE "$WEBTUI_API_IMAGE"
 require_value WEBTUI_WORKER_IMAGE "$WEBTUI_WORKER_IMAGE"
 require_value WEBTUI_WEB_IMAGE "$WEBTUI_WEB_IMAGE"
+require_value WEBTUI_ADMIN_IMAGE "$WEBTUI_ADMIN_IMAGE"
 
 write_compose_env_file() {
   {
@@ -42,6 +44,7 @@ write_compose_env_file() {
     printf 'WEBTUI_API_IMAGE=%s\n' "$WEBTUI_API_IMAGE"
     printf 'WEBTUI_WORKER_IMAGE=%s\n' "$WEBTUI_WORKER_IMAGE"
     printf 'WEBTUI_WEB_IMAGE=%s\n' "$WEBTUI_WEB_IMAGE"
+    printf 'WEBTUI_ADMIN_IMAGE=%s\n' "$WEBTUI_ADMIN_IMAGE"
   } > "$COMPOSE_ENV_FILE"
 }
 
@@ -67,10 +70,22 @@ if [ "${API_DOMAIN:-}" = "" ]; then
   exit 1
 fi
 
+requested_domains=" $API_DOMAIN "
 domain_args="-d $API_DOMAIN"
-if [ "${FRONTEND_DOMAIN:-}" != "" ] && [ "$FRONTEND_DOMAIN" != "$API_DOMAIN" ]; then
-  domain_args="$domain_args -d $FRONTEND_DOMAIN"
-fi
+
+append_domain_arg() {
+  domain="$1"
+  if [ "${domain:-}" = "" ]; then
+    return
+  fi
+  case "$requested_domains" in
+    *" $domain "*) return ;;
+  esac
+  requested_domains="$requested_domains$domain "
+  domain_args="$domain_args -d $domain"
+}
+
+append_domain_arg "$FRONTEND_DOMAIN"
 
 request_certificate() {
   extra_args="$1"
@@ -89,14 +104,12 @@ if compose run --rm --no-deps --entrypoint sh nginx -c "test -f /etc/letsencrypt
   echo "TLS certificate already exists for $API_DOMAIN."
   compose up -d nginx
 
-  if [ "${FRONTEND_DOMAIN:-}" != "" ] && [ "$FRONTEND_DOMAIN" != "$API_DOMAIN" ]; then
-    echo "Ensuring TLS certificate also covers $FRONTEND_DOMAIN."
-    if ! request_certificate "--expand --keep-until-expiring"; then
-      echo "Let's Encrypt update failed for $FRONTEND_DOMAIN." >&2
-      exit 1
-    fi
-    compose exec -T nginx nginx -s reload
+  echo "Ensuring TLS certificate covers: $requested_domains"
+  if ! request_certificate "--expand --keep-until-expiring"; then
+    echo "Let's Encrypt update failed for configured domains." >&2
+    exit 1
   fi
+  compose exec -T nginx nginx -s reload
 
   exit 0
 fi

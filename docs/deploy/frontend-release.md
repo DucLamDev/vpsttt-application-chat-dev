@@ -7,7 +7,7 @@ Tài liệu này dùng cho release web app và admin panel WebTui Chat.
 - REST API production: `https://chat.vpsttt.com`
 - WebSocket production: `wss://chat.vpsttt.com/ws`
 - Web app dự kiến: `chat.vpsttt.com`
-- Admin app dự kiến: `admin.chat.vpsttt.com`
+- Admin app dự kiến: `chat.vpsttt.com/admin`
 
 ## Biến môi trường
 
@@ -61,6 +61,8 @@ Chạy thử:
 docker run --rm -p 3000:3000 --env-file .env.example webtui-chat-web:latest
 docker run --rm -p 3001:3001 --env-file .env.example webtui-chat-admin:latest
 ```
+
+Admin Docker image mặc định phục vụ ở `http://localhost:3001/admin`; production đi qua `https://chat.vpsttt.com/admin`.
 
 ## Checklist bàn giao
 

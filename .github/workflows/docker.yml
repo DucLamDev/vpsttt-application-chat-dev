@@ -35,6 +35,10 @@ jobs:
             dockerfile: frontend/apps/web/Dockerfile
             context: frontend
             target: runner
+          - name: admin
+            dockerfile: frontend/apps/admin/Dockerfile
+            context: frontend
+            target: runner
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -110,7 +114,7 @@ jobs:
           IMAGE_NAMESPACE: ${{ steps.image.outputs.namespace }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          for service in api worker web; do
+          for service in api worker web admin; do
             image="${REGISTRY}/${IMAGE_NAMESPACE}/${service}:${IMAGE_TAG}"
             echo "Checking ${image}"
             docker manifest inspect "${image}" >/dev/null

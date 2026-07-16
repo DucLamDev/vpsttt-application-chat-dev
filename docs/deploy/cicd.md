@@ -4,6 +4,7 @@ Tài liệu này hướng dẫn setup CI/CD production cho WebTui Chat với dom
 
 - Web/API backend: `https://chat.vpsttt.com`
 - WebSocket public: `wss://chat.vpsttt.com/ws`
+- Admin panel: `https://chat.vpsttt.com/admin`
 - VPS: dùng thông tin trong `vps-info.md`
 
 Không commit mật khẩu VPS, private key SSH, token GitHub, mật khẩu PostgreSQL, mật khẩu CloudAMQP, secret MinIO hoặc JWT secret.
@@ -234,6 +235,7 @@ APP_URL=https://chat.vpsttt.com
 CORS_ALLOWED_ORIGINS=https://chat.vpsttt.com,http://localhost:3000,http://localhost:3001
 API_DOMAIN=chat.vpsttt.com
 FRONTEND_DOMAIN=chat.vpsttt.com
+ADMIN_BASE_PATH=/admin
 RABBITMQ_ENABLED=true
 REDIS_ENABLED=true
 DATABASE_ENABLED=true
@@ -296,6 +298,7 @@ Workflow `Docker` build:
 ghcr.io/<owner>/<repo>/api:<tag>
 ghcr.io/<owner>/<repo>/worker:<tag>
 ghcr.io/<owner>/<repo>/web:<tag>
+ghcr.io/<owner>/<repo>/admin:<tag>
 ```
 
 Mỗi image luôn được push thêm tag full SHA của commit. Trên nhánh `main` hoặc `master`, workflow cũng push thêm `latest`.
@@ -306,6 +309,7 @@ Với repo này, image thường có dạng:
 ghcr.io/duclamdev/vpsttt-application-chat-dev/api:<commit_sha>
 ghcr.io/duclamdev/vpsttt-application-chat-dev/worker:<commit_sha>
 ghcr.io/duclamdev/vpsttt-application-chat-dev/web:<commit_sha>
+ghcr.io/duclamdev/vpsttt-application-chat-dev/admin:<commit_sha>
 ```
 
 ## Bước 7: Deploy production
@@ -323,7 +327,7 @@ environment=production
 image_tag=
 ```
 
-Để trống `image_tag` thì workflow dùng SHA của commit hiện tại. Chỉ nhập `latest` khi Docker workflow đã chạy trên `main` hoặc `master` và đã push đủ 3 image `api`, `worker`, `web` với tag `latest`.
+Để trống `image_tag` thì workflow dùng SHA của commit hiện tại. Chỉ nhập `latest` khi Docker workflow đã chạy trên `main` hoặc `master` và đã push đủ 4 image `api`, `worker`, `web`, `admin` với tag `latest`.
 
 Workflow sẽ:
 
@@ -331,13 +335,13 @@ Workflow sẽ:
 2. Tạo `/opt/webtui-chat`.
 3. Đồng bộ thư mục `deploy`.
 4. Login GHCR nếu có `GHCR_TOKEN`.
-5. Export `WEBTUI_API_IMAGE`, `WEBTUI_WORKER_IMAGE` và `WEBTUI_WEB_IMAGE`.
+5. Export `WEBTUI_API_IMAGE`, `WEBTUI_WORKER_IMAGE`, `WEBTUI_WEB_IMAGE` và `WEBTUI_ADMIN_IMAGE`.
 6. Chạy `deploy/scripts/deploy-compose.sh`.
 7. Chạy migration.
 8. Chạy `docker compose up -d`.
 9. Kiểm tra `https://chat.vpsttt.com/ready`.
 
-Nếu deploy báo `WEBTUI_WEB_IMAGE variable is not set` hoặc `service "web" has neither an image nor a build context specified`, hãy chạy lại workflow `Docker` trước để build image `web`, sau đó chạy workflow `Deploy`. Workflow deploy hiện đã export đủ `WEBTUI_API_IMAGE`, `WEBTUI_WORKER_IMAGE` và `WEBTUI_WEB_IMAGE`, đồng thời preflight sẽ kiểm tra đủ 3 image trên GHCR trước khi SSH vào VPS.
+Nếu deploy báo `WEBTUI_WEB_IMAGE variable is not set`, `WEBTUI_ADMIN_IMAGE variable is not set` hoặc `service "web" has neither an image nor a build context specified`, hãy chạy lại workflow `Docker` trước để build image `web`/`admin`, sau đó chạy workflow `Deploy`. Workflow deploy hiện đã export đủ `WEBTUI_API_IMAGE`, `WEBTUI_WORKER_IMAGE`, `WEBTUI_WEB_IMAGE` và `WEBTUI_ADMIN_IMAGE`, đồng thời preflight sẽ kiểm tra đủ 4 image trên GHCR trước khi SSH vào VPS.
 
 Nếu deploy báo `manifest unknown`, tag image đang chọn chưa tồn tại trên GHCR. Cách xử lý:
 
@@ -404,6 +408,7 @@ cd /opt/webtui-chat
 WEBTUI_API_IMAGE=ghcr.io/duclamdev/vpsttt-application-chat-dev/api:TAG_CU \
 WEBTUI_WORKER_IMAGE=ghcr.io/duclamdev/vpsttt-application-chat-dev/worker:TAG_CU \
 WEBTUI_WEB_IMAGE=ghcr.io/duclamdev/vpsttt-application-chat-dev/web:TAG_CU \
+WEBTUI_ADMIN_IMAGE=ghcr.io/duclamdev/vpsttt-application-chat-dev/admin:TAG_CU \
 sh deploy/scripts/deploy-compose.sh
 ```
 

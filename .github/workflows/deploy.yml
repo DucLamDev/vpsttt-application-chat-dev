@@ -79,7 +79,7 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USERNAME" --password-stdin
           echo "Checking GHCR images for tag: $IMAGE_TAG"
           missing=0
-          for service in api worker web; do
+          for service in api worker web admin; do
             image="$REGISTRY/$IMAGE_NAMESPACE/$service:$IMAGE_TAG"
             echo "Checking $image"
             if ! docker manifest inspect "$image" >/dev/null; then
@@ -141,6 +141,7 @@ jobs:
             export WEBTUI_API_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/api:$IMAGE_TAG"
             export WEBTUI_WORKER_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
             export WEBTUI_WEB_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/web:$IMAGE_TAG"
+            export WEBTUI_ADMIN_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/admin:$IMAGE_TAG"
             export API_HEALTH_URL="$API_HEALTH_URL"
             sh deploy/scripts/deploy-compose.sh
 

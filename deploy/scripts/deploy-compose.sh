@@ -25,6 +25,7 @@ export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-chat.vpsttt.com}"
 export WEBTUI_API_IMAGE="${WEBTUI_API_IMAGE:-$(read_env_value WEBTUI_API_IMAGE)}"
 export WEBTUI_WORKER_IMAGE="${WEBTUI_WORKER_IMAGE:-$(read_env_value WEBTUI_WORKER_IMAGE)}"
 export WEBTUI_WEB_IMAGE="${WEBTUI_WEB_IMAGE:-$(read_env_value WEBTUI_WEB_IMAGE)}"
+export WEBTUI_ADMIN_IMAGE="${WEBTUI_ADMIN_IMAGE:-$(read_env_value WEBTUI_ADMIN_IMAGE)}"
 export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-$(read_env_value NEXT_PUBLIC_API_BASE_URL)}"
 export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-https://chat.vpsttt.com}"
 export NEXT_PUBLIC_WS_BASE_URL="${NEXT_PUBLIC_WS_BASE_URL:-$(read_env_value NEXT_PUBLIC_WS_BASE_URL)}"
@@ -45,6 +46,7 @@ require_value() {
 require_value WEBTUI_API_IMAGE "$WEBTUI_API_IMAGE"
 require_value WEBTUI_WORKER_IMAGE "$WEBTUI_WORKER_IMAGE"
 require_value WEBTUI_WEB_IMAGE "$WEBTUI_WEB_IMAGE"
+require_value WEBTUI_ADMIN_IMAGE "$WEBTUI_ADMIN_IMAGE"
 
 mkdir -p data/desktop-releases data/download-manifests data/downloads
 
@@ -55,6 +57,7 @@ write_compose_env_file() {
     printf 'WEBTUI_API_IMAGE=%s\n' "$WEBTUI_API_IMAGE"
     printf 'WEBTUI_WORKER_IMAGE=%s\n' "$WEBTUI_WORKER_IMAGE"
     printf 'WEBTUI_WEB_IMAGE=%s\n' "$WEBTUI_WEB_IMAGE"
+    printf 'WEBTUI_ADMIN_IMAGE=%s\n' "$WEBTUI_ADMIN_IMAGE"
     printf 'NEXT_PUBLIC_API_BASE_URL=%s\n' "$NEXT_PUBLIC_API_BASE_URL"
     printf 'NEXT_PUBLIC_WS_BASE_URL=%s\n' "$NEXT_PUBLIC_WS_BASE_URL"
     printf 'NEXT_PUBLIC_GOOGLE_CLIENT_ID=%s\n' "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"
