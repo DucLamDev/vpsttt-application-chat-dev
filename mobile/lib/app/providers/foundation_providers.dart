@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -8,6 +11,7 @@ import '../../core/logging/redacting_logger.dart';
 import '../../core/network/api_transport.dart';
 import '../../core/network/request_id.dart';
 import '../../core/notifications/push_notification_service.dart';
+import '../../core/platform/external_url_launcher.dart';
 import '../../core/security/secure_key_value_store.dart';
 import '../../features/auth/application/use_cases/app_lock_use_cases.dart';
 import '../../features/auth/application/use_cases/google_login_use_case.dart';
@@ -30,15 +34,40 @@ import '../../features/auth/domain/repositories/auth_token_repository.dart';
 import '../../features/auth/domain/repositories/device_identity_repository.dart';
 import '../../features/auth/domain/repositories/google_identity_provider.dart';
 import '../../features/auth/domain/repositories/session_state_repository.dart';
+import '../../features/business/application/use_cases/business_dashboard_use_cases.dart';
+import '../../features/business/data/datasources/business_remote_data_source.dart';
+import '../../features/business/data/repositories/business_repository_impl.dart';
+import '../../features/business/domain/repositories/business_repository.dart';
+import '../../features/conversations/application/use_cases/call_use_cases.dart';
 import '../../features/conversations/application/use_cases/channel_use_cases.dart';
 import '../../features/conversations/application/use_cases/load_conversation_home_use_case.dart';
+import '../../features/conversations/application/use_cases/message_attachment_use_cases.dart';
+import '../../features/conversations/application/use_cases/message_outbox_use_cases.dart';
 import '../../features/conversations/application/use_cases/message_use_cases.dart';
 import '../../features/conversations/application/use_cases/open_direct_conversation_use_case.dart';
 import '../../features/conversations/application/use_cases/presence_use_cases.dart';
+import '../../features/conversations/data/datasources/call_remote_data_source.dart';
+import '../../features/conversations/data/datasources/conversation_cache_data_source.dart';
 import '../../features/conversations/data/datasources/conversation_remote_data_source.dart';
+import '../../features/conversations/data/datasources/message_attachment_remote_data_source.dart';
+import '../../features/conversations/data/datasources/message_outbox_data_source.dart';
+import '../../features/conversations/data/repositories/audio_message_attachment_repository.dart';
+import '../../features/conversations/data/repositories/caching_conversation_repository.dart';
+import '../../features/conversations/data/repositories/call_repository_impl.dart';
 import '../../features/conversations/data/repositories/conversation_repository_impl.dart';
+import '../../features/conversations/data/repositories/image_picker_message_attachment_repository.dart';
 import '../../features/conversations/data/repositories/local_conversation_draft_repository.dart';
+import '../../features/conversations/data/repositories/local_message_outbox_repository.dart';
+import '../../features/conversations/data/repositories/message_attachment_repository_impl.dart';
+import '../../features/conversations/data/repositories/web_socket_conversation_realtime_repository.dart';
+import '../../features/conversations/domain/repositories/call_repository.dart';
 import '../../features/conversations/domain/repositories/conversation_repository.dart';
+import '../../features/conversations/domain/repositories/message_attachment_repository.dart';
+import '../../features/conversations/domain/repositories/message_outbox_repository.dart';
+import '../../features/notifications/application/use_cases/notification_use_cases.dart';
+import '../../features/notifications/data/datasources/notification_remote_data_source.dart';
+import '../../features/notifications/data/repositories/notification_repository_impl.dart';
+import '../../features/notifications/domain/repositories/notification_repository.dart';
 import '../../features/profile/application/use_cases/profile_use_cases.dart';
 import '../../features/profile/data/datasources/avatar_remote_data_source.dart';
 import '../../features/profile/data/datasources/profile_remote_data_source.dart';
@@ -48,8 +77,16 @@ import '../../features/profile/data/repositories/profile_repository_impl.dart';
 import '../../features/profile/domain/repositories/avatar_repository.dart';
 import '../../features/profile/domain/repositories/profile_repository.dart';
 import '../../features/settings/application/use_cases/app_settings_use_cases.dart';
+import '../../features/settings/application/use_cases/cache_maintenance_use_cases.dart';
+import '../../features/settings/application/use_cases/mobile_release_use_cases.dart';
+import '../../features/settings/data/datasources/mobile_release_remote_data_source.dart';
 import '../../features/settings/data/repositories/local_app_settings_repository.dart';
 import '../../features/settings/domain/repositories/app_settings_repository.dart';
+import '../../features/sync/application/use_cases/workspace_sync_use_cases.dart';
+import '../../features/sync/data/datasources/local_workspace_sync_cursor_data_source.dart';
+import '../../features/sync/data/datasources/workspace_sync_remote_data_source.dart';
+import '../../features/sync/data/repositories/workspace_sync_repository_impl.dart';
+import '../../features/sync/domain/repositories/workspace_sync_repository.dart';
 import '../../features/workspace/application/use_cases/load_workspace_session_use_case.dart';
 import '../../features/workspace/application/use_cases/select_workspace_use_case.dart';
 import '../../features/workspace/data/datasources/permission_remote_data_source.dart';
@@ -122,10 +159,18 @@ final openApiClientBoundaryProvider = Provider<WebTuiOpenApiClientBoundary>((
 final pushNotificationServiceProvider = Provider<PushNotificationService>((
   ref,
 ) {
-  return PushNotificationService(
+  final service = PushNotificationService(
     api: ref.watch(apiTransportProvider),
     deviceIdentityRepository: ref.watch(deviceIdentityRepositoryProvider),
   );
+  ref.onDispose(() {
+    unawaited(service.dispose());
+  });
+  return service;
+});
+
+final externalUrlLauncherProvider = Provider<ExternalUrlLauncher>((_) {
+  return const MethodChannelExternalUrlLauncher();
 });
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
@@ -144,6 +189,16 @@ final authRemoteDataSourceProvider = Provider<AuthRemoteDataSource>((ref) {
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepositoryImpl(ref.watch(authRemoteDataSourceProvider));
+});
+
+final authSessionRemoteDataSourceProvider = Provider<AuthRemoteDataSource>((
+  ref,
+) {
+  return AuthRemoteDataSource(ref.watch(apiTransportProvider));
+});
+
+final authSessionRepositoryProvider = Provider<AuthRepository>((ref) {
+  return AuthRepositoryImpl(ref.watch(authSessionRemoteDataSourceProvider));
 });
 
 final authTokenRepositoryProvider = Provider<AuthTokenRepository>((ref) {
@@ -216,17 +271,17 @@ final logoutUseCaseProvider = Provider<LogoutUseCase>((ref) {
 });
 
 final listSessionsUseCaseProvider = Provider<ListSessionsUseCase>((ref) {
-  return ListSessionsUseCase(ref.watch(authRepositoryProvider));
+  return ListSessionsUseCase(ref.watch(authSessionRepositoryProvider));
 });
 
 final revokeSessionUseCaseProvider = Provider<RevokeSessionUseCase>((ref) {
-  return RevokeSessionUseCase(ref.watch(authRepositoryProvider));
+  return RevokeSessionUseCase(ref.watch(authSessionRepositoryProvider));
 });
 
 final revokeAllSessionsUseCaseProvider = Provider<RevokeAllSessionsUseCase>((
   ref,
 ) {
-  return RevokeAllSessionsUseCase(ref.watch(authRepositoryProvider));
+  return RevokeAllSessionsUseCase(ref.watch(authSessionRepositoryProvider));
 });
 
 final isAppLockEnabledUseCaseProvider = Provider<IsAppLockEnabledUseCase>((
@@ -333,6 +388,55 @@ final changeAvatarUseCaseProvider = Provider<ChangeAvatarUseCase>((ref) {
   );
 });
 
+final businessRemoteDataSourceProvider = Provider<BusinessRemoteDataSource>((
+  ref,
+) {
+  return BusinessRemoteDataSource(ref.watch(apiTransportProvider));
+});
+
+final businessRepositoryProvider = Provider<BusinessRepository>((ref) {
+  return BusinessRepositoryImpl(ref.watch(businessRemoteDataSourceProvider));
+});
+
+final loadBusinessDashboardUseCaseProvider =
+    Provider<LoadBusinessDashboardUseCase>((ref) {
+      return LoadBusinessDashboardUseCase(
+        ref.watch(businessRepositoryProvider),
+      );
+    });
+
+final createTicketUseCaseProvider = Provider<CreateTicketUseCase>((ref) {
+  return CreateTicketUseCase(ref.watch(businessRepositoryProvider));
+});
+
+final testBotFlowUseCaseProvider = Provider<TestBotFlowUseCase>((ref) {
+  return TestBotFlowUseCase(ref.watch(businessRepositoryProvider));
+});
+
+final publishBotFlowUseCaseProvider = Provider<PublishBotFlowUseCase>((ref) {
+  return PublishBotFlowUseCase(ref.watch(businessRepositoryProvider));
+});
+
+final updateTicketStatusUseCaseProvider = Provider<UpdateTicketStatusUseCase>((
+  ref,
+) {
+  return UpdateTicketStatusUseCase(ref.watch(businessRepositoryProvider));
+});
+
+final revokeApiTokenUseCaseProvider = Provider<RevokeApiTokenUseCase>((ref) {
+  return RevokeApiTokenUseCase(ref.watch(businessRepositoryProvider));
+});
+
+final runCronJobUseCaseProvider = Provider<RunCronJobUseCase>((ref) {
+  return RunCronJobUseCase(ref.watch(businessRepositoryProvider));
+});
+
+final updateCronJobStatusUseCaseProvider = Provider<UpdateCronJobStatusUseCase>(
+  (ref) {
+    return UpdateCronJobStatusUseCase(ref.watch(businessRepositoryProvider));
+  },
+);
+
 final appSettingsRepositoryProvider = Provider<AppSettingsRepository>((ref) {
   return LocalAppSettingsRepository(ref.watch(appDatabaseProvider));
 });
@@ -345,16 +449,128 @@ final saveAppSettingsUseCaseProvider = Provider<SaveAppSettingsUseCase>((ref) {
   return SaveAppSettingsUseCase(ref.watch(appSettingsRepositoryProvider));
 });
 
+final clearWorkspaceCacheUseCaseProvider = Provider<ClearWorkspaceCacheUseCase>(
+  (ref) {
+    return ClearWorkspaceCacheUseCase(ref.watch(appDatabaseProvider));
+  },
+);
+
+final mobileReleaseRemoteDataSourceProvider =
+    Provider<MobileReleaseRemoteDataSource>((ref) {
+      return MobileReleaseRemoteDataSource(ref.watch(apiTransportProvider));
+    });
+
+final checkMobileReleasePolicyUseCaseProvider =
+    Provider<CheckMobileReleasePolicyUseCase>((ref) {
+      final config = ref.watch(appConfigProvider);
+      return CheckMobileReleasePolicyUseCase(
+        remote: ref.watch(mobileReleaseRemoteDataSourceProvider),
+        platform: _mobileReleasePlatform(),
+        channel: config.releaseChannel,
+        currentVersion: config.appVersion,
+      );
+    });
+
 final conversationRemoteDataSourceProvider =
     Provider<ConversationRemoteDataSource>((ref) {
       return ConversationRemoteDataSource(ref.watch(apiTransportProvider));
     });
 
+final conversationCacheDataSourceProvider =
+    Provider<ConversationCacheDataSource>((ref) {
+      return ConversationCacheDataSource(ref.watch(appDatabaseProvider));
+    });
+
 final conversationRepositoryProvider = Provider<ConversationRepository>((ref) {
-  return ConversationRepositoryImpl(
-    ref.watch(conversationRemoteDataSourceProvider),
+  return CachingConversationRepository(
+    remote: ConversationRepositoryImpl(
+      ref.watch(conversationRemoteDataSourceProvider),
+    ),
+    cache: ref.watch(conversationCacheDataSourceProvider),
   );
 });
+
+final messageAttachmentRemoteDataSourceProvider =
+    Provider<MessageAttachmentRemoteDataSource>((ref) {
+      return MessageAttachmentRemoteDataSource(ref.watch(apiTransportProvider));
+    });
+
+final messageAttachmentPickerRepositoryProvider =
+    Provider<MessageAttachmentPickerRepository>((ref) {
+      return ImagePickerMessageAttachmentRepository();
+    });
+
+final messageVoiceRecorderRepositoryProvider =
+    Provider<MessageVoiceRecorderRepository>((ref) {
+      final repository = AudioMessageAttachmentRepository();
+      ref.onDispose(repository.dispose);
+      return repository;
+    });
+
+final messageAttachmentRepositoryProvider =
+    Provider<MessageAttachmentRepository>((ref) {
+      return MessageAttachmentRepositoryImpl(
+        ref.watch(messageAttachmentRemoteDataSourceProvider),
+      );
+    });
+
+final callRemoteDataSourceProvider = Provider<CallRemoteDataSource>((ref) {
+  return CallRemoteDataSource(ref.watch(apiTransportProvider));
+});
+
+final callRepositoryProvider = Provider<CallRepository>((ref) {
+  return CallRepositoryImpl(ref.watch(callRemoteDataSourceProvider));
+});
+
+final notificationRemoteDataSourceProvider =
+    Provider<NotificationRemoteDataSource>((ref) {
+      return NotificationRemoteDataSource(ref.watch(apiTransportProvider));
+    });
+
+final notificationRepositoryProvider = Provider<NotificationRepository>((ref) {
+  return NotificationRepositoryImpl(
+    ref.watch(notificationRemoteDataSourceProvider),
+  );
+});
+
+final workspaceSyncRemoteDataSourceProvider =
+    Provider<WorkspaceSyncRemoteDataSource>((ref) {
+      return WorkspaceSyncRemoteDataSource(ref.watch(apiTransportProvider));
+    });
+
+final localWorkspaceSyncCursorDataSourceProvider =
+    Provider<LocalWorkspaceSyncCursorDataSource>((ref) {
+      return LocalWorkspaceSyncCursorDataSource(ref.watch(appDatabaseProvider));
+    });
+
+final workspaceSyncRepositoryProvider = Provider<WorkspaceSyncRepository>((
+  ref,
+) {
+  return WorkspaceSyncRepositoryImpl(
+    remote: ref.watch(workspaceSyncRemoteDataSourceProvider),
+    localCursor: ref.watch(localWorkspaceSyncCursorDataSourceProvider),
+  );
+});
+
+final catchUpWorkspaceSyncUseCaseProvider =
+    Provider<CatchUpWorkspaceSyncUseCase>((ref) {
+      return CatchUpWorkspaceSyncUseCase(
+        repository: ref.watch(workspaceSyncRepositoryProvider),
+        deviceIdentityRepository: ref.watch(deviceIdentityRepositoryProvider),
+      );
+    });
+
+final conversationRealtimeRepositoryProvider =
+    Provider<ConversationRealtimeRepository>((ref) {
+      final repository = WebSocketConversationRealtimeRepository(
+        apiBaseUri: ref.watch(appConfigProvider).apiBaseUri,
+        tokenRepository: ref.watch(authTokenRepositoryProvider),
+      );
+      ref.onDispose(() {
+        unawaited(repository.disconnect());
+      });
+      return repository;
+    });
 
 final updatePresenceUseCaseProvider = Provider<UpdatePresenceUseCase>((ref) {
   return UpdatePresenceUseCase(
@@ -367,6 +583,53 @@ final conversationDraftRepositoryProvider =
     Provider<ConversationDraftRepository>((ref) {
       return LocalConversationDraftRepository(ref.watch(appDatabaseProvider));
     });
+
+final messageOutboxDataSourceProvider = Provider<MessageOutboxDataSource>((
+  ref,
+) {
+  return MessageOutboxDataSource(ref.watch(appDatabaseProvider));
+});
+
+final messageOutboxRepositoryProvider = Provider<MessageOutboxRepository>((
+  ref,
+) {
+  return LocalMessageOutboxRepository(
+    ref.watch(messageOutboxDataSourceProvider),
+  );
+});
+
+final loadMessageOutboxUseCaseProvider = Provider<LoadMessageOutboxUseCase>((
+  ref,
+) {
+  return LoadMessageOutboxUseCase(ref.watch(messageOutboxRepositoryProvider));
+});
+
+final enqueueMessageOutboxUseCaseProvider =
+    Provider<EnqueueMessageOutboxUseCase>((ref) {
+      return EnqueueMessageOutboxUseCase(
+        repository: ref.watch(messageOutboxRepositoryProvider),
+      );
+    });
+
+final saveMessageOutboxItemUseCaseProvider =
+    Provider<SaveMessageOutboxItemUseCase>((ref) {
+      return SaveMessageOutboxItemUseCase(
+        ref.watch(messageOutboxRepositoryProvider),
+      );
+    });
+
+final deleteMessageOutboxItemUseCaseProvider =
+    Provider<DeleteMessageOutboxItemUseCase>((ref) {
+      return DeleteMessageOutboxItemUseCase(
+        ref.watch(messageOutboxRepositoryProvider),
+      );
+    });
+
+final newClientMessageIdUseCaseProvider = Provider<NewClientMessageIdUseCase>((
+  ref,
+) {
+  return const NewClientMessageIdUseCase();
+});
 
 final loadConversationHomeUseCaseProvider =
     Provider<LoadConversationHomeUseCase>((ref) {
@@ -445,6 +708,171 @@ final sendMessageUseCaseProvider = Provider<SendMessageUseCase>((ref) {
   return SendMessageUseCase(ref.watch(conversationRepositoryProvider));
 });
 
+final editMessageUseCaseProvider = Provider<EditMessageUseCase>((ref) {
+  return EditMessageUseCase(ref.watch(conversationRepositoryProvider));
+});
+
+final deleteMessageUseCaseProvider = Provider<DeleteMessageUseCase>((ref) {
+  return DeleteMessageUseCase(ref.watch(conversationRepositoryProvider));
+});
+
+final toggleReactionUseCaseProvider = Provider<ToggleReactionUseCase>((ref) {
+  return ToggleReactionUseCase(ref.watch(conversationRepositoryProvider));
+});
+
+final togglePinMessageUseCaseProvider = Provider<TogglePinMessageUseCase>((
+  ref,
+) {
+  return TogglePinMessageUseCase(ref.watch(conversationRepositoryProvider));
+});
+
+final forwardMessageUseCaseProvider = Provider<ForwardMessageUseCase>((ref) {
+  return ForwardMessageUseCase(ref.watch(conversationRepositoryProvider));
+});
+
+final loadThreadUseCaseProvider = Provider<LoadThreadUseCase>((ref) {
+  return LoadThreadUseCase(ref.watch(conversationRepositoryProvider));
+});
+
+final searchMessagesUseCaseProvider = Provider<SearchMessagesUseCase>((ref) {
+  return SearchMessagesUseCase(ref.watch(conversationRepositoryProvider));
+});
+
+final pickMessageAttachmentUseCaseProvider =
+    Provider<PickMessageAttachmentUseCase>((ref) {
+      return PickMessageAttachmentUseCase(
+        ref.watch(messageAttachmentPickerRepositoryProvider),
+      );
+    });
+
+final startVoiceMessageRecordingUseCaseProvider =
+    Provider<StartVoiceMessageRecordingUseCase>((ref) {
+      return StartVoiceMessageRecordingUseCase(
+        ref.watch(messageVoiceRecorderRepositoryProvider),
+      );
+    });
+
+final stopVoiceMessageRecordingUseCaseProvider =
+    Provider<StopVoiceMessageRecordingUseCase>((ref) {
+      return StopVoiceMessageRecordingUseCase(
+        ref.watch(messageVoiceRecorderRepositoryProvider),
+      );
+    });
+
+final cancelVoiceMessageRecordingUseCaseProvider =
+    Provider<CancelVoiceMessageRecordingUseCase>((ref) {
+      return CancelVoiceMessageRecordingUseCase(
+        ref.watch(messageVoiceRecorderRepositoryProvider),
+      );
+    });
+
+final uploadMessageAttachmentUseCaseProvider =
+    Provider<UploadMessageAttachmentUseCase>((ref) {
+      return UploadMessageAttachmentUseCase(
+        ref.watch(messageAttachmentRepositoryProvider),
+      );
+    });
+
+final attachUploadedFileUseCaseProvider = Provider<AttachUploadedFileUseCase>((
+  ref,
+) {
+  return AttachUploadedFileUseCase(
+    ref.watch(messageAttachmentRepositoryProvider),
+  );
+});
+
+final listMessageAttachmentsUseCaseProvider =
+    Provider<ListMessageAttachmentsUseCase>((ref) {
+      return ListMessageAttachmentsUseCase(
+        ref.watch(messageAttachmentRepositoryProvider),
+      );
+    });
+
+final newAttachmentUploadItemUseCaseProvider =
+    Provider<NewAttachmentUploadItemUseCase>((ref) {
+      return const NewAttachmentUploadItemUseCase();
+    });
+
+final startCallUseCaseProvider = Provider<StartCallUseCase>((ref) {
+  return StartCallUseCase(ref.watch(callRepositoryProvider));
+});
+
+final getCallUseCaseProvider = Provider<GetCallUseCase>((ref) {
+  return GetCallUseCase(ref.watch(callRepositoryProvider));
+});
+
+final acceptCallUseCaseProvider = Provider<AcceptCallUseCase>((ref) {
+  return AcceptCallUseCase(ref.watch(callRepositoryProvider));
+});
+
+final endCallUseCaseProvider = Provider<EndCallUseCase>((ref) {
+  return EndCallUseCase(ref.watch(callRepositoryProvider));
+});
+
+final rejectCallUseCaseProvider = Provider<RejectCallUseCase>((ref) {
+  return RejectCallUseCase(ref.watch(callRepositoryProvider));
+});
+
+final sendCallSignalUseCaseProvider = Provider<SendCallSignalUseCase>((ref) {
+  return SendCallSignalUseCase(ref.watch(callRepositoryProvider));
+});
+
+final listNotificationsUseCaseProvider = Provider<ListNotificationsUseCase>((
+  ref,
+) {
+  return ListNotificationsUseCase(ref.watch(notificationRepositoryProvider));
+});
+
+final markNotificationReadUseCaseProvider =
+    Provider<MarkNotificationReadUseCase>((ref) {
+      return MarkNotificationReadUseCase(
+        ref.watch(notificationRepositoryProvider),
+      );
+    });
+
+final markAllNotificationsReadUseCaseProvider =
+    Provider<MarkAllNotificationsReadUseCase>((ref) {
+      return MarkAllNotificationsReadUseCase(
+        ref.watch(notificationRepositoryProvider),
+      );
+    });
+
+final loadNotificationPreferenceUseCaseProvider =
+    Provider<LoadNotificationPreferenceUseCase>((ref) {
+      return LoadNotificationPreferenceUseCase(
+        ref.watch(notificationRepositoryProvider),
+      );
+    });
+
+final saveNotificationPreferenceUseCaseProvider =
+    Provider<SaveNotificationPreferenceUseCase>((ref) {
+      return SaveNotificationPreferenceUseCase(
+        ref.watch(notificationRepositoryProvider),
+      );
+    });
+
+final listPushDevicesUseCaseProvider = Provider<ListPushDevicesUseCase>((ref) {
+  return ListPushDevicesUseCase(ref.watch(notificationRepositoryProvider));
+});
+
+final unregisterPushDeviceUseCaseProvider =
+    Provider<UnregisterPushDeviceUseCase>((ref) {
+      return UnregisterPushDeviceUseCase(
+        ref.watch(notificationRepositoryProvider),
+      );
+    });
+
+final subscribeConversationRealtimeUseCaseProvider =
+    Provider<SubscribeConversationRealtimeUseCase>((ref) {
+      return SubscribeConversationRealtimeUseCase(
+        ref.watch(conversationRealtimeRepositoryProvider),
+      );
+    });
+
+final sendTypingUseCaseProvider = Provider<SendTypingUseCase>((ref) {
+  return SendTypingUseCase(ref.watch(conversationRealtimeRepositoryProvider));
+});
+
 final markConversationReadUseCaseProvider =
     Provider<MarkConversationReadUseCase>((ref) {
       return MarkConversationReadUseCase(
@@ -463,6 +891,13 @@ final saveDraftUseCaseProvider = Provider<SaveDraftUseCase>((ref) {
 final clearDraftUseCaseProvider = Provider<ClearDraftUseCase>((ref) {
   return ClearDraftUseCase(ref.watch(conversationDraftRepositoryProvider));
 });
+
+String _mobileReleasePlatform() {
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.iOS => 'ios',
+    _ => 'android',
+  };
+}
 
 Dio _configuredDio(AppConfig config) {
   return Dio(

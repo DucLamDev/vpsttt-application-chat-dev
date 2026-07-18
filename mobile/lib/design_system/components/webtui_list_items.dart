@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
 import '../tokens/webtui_density.dart';
+import '../tokens/webtui_radii.dart';
 import '../tokens/webtui_spacing.dart';
 import '../tokens/webtui_typography.dart';
 import 'webtui_avatar.dart';
@@ -38,90 +39,115 @@ class WebTuiConversationListItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: selected
-          ? WebTuiColors.primarySoft.withValues(alpha: 0.72)
-          : Colors.transparent,
+          ? WebTuiColors.primarySoft.withValues(alpha: 0.74)
+          : WebTuiColors.surface,
       child: InkWell(
         onTap: onTap,
         child: SizedBox(
           height: WebTuiListDensity.conversationItemHeight,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.lg),
-            child: Row(
-              children: [
-                WebTuiAvatar(
-                  label: avatarLabel,
-                  imageUrl: avatarUrl,
-                  status: status,
-                ),
-                const SizedBox(width: WebTuiSpacing.md),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: WebTuiTypography.bodyMedium.copyWith(
-                          color: WebTuiColors.textPrimary,
-                          fontWeight: unreadCount > 0
-                              ? FontWeight.w800
-                              : FontWeight.w700,
-                        ),
+          child: Stack(
+            children: [
+              if (selected)
+                const Positioned(
+                  left: 0,
+                  top: 10,
+                  bottom: 10,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: WebTuiColors.primary,
+                      borderRadius: BorderRadius.only(
+                        topRight: Radius.circular(WebTuiRadii.xs),
+                        bottomRight: Radius.circular(WebTuiRadii.xs),
                       ),
-                      const SizedBox(height: WebTuiSpacing.xs),
-                      Row(
+                    ),
+                    child: SizedBox(width: 3),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: WebTuiSpacing.lg,
+                ),
+                child: Row(
+                  children: [
+                    WebTuiAvatar(
+                      label: avatarLabel,
+                      imageUrl: avatarUrl,
+                      status: status,
+                    ),
+                    const SizedBox(width: WebTuiSpacing.md),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (muted) ...[
-                            const Icon(
-                              CupertinoIcons.bell_slash,
-                              size: 14,
-                              color: WebTuiColors.textMuted,
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WebTuiTypography.bodyMedium.copyWith(
+                              color: WebTuiColors.textPrimary,
+                              fontWeight: unreadCount > 0
+                                  ? FontWeight.w800
+                                  : FontWeight.w700,
                             ),
-                            const SizedBox(width: WebTuiSpacing.xs),
-                          ],
-                          Expanded(
-                            child: Text(
-                              preview,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: WebTuiTypography.bodySmall.copyWith(
-                                color: unreadCount > 0
-                                    ? WebTuiColors.textSecondary
-                                    : WebTuiColors.textMuted,
-                                fontWeight: unreadCount > 0
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
+                          ),
+                          const SizedBox(height: WebTuiSpacing.xs),
+                          Row(
+                            children: [
+                              if (muted) ...[
+                                const Icon(
+                                  CupertinoIcons.bell_slash,
+                                  size: 14,
+                                  color: WebTuiColors.textMuted,
+                                ),
+                                const SizedBox(width: WebTuiSpacing.xs),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  preview,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: WebTuiTypography.bodySmall.copyWith(
+                                    color: unreadCount > 0
+                                        ? WebTuiColors.textSecondary
+                                        : WebTuiColors.textMuted,
+                                    fontWeight: unreadCount > 0
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: WebTuiSpacing.sm),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      timeLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: WebTuiTypography.labelSmall.copyWith(
-                        color: unreadCount > 0
-                            ? WebTuiColors.primary
-                            : WebTuiColors.textMuted,
-                      ),
                     ),
-                    const SizedBox(height: WebTuiSpacing.sm),
-                    WebTuiUnreadBadge(count: unreadCount),
+                    const SizedBox(width: WebTuiSpacing.sm),
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          timeLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WebTuiTypography.labelSmall.copyWith(
+                            color: unreadCount > 0
+                                ? WebTuiColors.primary
+                                : WebTuiColors.textMuted,
+                            fontWeight: unreadCount > 0
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: WebTuiSpacing.sm),
+                        WebTuiUnreadBadge(count: unreadCount),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -152,7 +178,7 @@ class WebTuiChannelBotListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.transparent,
+      color: WebTuiColors.surface,
       child: InkWell(
         onTap: onTap,
         child: SizedBox(
@@ -164,7 +190,7 @@ class WebTuiChannelBotListItem extends StatelessWidget {
                 WebTuiAvatar(
                   label: title,
                   icon: icon,
-                  color: color.withValues(alpha: 0.14),
+                  color: color.withValues(alpha: 0.13),
                   foregroundColor: color,
                 ),
                 const SizedBox(width: WebTuiSpacing.md),
@@ -229,12 +255,12 @@ class WebTuiSectionLabel extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         WebTuiSpacing.lg,
-        WebTuiSpacing.md,
+        WebTuiSpacing.lg,
         WebTuiSpacing.lg,
         WebTuiSpacing.xs,
       ),
       child: Text(
-        label.toUpperCase(),
+        label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: WebTuiTypography.labelSmall.copyWith(
@@ -253,8 +279,15 @@ class WebTuiListSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: WebTuiColors.surface,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: WebTuiColors.surface,
+        border: Border.symmetric(
+          horizontal: BorderSide(
+            color: WebTuiColors.border.withValues(alpha: 0.7),
+          ),
+        ),
+      ),
       child: Column(
         children: [
           for (var index = 0; index < children.length; index++) ...[

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../design_system/components/webtui_components.dart';
 import '../../../../design_system/tokens/webtui_colors.dart';
+import '../../../../design_system/tokens/webtui_radii.dart';
 import '../../../../design_system/tokens/webtui_spacing.dart';
 import '../../../../design_system/tokens/webtui_typography.dart';
 import '../../domain/entities/avatar_upload.dart';
@@ -51,7 +52,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final profile = state.profile;
 
     return Scaffold(
+      backgroundColor: WebTuiColors.background,
       appBar: AppBar(
+        surfaceTintColor: Colors.transparent,
+        shape: Border(
+          bottom: BorderSide(color: WebTuiColors.border.withValues(alpha: 0.7)),
+        ),
         leading: IconButton(
           tooltip: 'Quay lại',
           onPressed: () {
@@ -81,6 +87,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ],
       ),
       body: SafeArea(
+        top: false,
         child: Builder(
           builder: (context) {
             if (state.isLoading && profile == null) {
@@ -102,24 +109,58 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 WebTuiSpacing.xl,
               ),
               children: [
-                Center(
-                  child: Column(
-                    children: [
-                      WebTuiAvatar(
-                        label: profile?.displayName ?? 'WebTui',
-                        imageUrl: profile?.avatarUrl,
-                        size: 76,
-                        status: WebTuiPresenceStatus.online,
-                      ),
-                      const SizedBox(height: WebTuiSpacing.sm),
-                      TextButton.icon(
-                        onPressed: state.isSaving
-                            ? null
-                            : () => _showAvatarSheet(context, controller),
-                        icon: const Icon(Icons.photo_camera_outlined),
-                        label: const Text('Đổi ảnh đại diện'),
-                      ),
-                    ],
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: WebTuiColors.surface,
+                    borderRadius: BorderRadius.circular(WebTuiRadii.lg),
+                    border: Border.all(color: WebTuiColors.border),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(WebTuiSpacing.lg),
+                    child: Row(
+                      children: [
+                        WebTuiAvatar(
+                          label: profile?.displayName ?? 'WebTui',
+                          imageUrl: profile?.avatarUrl,
+                          size: 68,
+                          status: WebTuiPresenceStatus.online,
+                        ),
+                        const SizedBox(width: WebTuiSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                profile?.displayName ?? 'WebTui',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: WebTuiTypography.titleMedium.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              if (profile != null) ...[
+                                const SizedBox(height: WebTuiSpacing.xs),
+                                Text(
+                                  '${profile.email} · @${profile.username}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: WebTuiTypography.bodySmall.copyWith(
+                                    color: WebTuiColors.textMuted,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        IconButton.filledTonal(
+                          tooltip: 'Đổi ảnh đại diện',
+                          onPressed: state.isSaving
+                              ? null
+                              : () => _showAvatarSheet(context, controller),
+                          icon: const Icon(Icons.photo_camera_outlined),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: WebTuiSpacing.lg),
@@ -144,16 +185,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   controller: _timezoneController,
                   icon: Icons.schedule_rounded,
                 ),
-                if (profile != null) ...[
-                  const SizedBox(height: WebTuiSpacing.md),
-                  Text(
-                    '${profile.email} • @${profile.username}',
-                    textAlign: TextAlign.center,
-                    style: WebTuiTypography.bodySmall.copyWith(
-                      color: WebTuiColors.textMuted,
-                    ),
-                  ),
-                ],
                 if (state.errorMessage != null)
                   _MessageBanner(message: state.errorMessage!, error: true),
                 if (state.successMessage != null)

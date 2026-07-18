@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../app/providers/foundation_providers.dart';
 import '../../../../design_system/components/webtui_components.dart';
+import '../../../../design_system/tokens/webtui_colors.dart';
 import '../../../../design_system/tokens/webtui_spacing.dart';
+import '../../../workspace/presentation/controllers/workspace_controller.dart';
 import '../../domain/entities/app_settings.dart';
+import '../../domain/entities/mobile_release_policy.dart';
 import '../controllers/app_settings_controller.dart';
 
 class AppSettingsScreen extends ConsumerWidget {
@@ -14,10 +18,26 @@ class AppSettingsScreen extends ConsumerWidget {
     final state = ref.watch(appSettingsControllerProvider);
     final controller = ref.read(appSettingsControllerProvider.notifier);
     final settings = state.settings;
+    final workspaceId = ref.watch(
+      workspaceControllerProvider.select((value) => value.activeWorkspace?.id),
+    );
+    if (workspaceId?.trim().isNotEmpty == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.loadNotificationPreference(workspaceId!);
+      });
+    }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Thiết lập ứng dụng')),
+      backgroundColor: WebTuiColors.background,
+      appBar: AppBar(
+        title: const Text('Thiết lập ứng dụng'),
+        surfaceTintColor: Colors.transparent,
+        shape: Border(
+          bottom: BorderSide(color: WebTuiColors.border.withValues(alpha: 0.7)),
+        ),
+      ),
       body: SafeArea(
+        top: false,
         child: ListView(
           padding: const EdgeInsets.only(bottom: WebTuiSpacing.xl),
           children: [
@@ -27,7 +47,10 @@ class AppSettingsScreen extends ConsumerWidget {
                 _ThemeRow(
                   settings: settings,
                   onChanged: (theme) {
-                    controller.update(settings.copyWith(theme: theme));
+                    controller.update(
+                      settings.copyWith(theme: theme),
+                      workspaceId: workspaceId,
+                    );
                   },
                 ),
                 WebTuiSettingRow(
@@ -47,6 +70,7 @@ class AppSettingsScreen extends ConsumerWidget {
                       if (value != null) {
                         controller.update(
                           settings.copyWith(languageCode: value),
+                          workspaceId: workspaceId,
                         );
                       }
                     },
@@ -66,6 +90,7 @@ class AppSettingsScreen extends ConsumerWidget {
                     onChanged: (value) {
                       controller.update(
                         settings.copyWith(notificationsEnabled: value),
+                        workspaceId: workspaceId,
                       );
                     },
                   ),
@@ -79,6 +104,7 @@ class AppSettingsScreen extends ConsumerWidget {
                     onChanged: (value) {
                       controller.update(
                         settings.copyWith(sensitivePreviewEnabled: value),
+                        workspaceId: workspaceId,
                       );
                     },
                   ),
@@ -92,10 +118,56 @@ class AppSettingsScreen extends ConsumerWidget {
                     onChanged: (value) {
                       controller.update(
                         settings.copyWith(quietHoursEnabled: value),
+                        workspaceId: workspaceId,
                       );
                     },
                   ),
                 ),
+              ],
+            ),
+            const WebTuiSectionLabel('Du lieu offline'),
+            WebTuiListSurface(
+              children: [
+                WebTuiSettingRow(
+                  title: 'Xoa cache workspace',
+                  subtitle: 'Chi xoa du lieu doc gan nhat, giu draft va outbox',
+                  icon: Icons.cleaning_services_outlined,
+                  trailing: TextButton(
+                    onPressed: workspaceId == null
+                        ? null
+                        : () => controller.clearWorkspaceCache(workspaceId),
+                    child: const Text('Xoa'),
+                  ),
+                ),
+              ],
+            ),
+            const WebTuiSectionLabel('Phien ban'),
+            WebTuiListSurface(
+              children: [
+                _ReleasePolicyRow(
+                  policy: state.mobileReleasePolicy,
+                  isChecking: state.isCheckingRelease,
+                  onCheck: controller.checkReleasePolicy,
+                  onOpenUpdate: (url) async {
+                    final opened = await ref
+                        .read(externalUrlLauncherProvider)
+                        .open(url);
+                    if (!context.mounted || opened) {
+                      return;
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Khong mo duoc link cap nhat.'),
+                      ),
+                    );
+                  },
+                ),
+                if (state.releaseErrorMessage != null)
+                  WebTuiSettingRow(
+                    title: 'Khong kiem tra duoc',
+                    subtitle: state.releaseErrorMessage!,
+                    icon: Icons.warning_amber_rounded,
+                  ),
               ],
             ),
             if (state.errorMessage != null)
@@ -105,6 +177,55 @@ class AppSettingsScreen extends ConsumerWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReleasePolicyRow extends StatelessWidget {
+  const _ReleasePolicyRow({
+    required this.policy,
+    required this.isChecking,
+    required this.onCheck,
+    required this.onOpenUpdate,
+  });
+
+  final MobileReleasePolicy? policy;
+  final bool isChecking;
+  final VoidCallback onCheck;
+  final ValueChanged<String> onOpenUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    final updateRequired = policy?.requiresUpdate == true;
+    final updateRecommended = policy?.recommendsUpdate == true;
+    final updateUrl = _updateUrl(policy);
+    return WebTuiSettingRow(
+      title: updateRequired
+          ? 'Can cap nhat ung dung'
+          : updateRecommended
+          ? 'Co ban cap nhat moi'
+          : 'Ung dung hien tai',
+      subtitle: policy == null
+          ? 'Kiem tra version gate tu backend'
+          : _releaseSubtitle(policy!),
+      icon: updateRequired
+          ? Icons.system_update_alt_rounded
+          : Icons.verified_outlined,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (updateRecommended && updateUrl != null)
+            TextButton(
+              onPressed: () => onOpenUpdate(updateUrl),
+              child: Text(updateRequired ? 'Bat buoc' : 'Cap nhat'),
+            )
+          else
+            TextButton(
+              onPressed: isChecking ? null : onCheck,
+              child: Text(isChecking ? 'Dang kiem tra' : 'Kiem tra'),
+            ),
+        ],
       ),
     );
   }
@@ -151,4 +272,23 @@ class _ThemeRow extends StatelessWidget {
       ),
     );
   }
+}
+
+String _releaseSubtitle(MobileReleasePolicy policy) {
+  final target = policy.minimumVersion?.trim().isNotEmpty == true
+      ? 'min ${policy.minimumVersion}'
+      : 'recommended ${policy.recommendedVersion ?? policy.currentVersion}';
+  return '${policy.platform}/${policy.channel} ${policy.currentVersion} - $target';
+}
+
+String? _updateUrl(MobileReleasePolicy? policy) {
+  final storeUrl = policy?.storeUrl?.trim();
+  if (storeUrl != null && storeUrl.isNotEmpty) {
+    return storeUrl;
+  }
+  final downloadUrl = policy?.downloadUrl?.trim();
+  if (downloadUrl != null && downloadUrl.isNotEmpty) {
+    return downloadUrl;
+  }
+  return null;
 }

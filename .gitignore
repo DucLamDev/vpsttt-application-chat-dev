@@ -38,6 +38,8 @@ test-results/
 /data/
 deploy/.env
 deploy/data/
+deploy/download/**/*.apk
+deploy/download/**/*.aab
 
 # Local planning / generated docs
 .agents/webtui-chat-architecture/references/architecture.md

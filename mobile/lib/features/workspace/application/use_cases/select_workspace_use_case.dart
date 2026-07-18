@@ -21,19 +21,18 @@ final class SelectWorkspaceUseCase {
   }) async {
     final previousWorkspaceId = await _sessionRepository
         .readActiveWorkspaceId();
-    if (previousWorkspaceId != workspace.id) {
-      await _sessionRepository.resetRuntimeForSwitch(
-        previousWorkspaceId: previousWorkspaceId,
-        nextWorkspaceId: workspace.id,
-      );
-      await _sessionRepository.saveActiveWorkspaceId(workspace.id);
-    }
-
     final permissionsResult = await _permissionRepository.listForWorkspace(
       workspace.id,
     );
     switch (permissionsResult) {
       case Success<List<WorkspacePermission>>(value: final permissions):
+        if (previousWorkspaceId != workspace.id) {
+          await _sessionRepository.resetRuntimeForSwitch(
+            previousWorkspaceId: previousWorkspaceId,
+            nextWorkspaceId: workspace.id,
+          );
+          await _sessionRepository.saveActiveWorkspaceId(workspace.id);
+        }
         return Success(
           WorkspaceSession(
             workspaces: allWorkspaces,

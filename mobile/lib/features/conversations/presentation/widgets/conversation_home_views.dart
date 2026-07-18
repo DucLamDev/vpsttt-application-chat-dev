@@ -127,6 +127,7 @@ class ContactsHomeView extends ConsumerWidget {
           _ChannelList(
             channels: state.filteredChannels,
             emptyTitle: 'Chưa có kênh hoặc bot',
+            sectionLabel: 'Kênh & Bot',
             onTap: (channel) => _handleChannelTap(context, controller, channel),
           ),
       ],
@@ -172,6 +173,7 @@ class ChannelsHomeView extends ConsumerWidget {
           _ChannelList(
             channels: state.filteredChannels,
             emptyTitle: 'Chưa có kênh phù hợp',
+            sectionLabel: 'Kênh trong workspace',
             onTap: (channel) => _handleChannelTap(context, controller, channel),
           ),
       ],
@@ -228,6 +230,7 @@ class _MessagesList extends StatelessWidget {
             )
           else ...[
             const SizedBox(height: WebTuiSpacing.xs),
+            const WebTuiSectionLabel('Hội thoại gần đây'),
             WebTuiListSurface(
               children: [
                 for (final conversation in state.filteredConversations)
@@ -380,11 +383,13 @@ class _ChannelList extends StatelessWidget {
   const _ChannelList({
     required this.channels,
     required this.emptyTitle,
+    required this.sectionLabel,
     required this.onTap,
   });
 
   final List<ConversationSummary> channels;
   final String emptyTitle;
+  final String sectionLabel;
   final ValueChanged<ConversationSummary> onTap;
 
   @override
@@ -400,7 +405,7 @@ class _ChannelList extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const WebTuiSectionLabel('Kênh'),
+        WebTuiSectionLabel(sectionLabel),
         WebTuiListSurface(
           children: [
             for (final channel in channels)
@@ -433,7 +438,7 @@ class _TopSearch extends StatelessWidget {
         WebTuiSpacing.lg,
         WebTuiSpacing.md,
         WebTuiSpacing.lg,
-        WebTuiSpacing.md,
+        WebTuiSpacing.sm,
       ),
       child: WebTuiSearchBar(hintText: hintText, onChanged: onChanged),
     );

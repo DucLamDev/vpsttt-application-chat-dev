@@ -1,0 +1,15 @@
+{
+  "platform": "android",
+  "package_name": "com.vpsttt.webtui_chat.dev",
+  "channel": "dev",
+  "current_version": "1.0.0",
+  "minimum_version": "1.0.0",
+  "recommended_version": "1.0.0",
+  "version": "1.0.0",
+  "version_code": 1,
+  "download_url": "./android/dev/app-dev-debug.apk",
+  "store_url": "",
+  "checksum_sha256": "433D0F9515403E12468031B778F05F00ED2DBE3A287BFA3F4356E80966D30259",
+  "required": false,
+  "release_notes": "Dev debug APK for internal install testing. Signed with the Android debug certificate; replace with a signed prod release before public distribution."
+}

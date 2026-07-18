@@ -253,12 +253,39 @@ docs/design/mobile/references/mobile-ui-reference.md
 
 Quy tắc khi làm UI mobile:
 
-- Trước khi dựng bất kỳ màn Flutter nào, phải mở ảnh reference và đọc `.agents/webtui-chat-mobile/SKILL.md`.
+- Trước khi dựng bất kỳ màn Flutter nào, phải mở ảnh reference, đọc kế hoạch dùng skill ở mục 6.3 và chỉ dùng các skill thiết kế mobile được phép cho phần định hướng UI.
 - UI ưu tiên cảm giác ứng dụng chat native chuyên nghiệp: nền sáng, border mảnh, shadow nhẹ, danh sách dày nhưng dễ quét, tab segmented nhỏ, bottom navigation rõ.
 - Màn đầu tiên không làm landing page marketing; phải là trải nghiệm app thật: đăng nhập, tin nhắn, danh bạ, kênh/bot, cài đặt.
 - Luồng `Tin nhắn`, `Bạn bè`, `Kênh & Bot`, `Kênh`, `Cài đặt` phải bám bố cục và mật độ của ảnh mẫu.
 - Tất cả label, empty state, toast, lỗi và mô tả trong UI phải là tiếng Việt có dấu.
 - Sau khi hoàn thành UI, phải chụp screenshot mobile và đối chiếu lại với ảnh reference; nếu lệch navigation, spacing, mật độ list hoặc phong cách Zalo-like thì chưa đạt.
+
+### 6.3. Kế hoạch dùng skill cho thiết kế mobile
+
+Phạm vi này chỉ áp dụng cho thiết kế, visual planning, mockup và audit UI mobile. Không dùng skill web/desktop/architecture để định hướng giao diện mobile nếu không có yêu cầu riêng. Mục tiêu là giữ mọi màn hình giống app native thật, không biến mobile thành landing page hoặc web thu nhỏ trong khung điện thoại.
+
+| Skill | Vai trò | Khi dùng | Không dùng cho |
+|---|---|---|---|
+| `imagegen-frontend-mobile` | Skill chính cho mobile screen concept | Tạo concept màn hình, flow nhiều màn, onboarding, auth, chat, settings, admin-friendly mobile view; khóa platform mode, design bible, phone mockup, safe area, readability và screen consistency | Không viết code Flutter/React/HTML, không làm landing page hoặc dashboard web |
+| `brandkit` | Nền nhận diện trước khi thiết kế màn | Khi cần chốt logo direction, palette, typography mood, icon language, texture và brand board cho WebTui Chat/mobile | Không thay thế screen flow, không quyết định layout chi tiết từng màn app |
+| `redesign-existing-projects` | Audit và nâng cấp UI mobile đã có | Khi đã có Flutter screen/screenshot để scan, diagnose và đề xuất fix các dấu hiệu generic, spacing yếu, state thiếu, text overflow, component quá web-like | Không rewrite từ đầu, không áp dụng mẫu marketing/web app lên mobile |
+| `gpt-taste` | Tham khảo taste, hierarchy và anti-generic checklist | Dùng như checklist phụ để tăng chất lượng thị giác: spacing rộng vừa đủ, typography có nhịp, bố cục bớt lặp, motion-implied cues cho mockup | Không dùng AIDA/hero/GSAP/web section rules làm yêu cầu cho mobile app; không sinh code motion nếu phase không yêu cầu |
+
+Luồng routing bắt buộc cho mọi thiết kế mobile:
+
+1. Nếu chưa chốt nhận diện, dùng `brandkit` trước để tạo brand direction ngắn: core metaphor, palette, type mood, icon style, texture.
+2. Với mọi flow hoặc màn mới, dùng `imagegen-frontend-mobile` làm skill điều phối chính: chọn platform mode, số màn, design bible, navigation model, safe area, phone mockup và acceptance về readability.
+3. Nếu đã có UI Flutter hoặc screenshot, dùng `redesign-existing-projects` sau `imagegen-frontend-mobile` để audit lệch chuẩn và lập danh sách fix có phạm vi.
+4. Chỉ dùng `gpt-taste` như checklist phụ cho premium taste; bỏ qua toàn bộ yêu cầu web-only như landing hero, AIDA page, GSAP ScrollTrigger, bento desktop.
+5. Bàn giao thiết kế phải có: skill routing đã chọn, design bible, screen map, màn nào cần mockup/generated image, màn nào implement Flutter, và checklist đối chiếu screenshot sau khi code.
+
+Acceptance cho planning thiết kế mobile:
+
+- Mọi flow có thứ tự màn hợp lý, ví dụ onboarding -> auth -> home hoặc conversation list -> chat -> action sheet.
+- Màn đầu tiên là trải nghiệm app thật, không phải hero marketing.
+- Navigation, safe area, bottom tab, list density, touch target và keyboard region được nêu rõ.
+- Text tiếng Việt có dấu, ngắn, đọc được ở kích thước mobile.
+- Không dùng skill ngoài `brandkit`, `gpt-taste`, `imagegen-frontend-mobile`, `redesign-existing-projects` cho phần thiết kế/concept/audit UI mobile.
 
 ## 7. Bảng phase tổng quan
 
@@ -329,7 +356,7 @@ Quy tắc khi làm UI mobile:
 | M1.9 | Widget loading/empty/error/toast | M1.3 | Trạng thái dùng nhất quán toàn app | P0 |
 | M1.10 | CI nền | M1.1 | format/analyze/test/build APK chạy tự động | P0 |
 | M1.11 | Khóa mobile UI reference | Không | Ảnh mẫu nằm ở `docs/design/mobile/references/webtui-mobile-zalo-reference.png` và tài liệu phân tích reference được cập nhật | P0 |
-| M1.12 | Tạo skill mobile cho agent | M1.11 | `.agents/webtui-chat-mobile/SKILL.md` bắt buộc agent đọc ảnh mẫu trước khi làm UI Flutter | P0 |
+| M1.12 | Khóa skill-routing thiết kế mobile | M1.11 | Prompt/UI planning chỉ dùng `brandkit`, `gpt-taste`, `imagegen-frontend-mobile`, `redesign-existing-projects` theo vai trò ở mục 6.3 | P0 |
 | M1.13 | Design tokens từ ảnh mẫu | M1.11 | Màu, typography, spacing, radius, shadow, list density, bottom tab và segmented control được ghi thành guideline | P0 |
 
 ## Phase M2: Auth, secure session và app lock
@@ -393,6 +420,8 @@ Quy tắc khi làm UI mobile:
 
 ## Phase M6: Ảnh, file, camera, voice, video và call
 
+Tiến độ hiện tại 2026-07-17: đã bắt đầu M6 ở mức foundation với camera/gallery image picker, upload queue, attach file vào message, render attachment trong timeline, call domain/repository/use case và outgoing call entry point. Phần còn lại cần native/plugin/WebRTC gồm file picker đầy đủ, viewer/download/share, voice record/play, incoming call, active audio/video call và push bridge.
+
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
 | M6.1 | Camera/gallery picker | M5 | Permission denied/permanently denied có hướng dẫn | P0 |
@@ -418,6 +447,8 @@ Quy tắc khi làm UI mobile:
 
 ## Phase M7: Native push, background và deep link
 
+Tiến độ hiện tại 2026-07-17: M7 đã khóa phần mobile foundation gồm Firebase runtime options/background handler, push device register/update/unregister/token refresh, notification center, unread badge, mark read/read-all, preference sync, foreground push snackbar, duplicate suppression, deep-link target mở chat/highlight message, Android custom scheme/App Links manifest, iOS URL scheme và entitlement APS/Associated Domains. Phần còn lại cần xác nhận ngoài code bằng thiết bị thật, Firebase/APNs project thật, assetlinks/apple-app-site-association thật và backend worker delivery log.
+
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
 | M7.1 | Firebase project/flavor config | M1 | Dev/staging/prod tách project/token | P0 |
@@ -433,6 +464,8 @@ Quy tắc khi làm UI mobile:
 
 ## Phase M8: Offline, sync và reliability
 
+Tiến độ hiện tại 2026-07-17: M8 đã hoàn thiện foundation trong mobile với cache conversation/channel/latest message page bằng AppDatabase, repository fallback khi API lỗi/offline, cache update sau send/edit/delete/reaction/pin/unpin/forward, local sync cursor theo workspace, `/sync` catch-up nhiều page kèm `/sync/ack`, auto catch-up khi đổi workspace hoặc app resume, message outbox scoped theo workspace/channel, `client_message_id` + `Idempotency-Key` khi retry, attachment retry từ file đã upload trong outbox, clear cache workspace không xóa draft/outbox, network quality banner khi catch-up lỗi và test cho cache/sync/outbox. Phần cần xác nhận ngoài code là chaos test airplane mode/process death với backend thật.
+
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
 | M8.1 | Cache workspace/conversation/message | M1/M5 | App mở offline xem dữ liệu gần nhất | P0 |
@@ -447,6 +480,8 @@ Quy tắc khi làm UI mobile:
 | M8.10 | Network quality UX | M8.4 | Banner offline/reconnecting và retry minh bạch | P0 |
 
 ## Phase M9: Module nghiệp vụ đầy đủ
+
+Tiến độ hiện tại 2026-07-17: M9 đã có tab `Nghiệp vụ` trong mobile, lấy dữ liệu thật theo workspace cho phòng ban, ticket, bot catalog, AI config, bot flows/installations, test/publish bot flow, cronjob automation kèm run-now/pause/resume/disable, incoming/outgoing webhook, API token list/revoke, audit log, admin stats và admin health. Ticket lifecycle đã có list/create/status update theo backend hiện có. UI hiển thị lỗi theo từng module khi permission/API chưa mở, không lưu secret webhook/API token trong cache. Phần còn cần backend/API bổ sung hoặc smoke test thật là ticket comment/attachment, flow rollback, announcement/system message, admin external link/browser và super-admin mobile.
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
@@ -468,6 +503,8 @@ Quy tắc khi làm UI mobile:
 
 ## Phase M10: Native UX, accessibility và performance
 
+Tiến độ hiện tại 2026-07-17: M10 đã có foundation cho permission rationale trong attachment sheet, keyboard safe area, touch target theme, text-scale clamp 0.85-1.35, locale/delegates `vi/en`, chat lifecycle suspend/resume realtime khi app vào nền, reduced-motion cho highlight/scroll, semantics label cho message row, timeline `ListView.builder` cache/repaint tuning và mobile release/version gate trong Settings dùng endpoint `/mobile/releases/{platform}/{channel}/{current_version}`. Phần còn cần xác nhận trên thiết bị thật là TalkBack/VoiceOver, font lớn, rotation/tablet, timeline rất lớn, gallery nhiều ảnh và policy bắt buộc update.
+
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
 | M10.1 | Android/iOS permission UX | M6/M7 | Camera/mic/photo/notification có rationale và settings link | P0 |
@@ -482,6 +519,8 @@ Quy tắc khi làm UI mobile:
 | M10.10 | App update/version gate | Backend version API | Cảnh báo/bắt buộc update khi contract không tương thích | P0 |
 
 ## Phase M11: Test, security và Android packaging
+
+Tiến độ hiện tại 2026-07-17: M11 đã có test bổ sung cho mobile release policy và push deep-link security, integration smoke test, workflow `.github/workflows/mobile.yml` chạy format/architecture/analyze/test/integration/debug APK, release job signed AAB/APK bằng GitHub secrets, checksum SHA-256 và `mobile-release-manifest.json`. Android release signing đọc `android/key.properties`/env, không dùng debug signing cho release; docs nội bộ đã có Android distribution, release security checklist, device matrix, Android direct download plan và source trang tải tĩnh trong `deploy/download/`. Phần còn cần môi trường thật là upload Firebase/Play Internal, kiểm thử thiết bị vật lý, publish manifest lên backend/download host và xác nhận signing secret trong GitHub protected environment.
 
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
@@ -504,6 +543,8 @@ Quy tắc khi làm UI mobile:
 
 ## Phase M12: CH Play và kênh tải Android
 
+Tiến độ hiện tại 2026-07-17: M12 đã có Play Console readiness doc, privacy policy draft, permission/data safety checklist, download page spec, download host manifest example, release readiness gate trong `tool/check_mobile_release.dart` và source trang tải Android-first ở `deploy/download/`. Trước mắt ưu tiên `download.vpsttt.com` cho APK signed kèm SHA-256/release notes; CH Play bật sau bằng `store_url` trong manifest. Ghi chú policy mới nhất: nguồn Google chính thức hiện nêu từ 31/08/2026 app mới/cập nhật phải target Android 16/API 36; trước mỗi release phải kiểm tra lại trang chính sách vì deadline có thể thay đổi. Phần còn cần môi trường ngoài repo là tạo Play Console app thật, enroll Play App Signing, upload AAB lên Internal/Closed track, chạy Pre-launch report, public privacy/support URLs và triển khai `download.vpsttt.com`.
+
 | Task | Công việc | Phụ thuộc | Kết quả/Acceptance | Ưu tiên |
 |---|---|---|---|---|
 | M12.1 | Tạo Play Console app | M11.9 | App name, default language, app/game, free/paid, package name production được chốt | P0 |
@@ -519,7 +560,7 @@ Quy tắc khi làm UI mobile:
 | M12.11 | Production staged rollout | M12.9-M12.10 | Rollout theo phần trăm, có khả năng pause/halt; monitoring active | P0 |
 | M12.12 | Managed Google Play/private app | M12.1 | Nếu bán B2B theo workspace, có phương án private app cho tổ chức cần quản lý thiết bị | P1 |
 | M12.13 | APK download public fallback | M11.14 | Nếu chưa public CH Play, người dùng vẫn tải được APK signed tại `download.vpsttt.com` kèm checksum | P0 |
-| M12.14 | Landing/download page | M12.8/M12.13 | Trang web tự nhận Android/iOS/Desktop và đưa link CH Play/Firebase/APK phù hợp | P1 |
+| M12.14 | Landing/download page | M12.8/M12.13 | Đã có source static Android-first ở `deploy/download/`; trang đọc manifest, hiện APK signed, checksum, release notes và bật CH Play sau bằng `store_url` | P1 |
 
 Ghi chú chính sách Android tại thời điểm cập nhật roadmap: Google Play yêu cầu app mới và bản cập nhật nhắm Android 15/API 35 hoặc cao hơn để gửi lên Play, trừ một số ngoại lệ thiết bị; cần kiểm tra lại yêu cầu này trước ngày release vì Google cập nhật hằng năm.
 

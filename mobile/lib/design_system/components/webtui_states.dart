@@ -114,9 +114,9 @@ class _StateFrame extends StatelessWidget {
       padding: const EdgeInsets.all(WebTuiSpacing.lg),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: WebTuiColors.surface,
+          color: WebTuiColors.surfaceElevated,
           borderRadius: BorderRadius.circular(WebTuiRadii.md),
-          border: Border.all(color: WebTuiColors.border),
+          border: Border.all(color: WebTuiColors.border.withValues(alpha: 0.8)),
         ),
         child: Padding(
           padding: const EdgeInsets.all(WebTuiSpacing.lg),

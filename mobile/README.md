@@ -119,12 +119,28 @@ dart run tool/check_architecture.dart
 
 ```sh
 flutter pub get
-dart format --set-exit-if-changed lib test tool
+dart format --set-exit-if-changed lib test integration_test tool
 dart run tool/check_architecture.dart
+dart run tool/check_mobile_release.dart
 flutter analyze
 flutter test
+flutter test integration_test
 flutter build apk --debug --flavor dev -t lib/main_dev.dart
 ```
+
+## Android Packaging M11
+
+- Workflow `.github/workflows/mobile.yml` chay format, architecture check, analyze, unit/widget test, integration smoke test va debug APK.
+- Job release chi build signed AAB/APK khi co du secret `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+- Release artifact co APK, AAB, SHA-256 checksum va `mobile-release-manifest.json`.
+- Lenh `flutter test integration_test` can Android emulator/device; GitHub Actions chay qua Android emulator.
+- Huong dan van hanh: `docs/android-internal-distribution.md`.
+- Checklist security/privacy: `docs/release-security-checklist.md`.
+- Device matrix M10/M11: `docs/android-device-matrix.md`.
+- Play Console readiness: `docs/google-play-readiness.md`.
+- Privacy policy draft: `docs/privacy-policy-draft.md`.
+- Android direct download plan: `docs/android-direct-download-plan.md`.
+- Static download page source: `../deploy/download/index.html`.
 
 ## Reference UI
 

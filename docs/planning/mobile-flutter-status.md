@@ -1,129 +1,133 @@
-# Trạng thái khởi động Mobile App Flutter
+# Trạng thái Mobile App Flutter
 
-Ngày cập nhật: 2026-07-15
+Ngày cập nhật: 2026-07-17
 
 ## Tóm tắt nhanh
 
-Mobile app Flutter chưa được scaffold trong repo. Hiện chưa có `mobile/pubspec.yaml`, chưa có file Dart, chưa có thư mục `mobile/android` hoặc `mobile/ios`.
+Mobile app Flutter đã có foundation, auth/session, workspace/RBAC, profile/settings, conversation/channel, app shell mobile và Phase M5 message/realtime đã khóa P0+polish. Sau lượt rà soát ngày 2026-07-17, M7 đã khóa mobile foundation push/deep link, M8 đã có offline cache/outbox/sync/retry/network UX foundation, M9 đã có tab Nghiệp vụ lấy dữ liệu thật cho phòng ban, bot/AI, ticket, automation, webhook/API token, audit/admin health, M10 đã có native UX/accessibility/performance foundation, M11 đã có test/security/Android packaging foundation, và M12 đã có Android-first download foundation để phát APK signed trước khi lên CH Play.
 
-Ảnh reference UI đã có trong repo và đã được chuẩn hóa đúng path mà roadmap/skill yêu cầu:
-
-```text
-docs/design/mobile/references/webtui-mobile-zalo-reference.png
-```
-
-Ảnh gốc hiện cũng còn tại:
-
-```text
-docs/design/mobile/references/design-mobile-app.png
-```
-
-Phase M0 đã hoàn thành ở mức planning/contract readiness qua `docs/planning/mobile-contract-gap.md`. Có thể tiếp tục chuẩn bị M1 sau khi backend owner chốt thứ tự triển khai các API P0 như push device, sync cursor, call session và bot/AI config theo workspace.
-
-## Tài liệu đã đọc
-
-| Tài liệu | Mục đích |
-|---|---|
-| `docs/planning/mobile-flutter-roadmap.md` | Roadmap M0-M13, Clean Architecture, release Android/iOS |
-| `.agents/webtui-chat-mobile/SKILL.md` | Quy tắc mobile Flutter, UI reference, Clean Architecture |
-| `docs/design/mobile/references/mobile-ui-reference.md` | Design guideline từ ảnh mẫu Zalo-like/WebTui |
-| `.agents/webtui-chat-architecture/SKILL.md` | Quy tắc kiến trúc chung, backend module, OpenAPI |
-| `backend/api/openapi/openapi.yaml` | Đã kiểm tra mục lục endpoint để xác nhận có contract nền cho auth/workspace/message/file/notification/bot/ticket |
-
-## Kết quả rà soát repo
-
-| Hạng mục | Trạng thái | Ghi chú |
+| Phase | Trạng thái | Ghi chú |
 |---|---|---|
-| Flutter project | Chưa có | Không tìm thấy `pubspec.yaml` hoặc file `.dart` trong workspace |
-| Mobile folder | Chưa có | Roadmap đề xuất tạo `mobile/` ở root |
-| UI reference image | Đã có | Đã copy chuẩn tên `webtui-mobile-zalo-reference.png` |
-| Mobile skill | Đã có | `.agents/webtui-chat-mobile/SKILL.md` đã được tạo |
-| Mobile UI guideline | Đã có | `docs/design/mobile/references/mobile-ui-reference.md` |
-| OpenAPI nền | Đã có một phần | Có auth, workspace, RBAC, channel, message, file, notification, presence, direct conversation, ticket, bot |
-| API cần gap analysis | Đã làm | Xem `docs/planning/mobile-contract-gap.md`; các API P0 còn là backlog backend cần owner chốt |
-| CI mobile | Chưa có | Chưa có `.github/workflows/mobile.yml` |
+| M0 Contract và mobile readiness | Đã khóa | Có roadmap, contract gap và API nền |
+| M1 Flutter foundation | Đã khóa | `mobile/pubspec.yaml`, app shell, Riverpod, go_router, Dio boundary, Drift/Secure Storage foundation |
+| M2 Auth và secure session | Đã khóa | Login/register/session/refresh/logout/session revoke có use case và API thật |
+| M3 Workspace, RBAC, profile và settings | Đã khóa | Permission-first workspace switch, avatar crop/downscale, confirm revoke/revoke-all session |
+| M4 Conversation, channel và mobile navigation | Đã khóa | Search debounce, clear unread badge đồng nhất, phone/tablet chat navigation |
+| M5 Message và realtime | Đã khóa P0+polish | Cursor page, actions, search jump, pinned quick bar, reducer, WebSocket join/typing/backoff, foreground catch-up, rich bubble, reaction/forward/thread polish |
+| M6 Media, voice note và audio/video call | Đang triển khai foundation | Camera/gallery image picker, upload/attach file API, attachment queue/render, call domain/repository/use case, start audio/video call sheet |
+| M7 Native push, background và deep link | Đã khóa mobile foundation | Firebase runtime env, device register/unregister, notification center, unread badge, mark read/all, preference sync, push target deep link, Android/iOS link config |
+| M8 Offline, sync và reliability | Đã khóa mobile foundation | Cache fallback, message outbox, idempotent retry, sync cursor/catch-up, clear cache policy, network banner |
+| M9 Module nghiệp vụ đầy đủ | Đã có mobile foundation | Tab Nghiệp vụ cho departments, tickets list/create/status, bots/AI/flows/test/publish, cronjobs run/pause/resume, webhooks, API token list/revoke, audit log, admin stats và admin health |
+| M10 Native UX, accessibility và performance | Đã có mobile foundation | Permission rationale, lifecycle suspend/resume realtime, reduced motion, semantics message row, Settings version gate qua `/mobile/releases` |
+| M11 Test, security và Android packaging | Đã có mobile foundation | Release workflow, signed AAB/APK secret path, checksum/manifest artifact, integration smoke, release security checklist, device matrix và Android direct download plan |
+| M12 CH Play và kênh tải Android | Đã có Android-first download foundation | Play Console checklist, privacy policy draft, data safety/permission declaration, download spec, manifest example, static download page và release gate |
 
-## Checklist trạng thái M0-M13
+## Checklist M3
 
-| Phase | Trạng thái | Lý do | Việc tiếp theo |
-|---|---|---|---|
-| M0 Contract và mobile readiness | Hoàn thành phần phân tích | Đã có ma trận parity, đối chiếu OpenAPI với route Go, API gap P0/P1, idempotency, sync, device registration, notification preference, call signaling, Android matrix và privacy policy | Backend owner chốt P0 contract trước khi sinh Dart client |
-| M1 Flutter foundation | Chưa bắt đầu một phần | Chưa scaffold Flutter app; riêng UI reference/skill và M0 contract gap đã sẵn | Sau khi P0 contract tối thiểu ổn định, scaffold `mobile/` và CI nền |
-| M2 Auth và secure session | Bị chặn bởi M1 | Chưa có Flutter app/core auth abstraction | Chờ M1 foundation |
-| M3 Workspace, RBAC, profile | Bị chặn bởi M2 | Cần auth/session và workspace scope trước | Chờ M2 |
-| M4 Conversation và channel | Bị chặn bởi M3 | Cần workspace/RBAC và app shell | Chờ M3 |
-| M5 Message và realtime | Bị chặn bởi M4 | Cần conversation/channel foundation | Chờ M4 |
-| M6 Media, voice note và call | Bị chặn bởi M5 và backend call API | Cần message timeline, upload, signaling contract | Chờ M5 và API call signaling |
-| M7 Push, background và deep link | Bị chặn bởi M0/M2 | Cần device registration, notification worker, auth device identity | Chốt API push trong M0 |
-| M8 Offline, sync và reliability | Bị chặn bởi M0/M5 | Cần sync cursor và message/outbox model | Chốt idempotency/sync trong M0 |
-| M9 Module nghiệp vụ đầy đủ | Bị chặn bởi M3-M8 | Cần foundation, API thật và permission | Rà backend ticket/bot/automation API trước |
-| M10 Native UX, accessibility và performance | Bị chặn bởi UI app thật | Cần các màn P0 để audit accessibility/performance | Chờ M4-M8 |
-| M11 Android packaging | Bị chặn bởi app build được | Cần Flutter project và test/build | Chuẩn bị signing strategy sau M1 |
-| M12 CH Play và kênh tải Android | Bị chặn bởi M11 | Cần AAB/APK signed, Play Console, privacy/data safety | Làm sau internal distribution |
-| M13 iOS hardening và release | Bị chặn bởi app ổn định và macOS signing | Cần iOS runner, APNs, TestFlight | Làm sau Android MVP hoặc song song cuối M11 |
-
-## Các phần đã sẵn sàng
-
-- Roadmap M0-M13 đã có.
-- Mobile skill đã có và bắt buộc đọc ảnh reference trước khi làm UI.
-- Ảnh reference đã ở đúng path chuẩn.
-- Prompt playbook đã có tại `docs/prompt/prompts.md`.
-- OpenAPI hiện có nền tương đối rộng cho auth, workspace, RBAC, chat, file, notification, presence, ticket, bot.
-
-## Blocker hiện tại
-
-| Blocker | Ảnh hưởng | Cách gỡ |
+| Task | Trạng thái | Evidence |
 |---|---|---|
-| Chưa có Flutter project | Không thể chạy `flutter analyze`, test hoặc build APK | Hoàn thành M0 rồi scaffold `mobile/` trong M1 |
-| API P0 mobile chưa có backend implementation | Push/call/sync/release metadata chưa thể dùng trong app thật | Backend owner chốt và triển khai theo `docs/planning/mobile-contract-gap.md` |
-| Chưa xác nhận thứ tự P0 contract | M1 có thể scaffold được nhưng M5-M8/M11 sẽ bị chặn nếu contract chưa ổn định | Ưu tiên push device, sync cursor, call session, bot/AI config và mobile release metadata |
-| Chưa có `.github/workflows/mobile.yml` | Không có quality gate mobile | Tạo trong M1 sau khi có Flutter project |
+| M3.1 List/select workspace | Xong | `WorkspaceSelectorScreen`, `LoadWorkspaceSessionUseCase`, `SelectWorkspaceUseCase` |
+| M3.2 Permission repository | Xong | `PermissionRemoteDataSource` gọi `/api/v1/rbac/me` với `workspace_id` |
+| M3.3 Workspace switch isolation | Xong | Đổi workspace kiểm RBAC trước khi lưu active workspace; draft key có `workspaceId:channelId` |
+| M3.4 Profile view/update | Xong | `ProfileRemoteDataSource` dùng `/api/v1/users/me` |
+| M3.5 Avatar camera/gallery/upload | Xong | Camera/gallery, center-crop vuông, downscale 1024px, upload qua workspace file API |
+| M3.6 Theme/language/notification settings | Xong | `LocalAppSettingsRepository` lưu local; sync preference nối tiếp ở M7 |
+| M3.7 Privacy/session screen | Xong | List/revoke session, confirm revoke, revoke-all và clear local session |
+| M3.8 Permission denied UX | Xong | `PermissionDeniedView` và failure mapping tách 403 |
 
-## Thứ tự triển khai 3 sprint đầu
+## Checklist M4
 
-### Sprint 1: Contract và nền kiến trúc
+| Task | Trạng thái | Evidence |
+|---|---|---|
+| M4.1 Conversation list screen | Xong | DM/channel preview, time, unread, avatar/status |
+| M4.2 Tabs tất cả/chưa đọc/yêu thích | Xong | `ConversationListFilter` |
+| M4.3 Search conversation/user/channel | Xong | `WebTuiSearchBar` debounce 250ms |
+| M4.4 Direct conversation create/open | Xong | `OpenDirectConversationUseCase` dedupe DM |
+| M4.5 Channel public/private/group list | Xong | `listChannels` theo workspace |
+| M4.6 Create/join/invite/request channel | Xong | Create, join request, invite, approve/reject |
+| M4.7 Channel details/member | Xong | Member, join request, pin, media, file, settings tab |
+| M4.8 Read state/unread badge | Xong | Mark read API và clear unread state |
+| M4.9 Mobile navigation state | Xong | `PopScope` và `dispose` persist draft |
+| M4.10 Tablet adaptive layout | Xong | List-detail width >= 720 |
 
-1. Tạo `docs/planning/mobile-contract-gap.md`.
-2. Rà parity web/desktop -> mobile.
-3. Đối chiếu `backend/api/openapi/openapi.yaml` với route Go cho các nhóm API P0.
-4. Chốt API gap cho push devices, notification preference, idempotency, sync cursor, call signaling, bot/AI flow, release metadata.
-5. Chốt `applicationId`, flavor naming, target platform và device matrix sơ bộ.
+## Checklist M5
 
-Kết quả mong muốn: M0 đủ rõ để scaffold Flutter mà không phải đoán contract.
+| Task | Trạng thái | Evidence |
+|---|---|---|
+| M5.1 Cursor timeline và reverse list | Xong nền | `MessagePage`, `LoadMessagesUseCase`, `ChatRoomController.loadOlder`; query dùng `before` đúng backend |
+| M5.2 Composer text/markdown/emoji/mention | Xong | Emoji tray, draft/safe area, reply/edit context; mention UUID được gửi qua `mentioned_user_ids`; bubble render `**bold**`, inline code và mention `<@id>` |
+| M5.3 Edit/delete/recall | Xong | `EditMessageUseCase`, `DeleteMessageUseCase`, quick actions trong `ChatRoomScreen` |
+| M5.4 Reaction picker và summary | Xong | Reaction palette nhiều emoji, toggle qua API, reaction summary merge bằng realtime reducer |
+| M5.5 Reply/thread | Xong | Gửi `parent_id`, load thread API, thread panel có root preview, reply list và composer riêng |
+| M5.6 Pin/unpin | Xong | `TogglePinMessageUseCase`, quick action pin/unpin, realtime reducer xử lý pin state, pinned quick bar để nhảy tới tin ghim |
+| M5.7 Forward | Xong | `ForwardMessageUseCase`, bottom sheet chọn kênh API-backed, lọc kênh hiện tại và kênh chưa là thành viên |
+| M5.8 Message search/filter | Xong | `SearchMessagesUseCase` hỗ trợ query/channel/sender/kind/date; UI hiện query, chip kết quả và jump-to-message trong channel |
+| M5.9 WebSocket manager | Xong nền | `WebSocketConversationRealtimeRepository` auth token, join/leave room, reconnect backoff |
+| M5.10 Realtime event reducer | Xong | `ConversationRealtimeReducer` merge idempotent create/update/delete/reaction/pin/typing |
+| M5.11 Typing/presence | Xong nền | `SendTypingUseCase` throttle, `TypingStarted/TypingStopped`, typing indicator |
+| M5.12 Foreground catch-up | Xong nền | `ChatRoomScreen` reload khi app resume |
 
-### Sprint 2: Flutter foundation
+## Checklist M6
 
-1. Scaffold `mobile/` Flutter app.
-2. Tạo Clean Architecture skeleton: `core`, `app`, `features/*`.
-3. Thiết lập Riverpod, go_router, Dio boundary, Drift foundation, secure storage abstraction.
-4. Tạo design tokens từ ảnh reference.
-5. Tạo CI nền: format/analyze/test/build debug APK.
-6. Viết README cách chạy mobile local.
+| Task | Trạng thái | Evidence |
+|---|---|---|
+| M6.1 Camera/gallery picker | Xong foundation | `ImagePickerMessageAttachmentRepository`, composer attachment sheet chọn camera/gallery |
+| M6.2 File picker | Chưa làm native | Cần thêm `file_picker` hoặc wrapper native riêng; hiện UI ghi rõ tệp/ghi âm là bước M6 tiếp theo |
+| M6.3 Image resize/compress/EXIF policy | Xong nền | `image_picker` dùng `imageQuality: 86`, `maxWidth: 1920`; EXIF/privacy policy nâng sâu còn P1 |
+| M6.4 Upload queue/progress | Xong foundation | `MessageAttachmentUploadItem`, retry/remove, trạng thái queued/uploading/uploaded/failed/attached trong composer |
+| M6.5 Attach file vào message | Xong foundation | `MessageAttachmentRemoteDataSource` upload `/files`, attach `/messages/{message_id}/attachments`, controller gắn file sau khi gửi message |
+| M6.6 Attachment render trong timeline | Xong foundation | `ChatMessage.attachments`, REST/realtime parser, `_MessageAttachmentList` hiển thị tên file/kích thước dưới bubble |
+| M6.7 Download/open/share | Chưa làm native | Đã giữ `downloadPath`; cần viewer/open intent/share scoped storage |
+| M6.8 Voice recorder/player | Chưa làm native | Cần plugin record/playback, permission mic và waveform/timer |
+| M6.9 Video/gallery viewer | Chưa làm native | Cần viewer ảnh/video, zoom/swipe/fullscreen/cache |
+| M6.10 Call domain model | Xong foundation | `CallSession`, `CallMode`, `CallStatus`, `CallSignal` |
+| M6.11 Call signaling repository | Xong REST foundation | `CallRemoteDataSource`, `CallRepositoryImpl`, start/get/accept/reject/cancel/hangup/signal use cases |
+| M6.12 Outgoing call UX | Xong foundation | Header phone/video mở bottom sheet nhập `target_user_id` và gọi `StartCallUseCase` |
+| M6.13 Incoming/active call/WebRTC | Chưa làm native | Cần WebSocket call events, incoming screen, `flutter_webrtc`, camera/mic controls và push bridge |
 
-Kết quả mong muốn: M1 foundation pass `flutter analyze` và có app shell trống đúng kiến trúc.
+## Checklist M7
 
-### Sprint 3: Auth, workspace và app shell Zalo-like
+| Task | Trạng thái | Evidence |
+|---|---|---|
+| M7.1 Firebase project/flavor config | Xong foundation | `FirebaseRuntimeOptions` đọc Dart define theo platform; `bootstrap` cấu hình background handler |
+| M7.2 Register/update/unregister push token | Xong foundation | `PushNotificationService.registerForWorkspace`, token refresh update, `unregister` khi logout |
+| M7.3 Backend notification worker FCM/APNs | Backend-owned | Mobile đã có contract client; worker/delivery log thuộc backend |
+| M7.4 Foreground notification handling | Xong foundation | `PushNotificationService.foregroundTargets`, HomeShell refresh notification center và hiển thị SnackBar mở nhanh |
+| M7.5 Background/terminated notification | Xong foundation | `FirebaseMessaging.onBackgroundMessage`, `onMessageOpenedApp`, `getInitialMessage` parse target |
+| M7.6 Badge count | Xong foundation | HomeShell bell badge lấy `unreadCount` từ `NotificationCenterController` |
+| M7.7 Deep link/app link target | Xong foundation | `NotificationTarget` parse `workspace_id/channel_id/message_id`, route mở chat và highlight message nếu có trong timeline |
+| M7.8 Notification preference/mute | Xong foundation | `NotificationPreference`, settings sync `/api/v1/notifications/preferences` |
+| M7.9 Sensitive preview policy | Xong foundation | `AppSettings.sensitivePreviewEnabled` map sang preference `preview=false` |
+| M7.10 Duplicate suppression | Xong foundation | Push service suppress theo `event_id`/`notification_id`/message id |
 
-1. Làm M2 auth secure session.
-2. Làm M3 workspace/RBAC/profile nền.
-3. Dựng app shell mobile bám ảnh reference: bottom navigation, segmented tabs, list item, search, settings row.
-4. Chỉ dùng API thật hoặc empty/loading/error state trung thực, không dùng mock production.
-5. Chụp screenshot app shell và đối chiếu reference.
+## Verification
 
-Kết quả mong muốn: người dùng đăng nhập, chọn workspace và vào app shell mobile đúng phong cách WebTui/Zalo-like.
-
-## Verification đã chạy
-
-| Kiểm tra | Kết quả |
+| Kiểm tra | Trạng thái |
 |---|---|
-| Kiểm tra Flutter files bằng `rg --files -g "pubspec.yaml" -g "*.dart"` | Không tìm thấy Flutter project |
-| Kiểm tra ảnh reference chuẩn | Đã có sau khi copy từ `design-mobile-app.png` |
-| Xem ảnh reference bằng `view_image` | Đúng mẫu mobile WebTui/Zalo-like đã chốt |
-| Kiểm tra mục lục OpenAPI | Có các nhóm endpoint nền; đã đối chiếu gap trong `mobile-contract-gap.md` |
-| Kiểm tra route Go | Đã rà route HTTP trong `backend/internal/**/delivery/http/handler.go` |
+| `dart format` cho file thay đổi | Đã chạy, pass |
+| `flutter analyze` | Đã chạy, `No issues found!` |
+| `flutter test` | Đã chạy, 34 tests passed |
 
-## Quyết định hiện tại
+## M5 polish đã xử lý
 
-- Không scaffold Flutter trong lượt khởi động này vì prompt yêu cầu không viết code vội khi chưa có contract/gap rõ.
-- Bước tiếp theo nên là chốt backend API P0 hoặc scaffold M1 nếu chấp nhận để các API P0 chưa có ở trạng thái blocked contract.
-- Khi bắt đầu UI, bắt buộc mở `docs/design/mobile/references/webtui-mobile-zalo-reference.png` và đọc `.agents/webtui-chat-mobile/SKILL.md`.
+- Forward dùng bottom sheet chọn kênh từ API thay cho nhập raw `channel_id`.
+- Reaction dùng palette nhiều emoji và vẫn giữ toggle theo `reactedByMe`.
+- Bubble render mention/markdown nhẹ bằng rich text tương thích ngược với component cũ.
+- Thread có composer riêng ngay trong panel, gửi bằng `parent_id` và merge lại state cục bộ.
+- Search có chip kết quả và jump-to-message, đồng thời message được highlight ngắn khi mở từ kết quả.
+- Pin có thanh ghim nhanh trong room để nhảy tới tin ghim thay vì chỉ nằm trong quick action.
+- Action bar dưới từng bubble đã được rút gọn thành long-press bottom sheet để timeline giống app chat native hơn.
+
+M6 đã bắt đầu ở mức foundation. Các việc còn lại của M6 nằm ở native plugin/WebRTC: file picker đầy đủ, voice record/play, viewer/download/share, incoming call, active audio/video call và push bridge.
+
+M7 đã khóa mobile foundation. Phần còn lại cần smoke test trên thiết bị thật với Firebase project thật, local notification native plugin nếu muốn hiện native banner foreground, Android/iOS app link verification và backend worker delivery log.
+
+M8 đã khóa mobile foundation với offline cache, outbox/idempotent retry, sync catch-up, clear cache policy và network banner. Phần còn lại là chaos test bằng backend thật.
+
+M9 đã có tab Nghiệp vụ bằng endpoint thật, gồm test/publish flow, tạo/đổi trạng thái ticket, API token list/revoke, audit log, admin health và run/pause/resume cronjob. Các thao tác ticket comment/attachment, rollback flow, announcement/system message, admin browser link và super-admin cần backend/API hoặc smoke test quyền/dữ liệu thật trước khi gọi là parity production.
+
+M10 đã có foundation trong code: attachment permission rationale, chat suspend/reconnect khi app vào nền/resume, reduced-motion cho scroll/highlight, semantics label cho message và Settings version gate dùng endpoint mobile releases. Cần kiểm thử thêm trên thiết bị thật với TalkBack/VoiceOver, font lớn, rotation/tablet, timeline rất lớn, gallery nhiều ảnh và update policy bắt buộc.
+
+M11 đã có foundation trong code/CI/docs: workflow mobile validate + signed release artifact, Android signing không dùng debug key cho release, test release policy/deep-link security, integration smoke test, checksum/manifest, tài liệu phân phối nội bộ và kế hoạch Android direct download. Cần môi trường thật để xác nhận GitHub secret, Firebase/Play Internal upload, thiết bị vật lý và publish manifest/download host.
+
+M12 đã có Android-first download foundation: Play Console doc, privacy policy draft, download page spec, source static page ở `deploy/download/`, download host manifest example và `tool/check_mobile_release.dart` để CI bắt thiếu sót release. Trước mắt phát Android qua APK signed tại `download.vpsttt.com`; CH Play chuyển sang sau bằng `store_url` trong manifest. Cần thao tác ngoài repo để tạo Play Console app, enroll Play App Signing, public privacy/support URL, upload AAB lên Internal/Closed track, chạy Pre-launch report và triển khai host tải thật.

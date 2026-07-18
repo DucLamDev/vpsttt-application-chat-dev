@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -5,8 +6,38 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../features/auth/domain/repositories/device_identity_repository.dart';
+import '../../features/notifications/domain/entities/mobile_notification.dart';
 import '../network/api_transport.dart';
 import 'firebase_runtime_options.dart';
+
+@pragma('vm:entry-point')
+Future<void> webTuiFirebaseMessagingBackgroundHandler(
+  RemoteMessage message,
+) async {
+  await ensureFirebaseRuntime();
+}
+
+Future<bool> ensureFirebaseRuntime() async {
+  try {
+    if (Firebase.apps.isEmpty) {
+      final options = FirebaseRuntimeOptions.currentPlatform();
+      if (options == null) {
+        await Firebase.initializeApp();
+      } else {
+        await Firebase.initializeApp(options: options);
+      }
+    }
+    return true;
+  } on Object {
+    return false;
+  }
+}
+
+void configureFirebaseBackgroundMessaging() {
+  FirebaseMessaging.onBackgroundMessage(
+    webTuiFirebaseMessagingBackgroundHandler,
+  );
+}
 
 final class PushNotificationService {
   PushNotificationService({
@@ -17,8 +48,19 @@ final class PushNotificationService {
 
   final ApiTransport _api;
   final DeviceIdentityRepository _deviceIdentityRepository;
+  final _openedTargets = StreamController<NotificationTarget>.broadcast();
+  final _foregroundTargets = StreamController<NotificationTarget>.broadcast();
+  final _seenEventIds = <String>{};
   String? _registeredKey;
+  String? _registeredWorkspaceId;
   bool _tokenRefreshListening = false;
+  bool _messageHandlersStarted = false;
+  StreamSubscription<String>? _tokenRefreshSubscription;
+  StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
+  StreamSubscription<RemoteMessage>? _foregroundSubscription;
+
+  Stream<NotificationTarget> get openedTargets => _openedTargets.stream;
+  Stream<NotificationTarget> get foregroundTargets => _foregroundTargets.stream;
 
   Future<void> registerForWorkspace(String workspaceId) async {
     final normalizedWorkspaceId = workspaceId.trim();
@@ -27,7 +69,7 @@ final class PushNotificationService {
     }
 
     final device = await _deviceIdentityRepository.currentDevice();
-    final firebase = await _ensureFirebase();
+    final firebase = await ensureFirebaseRuntime();
     final permission = firebase ? await _requestPermission() : 'unknown';
     final token = firebase ? await _readFcmToken() : null;
     final key =
@@ -44,36 +86,59 @@ final class PushNotificationService {
       notificationPermission: permission,
     );
     _registeredKey = key;
+    _registeredWorkspaceId = normalizedWorkspaceId;
 
-    if (firebase && !_tokenRefreshListening) {
-      _tokenRefreshListening = true;
-      FirebaseMessaging.instance.onTokenRefresh.listen((nextToken) {
-        _registeredKey = null;
-        _upsertDevice(
-          workspaceId: normalizedWorkspaceId,
-          deviceId: device.id,
-          platform: _platform(),
-          pushToken: nextToken,
-          notificationPermission: permission,
-        );
-      });
+    if (firebase) {
+      _startMessageHandlers(normalizedWorkspaceId);
+      if (!_tokenRefreshListening) {
+        _tokenRefreshListening = true;
+        _tokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh
+            .listen((nextToken) {
+              _registeredKey = null;
+              _upsertDevice(
+                workspaceId: _registeredWorkspaceId ?? normalizedWorkspaceId,
+                deviceId: device.id,
+                platform: _platform(),
+                pushToken: nextToken,
+                notificationPermission: permission,
+              );
+            });
+      }
     }
   }
 
-  Future<bool> _ensureFirebase() async {
-    try {
-      if (Firebase.apps.isEmpty) {
-        final options = FirebaseRuntimeOptions.currentPlatform();
-        if (options == null) {
-          await Firebase.initializeApp();
-        } else {
-          await Firebase.initializeApp(options: options);
-        }
-      }
-      return true;
-    } on Object {
-      return false;
+  Future<void> unregister() async {
+    final device = await _deviceIdentityRepository.currentDevice();
+    await _api.delete<Object>('/api/v1/mobile/devices/${_e(device.id)}');
+    _registeredKey = null;
+    _registeredWorkspaceId = null;
+  }
+
+  Future<void> dispose() async {
+    await _tokenRefreshSubscription?.cancel();
+    await _messageOpenedSubscription?.cancel();
+    await _foregroundSubscription?.cancel();
+    await _openedTargets.close();
+    await _foregroundTargets.close();
+  }
+
+  void _startMessageHandlers(String workspaceId) {
+    if (_messageHandlersStarted) {
+      return;
     }
+    _messageHandlersStarted = true;
+    configureFirebaseBackgroundMessaging();
+    _messageOpenedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
+      (message) => _emitTarget(message, workspaceId, _openedTargets),
+    );
+    _foregroundSubscription = FirebaseMessaging.onMessage.listen(
+      (message) => _emitTarget(message, workspaceId, _foregroundTargets),
+    );
+    FirebaseMessaging.instance.getInitialMessage().then((message) {
+      if (message != null) {
+        _emitTarget(message, workspaceId, _openedTargets);
+      }
+    });
   }
 
   Future<String> _requestPermission() async {
@@ -127,6 +192,45 @@ final class PushNotificationService {
       },
     );
   }
+
+  void _emitTarget(
+    RemoteMessage message,
+    String workspaceId,
+    StreamController<NotificationTarget> controller,
+  ) {
+    final eventId = _eventId(message);
+    if (eventId != null && !_seenEventIds.add(eventId)) {
+      return;
+    }
+    if (_seenEventIds.length > 128) {
+      _seenEventIds.clear();
+      if (eventId != null) {
+        _seenEventIds.add(eventId);
+      }
+    }
+    final target = NotificationTarget.fromPayload(
+      workspaceId: workspaceId,
+      data: message.data.cast<String, Object?>(),
+    );
+    if (target.canOpenConversation || target.deepLink != null) {
+      controller.add(target);
+    }
+  }
+}
+
+String? _eventId(RemoteMessage message) {
+  for (final key in const [
+    'event_id',
+    'eventId',
+    'notification_id',
+    'notificationId',
+  ]) {
+    final value = message.data[key]?.toString().trim();
+    if (value != null && value.isNotEmpty) {
+      return value;
+    }
+  }
+  return message.messageId;
 }
 
 String _platform() {
@@ -138,3 +242,5 @@ String _platform() {
   }
   return 'desktop';
 }
+
+String _e(String value) => Uri.encodeComponent(value);

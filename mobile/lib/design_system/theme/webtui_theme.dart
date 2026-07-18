@@ -20,6 +20,8 @@ final class WebTuiTheme {
       useMaterial3: true,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: WebTuiColors.background,
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      visualDensity: VisualDensity.standard,
       textTheme: WebTuiTypography.textTheme,
       appBarTheme: const AppBarTheme(
         backgroundColor: WebTuiColors.surface,
@@ -52,7 +54,7 @@ final class WebTuiTheme {
         ),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: WebTuiSpacing.md,
-          vertical: WebTuiSpacing.md,
+          vertical: WebTuiSpacing.sm,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(WebTuiRadii.md),
@@ -79,7 +81,7 @@ final class WebTuiTheme {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        height: 64,
+        height: 62,
         elevation: 0,
         backgroundColor: WebTuiColors.surface,
         indicatorColor: WebTuiColors.primarySoft,
@@ -94,7 +96,7 @@ final class WebTuiTheme {
           final selected = states.contains(WidgetState.selected);
           return IconThemeData(
             color: selected ? WebTuiColors.primary : WebTuiColors.textMuted,
-            size: 22,
+            size: 21,
           );
         }),
       ),

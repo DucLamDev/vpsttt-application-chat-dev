@@ -66,8 +66,13 @@ class _ChannelDetailScreenState extends ConsumerState<ChannelDetailScreen> {
     final controller = ref.read(provider.notifier);
 
     return Scaffold(
+      backgroundColor: WebTuiColors.background,
       appBar: AppBar(
-        toolbarHeight: 48,
+        toolbarHeight: 54,
+        surfaceTintColor: Colors.transparent,
+        shape: Border(
+          bottom: BorderSide(color: WebTuiColors.border.withValues(alpha: 0.7)),
+        ),
         titleSpacing: 0,
         title: Text(state.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
@@ -185,62 +190,88 @@ class _ChannelHeader extends StatelessWidget {
         WebTuiSpacing.lg,
         WebTuiSpacing.md,
         WebTuiSpacing.lg,
-        WebTuiSpacing.md,
+        WebTuiSpacing.lg,
       ),
-      child: Row(
-        children: [
-          WebTuiAvatar(
-            label: title,
-            imageUrl: channel?.avatarUrl,
-            icon: Icons.tag_rounded,
-            color: WebTuiColors.primary.withValues(alpha: 0.12),
-            foregroundColor: WebTuiColors.primary,
-            size: 56,
-          ),
-          const SizedBox(width: WebTuiSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WebTuiTypography.titleLarge.copyWith(
-                    color: WebTuiColors.textPrimary,
-                    fontWeight: FontWeight.w800,
-                  ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: WebTuiColors.surface,
+          borderRadius: BorderRadius.circular(WebTuiRadii.lg),
+          border: Border.all(color: WebTuiColors.border),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(WebTuiSpacing.lg),
+          child: Row(
+            children: [
+              WebTuiAvatar(
+                label: title,
+                imageUrl: channel?.avatarUrl,
+                icon: Icons.tag_rounded,
+                color: WebTuiColors.primarySoft,
+                foregroundColor: WebTuiColors.primary,
+                size: 58,
+              ),
+              const SizedBox(width: WebTuiSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WebTuiTypography.titleLarge.copyWith(
+                        color: WebTuiColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: WebTuiSpacing.xs),
+                    Text(
+                      channel?.preview ?? 'Kênh trong workspace WebTui',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: WebTuiTypography.bodySmall.copyWith(
+                        color: WebTuiColors.textMuted,
+                      ),
+                    ),
+                    const SizedBox(height: WebTuiSpacing.sm),
+                    Wrap(
+                      spacing: WebTuiSpacing.xs,
+                      runSpacing: WebTuiSpacing.xs,
+                      children: [
+                        WebTuiStatusPill(
+                          label: _visibilityLabel(channel?.channelVisibility),
+                          color: WebTuiColors.primary,
+                        ),
+                        if ((channel?.memberCount ?? 0) > 0)
+                          WebTuiStatusPill(
+                            label: '${channel!.memberCount} tham gia',
+                            color: WebTuiColors.accentGreen,
+                          ),
+                      ],
+                    ),
+                  ],
                 ),
-                const SizedBox(height: WebTuiSpacing.xs),
-                Text(
-                  channel?.preview ?? 'Kênh trong workspace WebTui',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: WebTuiTypography.bodySmall.copyWith(
-                    color: WebTuiColors.textMuted,
-                  ),
+              ),
+              const SizedBox(width: WebTuiSpacing.sm),
+              if (onOpenChat != null)
+                IconButton.filled(
+                  tooltip: 'Mở hội thoại',
+                  onPressed: onOpenChat,
+                  icon: const Icon(Icons.chat_bubble_rounded),
+                )
+              else
+                FilledButton(
+                  onPressed: submitting || joinPending ? null : onRequestJoin,
+                  child: submitting
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(joinPending ? 'Đang chờ' : 'Tham gia'),
                 ),
-              ],
-            ),
+            ],
           ),
-          const SizedBox(width: WebTuiSpacing.sm),
-          if (onOpenChat != null)
-            IconButton.filled(
-              tooltip: 'Mở hội thoại',
-              onPressed: onOpenChat,
-              icon: const Icon(Icons.chat_bubble_rounded),
-            )
-          else
-            FilledButton(
-              onPressed: submitting || joinPending ? null : onRequestJoin,
-              child: submitting
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(joinPending ? 'Đang chờ' : 'Tham gia'),
-            ),
-        ],
+        ),
       ),
     );
   }

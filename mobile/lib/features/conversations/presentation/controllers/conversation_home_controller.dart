@@ -233,9 +233,8 @@ final class ConversationHomeController
   void selectConversation(ConversationSummary conversation) {
     final opened = _withoutUnread(conversation);
     state = state.copyWith(
-      conversations: state.conversations
-          .map((item) => item.id == opened.id ? opened : item)
-          .toList(growable: false),
+      conversations: _markOpenedInList(state.conversations, opened),
+      channels: _markOpenedInList(state.channels, opened),
       selectedConversation: opened,
     );
   }
@@ -246,9 +245,8 @@ final class ConversationHomeController
     }
     final opened = _withoutUnread(conversation);
     state = state.copyWith(
-      conversations: state.conversations
-          .map((item) => item.id == opened.id ? opened : item)
-          .toList(growable: false),
+      conversations: _markOpenedInList(state.conversations, opened),
+      channels: _markOpenedInList(state.channels, opened),
     );
   }
 
@@ -298,6 +296,21 @@ final class ConversationHomeController
 
 ConversationSummary _withoutUnread(ConversationSummary conversation) {
   return conversation.copyWith(unreadCount: 0);
+}
+
+List<ConversationSummary> _markOpenedInList(
+  List<ConversationSummary> items,
+  ConversationSummary opened,
+) {
+  return items
+      .map(
+        (item) => _sameConversation(item, opened) ? _withoutUnread(item) : item,
+      )
+      .toList(growable: false);
+}
+
+bool _sameConversation(ConversationSummary left, ConversationSummary right) {
+  return left.id == right.id || left.channelId == right.channelId;
 }
 
 List<ConversationSummary> _filterConversations(

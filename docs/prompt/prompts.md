@@ -12,9 +12,24 @@ Tài liệu này tập hợp các prompt nên dùng để triển khai mobile ap
 
 ## Skill cần tận dụng
 
+### Skill thiết kế mobile được phép dùng
+
+Riêng các prompt về thiết kế, visual planning, mockup, reference và audit UI mobile chỉ được dùng các skill dưới đây. Không dùng skill web/desktop/architecture để định hướng giao diện mobile nếu prompt không yêu cầu riêng.
+
 | Skill | Khi dùng |
 |---|---|
-| `$webtui-chat-mobile` | Mọi việc Flutter mobile, mobile UI, Android/iOS packaging, CH Play, Firebase App Distribution, APK download |
+| `$imagegen-frontend-mobile` | Skill chính cho concept màn hình mobile, flow nhiều màn, design bible, phone mockup, safe area, navigation, readability và screen consistency |
+| `$brandkit` | Khi cần chốt nhận diện trước UI: core metaphor, logo direction, palette, typography mood, icon language, texture và brand board |
+| `$redesign-existing-projects` | Khi đã có UI Flutter/screenshot và cần audit/fix dấu hiệu generic, spacing yếu, text overflow, state thiếu, component quá web-like |
+| `$gpt-taste` | Chỉ dùng như checklist phụ cho premium taste, hierarchy, spacing, bố cục bớt lặp và anti-generic; không áp dụng AIDA/GSAP/landing-page rules vào mobile |
+
+### Skill kỹ thuật dự án
+
+Các prompt triển khai code/architecture vẫn có thể đọc skill nội bộ của dự án nếu phase yêu cầu. Tuy nhiên, phần thiết kế/concept/audit UI mobile trong các prompt đó phải tuân thủ bảng skill thiết kế mobile ở trên.
+
+| Skill | Khi dùng |
+|---|---|
+| `$webtui-chat-mobile` | Việc Flutter mobile, Android/iOS packaging, CH Play, Firebase App Distribution, APK download |
 | `$webtui-chat-architecture` | Việc liên quan Clean Architecture, backend contract, OpenAPI, module backend, deploy, release metadata |
 | `$webtui-chat-frontend` | Khi cần thêm web download page, API client web, landing/download page hoặc đối chiếu frontend hiện có |
 
@@ -28,7 +43,7 @@ Không để domain layer import Flutter, Dio, Drift, Firebase hoặc generated 
 Không gọi Dio, Drift, Secure Storage, Firebase hoặc WebSocket trực tiếp trong widget.
 Mọi dữ liệu, cache, route, websocket event và notification phải có tenant/workspace context rõ.
 Không thêm mock/fallback data vào production flavor.
-Khi làm UI mobile, bắt buộc đọc ảnh reference Zalo-like/WebTui trước khi dựng layout.
+Khi làm UI mobile, bắt buộc đọc ảnh reference Zalo-like/WebTui trước khi dựng layout và chỉ dùng $brandkit, $gpt-taste, $imagegen-frontend-mobile, $redesign-existing-projects cho phần thiết kế/concept/audit UI mobile.
 ```
 
 ## Prompt 00: Khởi động toàn bộ chương trình mobile
@@ -183,6 +198,42 @@ Acceptance:
 - So sánh spacing, density, màu, navigation với ảnh reference.
 - Không text overflow.
 - Không phụ thuộc backend/mock production.
+```
+
+## Prompt 04A: Planning thiết kế mobile bằng skill chuyên biệt
+
+```text
+Use $brandkit, $gpt-taste, $imagegen-frontend-mobile and $redesign-existing-projects.
+
+Hãy lập kế hoạch thiết kế mobile cho flow/màn: <TÊN_FLOW_HOẶC_MÀN>.
+
+Phạm vi:
+- Chỉ planning thiết kế, visual direction, mockup strategy và acceptance UI.
+- Không viết code Flutter/React/HTML trong prompt này.
+- Không dùng skill ngoài $brandkit, $gpt-taste, $imagegen-frontend-mobile, $redesign-existing-projects cho phần thiết kế/concept/audit UI mobile.
+
+Bắt buộc đọc trước:
+- docs/planning/mobile-flutter-roadmap.md, đặc biệt mục 6.1, 6.2, 6.3.
+- docs/design/mobile/references/mobile-ui-reference.md.
+- Mở ảnh docs/design/mobile/references/webtui-mobile-zalo-reference.png nếu có.
+- .agents/skills/imagegen-frontend-mobile/SKILL.md.
+- .agents/skills/brandkit/SKILL.md nếu cần chốt nhận diện/palette/icon mood.
+- .agents/skills/redesign-existing-projects/SKILL.md nếu đã có UI hoặc screenshot cần audit.
+- .agents/skills/gpt-taste/SKILL.md chỉ để lấy checklist anti-generic/hierarchy, không dùng rule AIDA/GSAP/web landing.
+
+Skill routing:
+1. $brandkit: dùng trước nếu brand direction, palette, type mood hoặc icon language chưa rõ; nếu đã chốt thì ghi "không cần dùng sâu".
+2. $imagegen-frontend-mobile: skill chính, phải khóa platform mode, số màn, design bible, navigation model, safe area, phone mockup, readability và screen consistency.
+3. $redesign-existing-projects: chỉ dùng sau khi có UI/screenshot để scan, diagnose và lập danh sách fix; không rewrite từ đầu.
+4. $gpt-taste: dùng như checklist phụ để tránh layout generic, text bé, spacing bí, nhịp màn lặp; bỏ qua web-only như hero page, AIDA, GSAP ScrollTrigger, bento desktop.
+
+Đầu ra cần có:
+- Bảng skill routing đã dùng và lý do.
+- Design bible: platform mode, palette, typography mood, spacing, radius, icon style, texture, navigation, state language.
+- Screen flow: thứ tự màn, hành động chuyển màn, state chính, bottom sheet/action sheet cần có.
+- Danh sách mockup/image cần generate bằng $imagegen-frontend-mobile, mỗi mockup nêu rõ số màn và mục tiêu.
+- Handoff cho Flutter: design tokens cần tạo, component cần dựng, state loading/empty/error, screenshot cần chụp để verify.
+- Acceptance checklist: safe area, bottom nav, touch target, keyboard region, text tiếng Việt có dấu, không text overflow, không giống web thu nhỏ, không landing page.
 ```
 
 ## Prompt 05: M2 Auth và secure session
@@ -898,4 +949,3 @@ Yêu cầu:
 
 Không cập nhật skill bằng thông tin tạm thời hoặc chưa chốt.
 ```
-

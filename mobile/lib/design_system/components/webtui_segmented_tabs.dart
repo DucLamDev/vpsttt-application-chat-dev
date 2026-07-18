@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
 import '../tokens/webtui_density.dart';
+import '../tokens/webtui_radii.dart';
 import '../tokens/webtui_spacing.dart';
 import '../tokens/webtui_typography.dart';
 
@@ -21,9 +22,11 @@ class WebTuiSegmentedTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: WebTuiSegmentedControlTokens.height,
-      decoration: const BoxDecoration(
-        color: WebTuiColors.surface,
-        border: Border(bottom: BorderSide(color: WebTuiColors.border)),
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: WebTuiColors.backgroundMuted,
+        borderRadius: BorderRadius.circular(WebTuiRadii.segmented),
+        border: Border.all(color: WebTuiColors.border.withValues(alpha: 0.55)),
       ),
       child: tabs.length <= 3
           ? Row(
@@ -42,10 +45,10 @@ class WebTuiSegmentedTabs extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               itemCount: tabs.length,
-              separatorBuilder: (_, _) => const SizedBox.shrink(),
+              separatorBuilder: (_, _) => const SizedBox(width: 4),
               itemBuilder: (context, index) {
                 return SizedBox(
-                  width: 92,
+                  width: 104,
                   child: _SegmentButton(
                     label: tabs[index],
                     selected: selectedIndex == index,
@@ -73,43 +76,47 @@ class _SegmentButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
+      borderRadius: BorderRadius.circular(WebTuiRadii.sm),
       child: InkWell(
         onTap: onTap,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: WebTuiSpacing.xs,
-                ),
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: WebTuiTypography.bodySmall.copyWith(
-                    color: selected
-                        ? WebTuiColors.primary
-                        : WebTuiColors.textMuted,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
+        borderRadius: BorderRadius.circular(WebTuiRadii.sm),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: selected ? WebTuiColors.surface : Colors.transparent,
+            borderRadius: BorderRadius.circular(WebTuiRadii.sm),
+            border: selected
+                ? Border.all(
+                    color: WebTuiColors.primary.withValues(alpha: 0.12),
+                  )
+                : null,
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: WebTuiColors.primary.withValues(alpha: 0.08),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.xs),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WebTuiTypography.bodySmall.copyWith(
+                  color: selected
+                      ? WebTuiColors.primary
+                      : WebTuiColors.textSecondary,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                 ),
               ),
             ),
-            if (selected)
-              Positioned(
-                left: WebTuiSpacing.md,
-                right: WebTuiSpacing.md,
-                bottom: 0,
-                child: Container(
-                  height: 2,
-                  decoration: BoxDecoration(
-                    color: WebTuiColors.primary,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );

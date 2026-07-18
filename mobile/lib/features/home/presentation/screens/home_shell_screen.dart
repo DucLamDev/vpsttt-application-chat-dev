@@ -7,9 +7,16 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../app/providers/foundation_providers.dart';
 import '../../../../design_system/components/webtui_components.dart';
+import '../../../../design_system/tokens/webtui_colors.dart';
+import '../../../../design_system/tokens/webtui_radii.dart';
 import '../../../../design_system/tokens/webtui_spacing.dart';
+import '../../../../design_system/tokens/webtui_typography.dart';
+import '../../../business/presentation/screens/business_dashboard_screen.dart';
 import '../../../conversations/domain/entities/conversation_summary.dart';
+import '../../../conversations/presentation/controllers/conversation_home_controller.dart';
 import '../../../conversations/presentation/widgets/conversation_home_views.dart';
+import '../../../notifications/domain/entities/mobile_notification.dart';
+import '../../../notifications/presentation/controllers/notification_center_controller.dart';
 import '../../../workspace/presentation/controllers/workspace_controller.dart';
 
 class HomeShellScreen extends ConsumerStatefulWidget {
@@ -26,9 +33,14 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
   late int _tabIndex;
   String? _pushRegisteredWorkspaceId;
   String? _presenceWorkspaceId;
+  String? _syncWorkspaceId;
+  bool _syncInFlight = false;
   Timer? _presenceTimer;
+  StreamSubscription<NotificationTarget>? _notificationOpenSubscription;
+  StreamSubscription<NotificationTarget>? _foregroundNotificationSubscription;
   bool _notificationEnabled = true;
   bool _compactMode = false;
+  bool _networkDegraded = false;
   double _soundLevel = 0.64;
   double _textScalePreview = 0.42;
 
@@ -43,6 +55,8 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _presenceTimer?.cancel();
+    _notificationOpenSubscription?.cancel();
+    _foregroundNotificationSubscription?.cancel();
     final workspaceId = _presenceWorkspaceId;
     if (workspaceId != null) {
       unawaited(_setPresence(workspaceId, ConversationPresence.offline));
@@ -62,6 +76,9 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
       _ => ConversationPresence.away,
     };
     unawaited(_setPresence(workspaceId, presence));
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_runWorkspaceCatchUp(workspaceId));
+    }
   }
 
   @override
@@ -82,17 +99,19 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
         appBar: AppBar(title: const Text('WebTui')),
         body: const SafeArea(
           child: WebTuiEmptyState(
-            title: 'Chưa chọn workspace',
-            message: 'Bạn cần chọn workspace trước khi mở dữ liệu chat.',
+            title: 'Chưa có workspace',
+            message:
+                'Tài khoản này chưa được gắn workspace. Hãy liên hệ quản trị viên.',
             icon: Icons.business_rounded,
           ),
         ),
         bottomNavigationBar: Padding(
           padding: const EdgeInsets.all(WebTuiSpacing.lg),
           child: FilledButton.icon(
-            onPressed: () => context.go('/workspaces'),
+            onPressed: () =>
+                ref.read(workspaceControllerProvider.notifier).load(),
             icon: const Icon(Icons.business_rounded),
-            label: const Text('Chọn workspace'),
+            label: const Text('Tải lại workspace'),
           ),
         ),
       );
@@ -109,6 +128,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
               .read(pushNotificationServiceProvider)
               .registerForWorkspace(activeWorkspace.id),
         );
+        _listenPushTargets();
       });
     }
 
@@ -119,6 +139,17 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
         }
       });
     }
+    if (_syncWorkspaceId != activeWorkspace.id) {
+      _syncWorkspaceId = activeWorkspace.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_runWorkspaceCatchUp(activeWorkspace.id));
+        }
+      });
+    }
+    final notificationState = ref.watch(
+      notificationCenterControllerProvider(activeWorkspace.id),
+    );
 
     return KeyedSubtree(
       key: ValueKey('workspace-shell-${workspaceState.generation}'),
@@ -127,11 +158,17 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
         selectedTab: _tabIndex,
         onTabSelected: (index) => setState(() => _tabIndex = index),
         leading: IconButton(
-          tooltip: activeWorkspace.name,
-          onPressed: () => context.go('/workspaces'),
+          tooltip: 'Hồ sơ cá nhân',
+          onPressed: () => context.push('/profile'),
           icon: const Icon(CupertinoIcons.person),
         ),
         actions: [
+          _NotificationBellButton(
+            unreadCount: notificationState.unreadCount,
+            onPressed: () => context.push(
+              '/notifications?workspaceId=${activeWorkspace.id}',
+            ),
+          ),
           if (_tabIndex == 2)
             IconButton(
               tooltip: 'Tạo kênh',
@@ -158,35 +195,57 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
           ),
           _ => null,
         },
-        body: switch (_tabIndex) {
-          0 => MessagesHomeView(workspaceId: activeWorkspace.id),
-          1 => ContactsHomeView(workspaceId: activeWorkspace.id),
-          2 => ChannelsHomeView(workspaceId: activeWorkspace.id),
-          _ => _SettingsTab(
-            workspaceName: activeWorkspace.name,
-            notificationEnabled: _notificationEnabled,
-            compactMode: _compactMode,
-            soundLevel: _soundLevel,
-            textScalePreview: _textScalePreview,
-            onProfileTap: () => context.push('/profile'),
-            onAdvancedTap: () => context.go('/settings'),
-            onPrivacyTap: () => context.go('/privacy'),
-            onLogoutTap: () async {
-              await ref.read(logoutUseCaseProvider).execute();
-              if (context.mounted) {
-                context.go('/login');
-              }
-            },
-            onNotificationChanged: (value) {
-              setState(() => _notificationEnabled = value);
-            },
-            onCompactChanged: (value) => setState(() => _compactMode = value),
-            onSoundChanged: (value) => setState(() => _soundLevel = value),
-            onTextScaleChanged: (value) {
-              setState(() => _textScalePreview = value);
-            },
-          ),
-        },
+        body: Column(
+          children: [
+            if (_networkDegraded)
+              _NetworkQualityBanner(
+                onRetry: () => unawaited(
+                  _runWorkspaceCatchUp(activeWorkspace.id, force: true),
+                ),
+              ),
+            Expanded(
+              child: switch (_tabIndex) {
+                0 => MessagesHomeView(workspaceId: activeWorkspace.id),
+                1 => ContactsHomeView(workspaceId: activeWorkspace.id),
+                2 => ChannelsHomeView(workspaceId: activeWorkspace.id),
+                3 => BusinessDashboardScreen(workspaceId: activeWorkspace.id),
+                _ => _SettingsTab(
+                  workspaceName: activeWorkspace.name,
+                  notificationEnabled: _notificationEnabled,
+                  compactMode: _compactMode,
+                  soundLevel: _soundLevel,
+                  textScalePreview: _textScalePreview,
+                  onProfileTap: () => context.push('/profile'),
+                  onAdvancedTap: () => context.push('/settings'),
+                  onPrivacyTap: () => context.push('/privacy'),
+                  onLogoutTap: () async {
+                    try {
+                      await ref
+                          .read(pushNotificationServiceProvider)
+                          .unregister();
+                    } on Object {
+                      // Logout must still clear the local session when push cleanup fails.
+                    }
+                    await ref.read(logoutUseCaseProvider).execute();
+                    if (context.mounted) {
+                      context.go('/login');
+                    }
+                  },
+                  onNotificationChanged: (value) {
+                    setState(() => _notificationEnabled = value);
+                  },
+                  onCompactChanged: (value) =>
+                      setState(() => _compactMode = value),
+                  onSoundChanged: (value) =>
+                      setState(() => _soundLevel = value),
+                  onTextScaleChanged: (value) {
+                    setState(() => _textScalePreview = value);
+                  },
+                ),
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -213,7 +272,197 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
     }
   }
 
-  static const _titles = ['WebTui', 'Bạn bè', 'Kênh', 'Cài đặt'];
+  Future<void> _runWorkspaceCatchUp(
+    String workspaceId, {
+    bool force = false,
+  }) async {
+    if (_syncInFlight && !force) {
+      return;
+    }
+    _syncInFlight = true;
+    try {
+      final result = await ref
+          .read(catchUpWorkspaceSyncUseCaseProvider)
+          .execute(workspaceId: workspaceId);
+      final page = result.valueOrNull;
+      if (!mounted) {
+        return;
+      }
+      if (page == null) {
+        setState(() => _networkDegraded = true);
+        return;
+      }
+      if (_networkDegraded) {
+        setState(() => _networkDegraded = false);
+      }
+      if (page.events.isEmpty) {
+        return;
+      }
+      ref.invalidate(notificationCenterControllerProvider(workspaceId));
+      ref.invalidate(conversationHomeControllerProvider(workspaceId));
+    } on Object {
+      if (mounted) {
+        setState(() => _networkDegraded = true);
+      }
+      return;
+    } finally {
+      _syncInFlight = false;
+    }
+  }
+
+  void _listenPushTargets() {
+    final service = ref.read(pushNotificationServiceProvider);
+    _notificationOpenSubscription ??= service.openedTargets.listen((target) {
+      if (!mounted) {
+        return;
+      }
+      _openNotificationTarget(target);
+    });
+    _foregroundNotificationSubscription ??= service.foregroundTargets.listen((
+      target,
+    ) {
+      if (!mounted) {
+        return;
+      }
+      ref.invalidate(notificationCenterControllerProvider(target.workspaceId));
+      final location = _locationForNotificationTarget(target);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Có thông báo mới'),
+          action: location == null
+              ? null
+              : SnackBarAction(
+                  label: 'Mở',
+                  onPressed: () => context.push(location),
+                ),
+        ),
+      );
+    });
+  }
+
+  void _openNotificationTarget(NotificationTarget target) {
+    final location = _locationForNotificationTarget(target);
+    if (location != null) {
+      context.push(location);
+    }
+  }
+
+  static const _titles = ['Tin nhắn', 'Bạn bè', 'Kênh', 'Nghiep vu', 'Cài đặt'];
+}
+
+String? _locationForNotificationTarget(NotificationTarget target) {
+  final channelId = target.channelId?.trim();
+  if (channelId == null || channelId.isEmpty) {
+    return null;
+  }
+  final params = <String, String>{
+    'workspaceId': target.workspaceId,
+    'title': 'Hội thoại',
+    if (target.messageId?.trim().isNotEmpty == true)
+      'messageId': target.messageId!.trim(),
+  };
+  return Uri(
+    path: '/conversations/$channelId',
+    queryParameters: params,
+  ).toString();
+}
+
+class _NotificationBellButton extends StatelessWidget {
+  const _NotificationBellButton({
+    required this.unreadCount,
+    required this.onPressed,
+  });
+
+  final int unreadCount;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          tooltip: 'Thông báo',
+          onPressed: onPressed,
+          icon: const Icon(CupertinoIcons.bell),
+        ),
+        if (unreadCount > 0)
+          Positioned(
+            right: 6,
+            top: 6,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: WebTuiColors.danger,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                child: Text(
+                  unreadCount > 99 ? '99+' : unreadCount.toString(),
+                  style: WebTuiTypography.labelSmall.copyWith(
+                    color: WebTuiColors.textOnPrimary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _NetworkQualityBanner extends StatelessWidget {
+  const _NetworkQualityBanner({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: WebTuiColors.accentAmber.withValues(alpha: 0.12),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: WebTuiColors.accentAmber.withValues(alpha: 0.35),
+            ),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: WebTuiSpacing.md,
+          vertical: WebTuiSpacing.xs,
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.wifi_off_rounded,
+              size: 18,
+              color: WebTuiColors.accentAmber,
+            ),
+            const SizedBox(width: WebTuiSpacing.sm),
+            Expanded(
+              child: Text(
+                'Mang yeu, dang dung du lieu gan nhat',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: WebTuiTypography.labelSmall.copyWith(
+                  color: WebTuiColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Thu lai'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SettingsTab extends StatelessWidget {
@@ -252,21 +501,67 @@ class _SettingsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.only(bottom: WebTuiSpacing.lg),
       children: [
-        const SizedBox(height: WebTuiSpacing.md),
-        Center(
-          child: Column(
-            children: [
-              WebTuiAvatar(
-                label: workspaceName,
-                size: 72,
-                status: WebTuiPresenceStatus.online,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            WebTuiSpacing.lg,
+            WebTuiSpacing.md,
+            WebTuiSpacing.lg,
+            WebTuiSpacing.lg,
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: WebTuiColors.primarySoft,
+              borderRadius: BorderRadius.circular(WebTuiRadii.lg),
+              border: Border.all(
+                color: WebTuiColors.primary.withValues(alpha: 0.12),
               ),
-              const SizedBox(height: WebTuiSpacing.sm),
-              Text(workspaceName, maxLines: 1, overflow: TextOverflow.ellipsis),
-            ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(WebTuiSpacing.lg),
+              child: Row(
+                children: [
+                  WebTuiAvatar(
+                    label: workspaceName,
+                    size: 68,
+                    status: WebTuiPresenceStatus.online,
+                    color: WebTuiColors.surface,
+                  ),
+                  const SizedBox(width: WebTuiSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          workspaceName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WebTuiTypography.titleMedium.copyWith(
+                            color: WebTuiColors.textPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: WebTuiSpacing.xs),
+                        Text(
+                          'Đang hoạt động trong workspace',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: WebTuiTypography.bodySmall.copyWith(
+                            color: WebTuiColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    tooltip: 'Hồ sơ cá nhân',
+                    onPressed: onProfileTap,
+                    icon: const Icon(Icons.person_outline_rounded),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: WebTuiSpacing.md),
         WebTuiListSurface(
           children: [
             WebTuiSettingRow(

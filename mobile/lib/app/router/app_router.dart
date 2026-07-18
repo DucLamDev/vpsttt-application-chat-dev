@@ -6,10 +6,10 @@ import '../../features/conversations/presentation/screens/channel_create_screen.
 import '../../features/conversations/presentation/screens/channel_detail_screen.dart';
 import '../../features/conversations/presentation/screens/chat_room_screen.dart';
 import '../../features/home/presentation/screens/home_shell_screen.dart';
+import '../../features/notifications/presentation/screens/notifications_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/settings/presentation/screens/app_settings_screen.dart';
 import '../../features/settings/presentation/screens/privacy_sessions_screen.dart';
-import '../../features/workspace/presentation/screens/workspace_selector_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((_) {
   return GoRouter(
@@ -19,17 +19,13 @@ final appRouterProvider = Provider<GoRouter>((_) {
         path: '/login',
         name: 'login',
         builder: (context, state) {
-          return LoginScreen(onLoginSuccess: () => context.go('/workspaces'));
+          return LoginScreen(onLoginSuccess: () => context.go('/'));
         },
       ),
       GoRoute(
         path: '/workspaces',
         name: 'workspaces',
-        builder: (context, state) {
-          return WorkspaceSelectorScreen(
-            onWorkspaceSelected: () => context.go('/'),
-          );
-        },
+        redirect: (context, state) => '/',
       ),
       GoRoute(
         path: '/',
@@ -42,8 +38,19 @@ final appRouterProvider = Provider<GoRouter>((_) {
         builder: (context, state) {
           return ChatRoomScreen(
             channelId: state.pathParameters['channel_id'] ?? '',
+            workspaceId: state.uri.queryParameters['workspaceId'],
             avatarUrl: state.uri.queryParameters['avatarUrl'],
             title: state.uri.queryParameters['title'] ?? 'Hội thoại',
+            initialMessageId: state.uri.queryParameters['messageId'],
+          );
+        },
+      ),
+      GoRoute(
+        path: '/notifications',
+        name: 'notifications',
+        builder: (context, state) {
+          return NotificationsScreen(
+            workspaceId: state.uri.queryParameters['workspaceId'],
           );
         },
       ),

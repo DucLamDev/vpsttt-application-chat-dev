@@ -6,7 +6,11 @@ final class WebTuiShadows {
   const WebTuiShadows._();
 
   static const soft = [
-    BoxShadow(color: Color(0x140F172A), blurRadius: 12, offset: Offset(0, 4)),
+    BoxShadow(color: Color(0x120877F2), blurRadius: 14, offset: Offset(0, 6)),
+  ];
+
+  static const lift = [
+    BoxShadow(color: Color(0x0F172033), blurRadius: 18, offset: Offset(0, 8)),
   ];
 
   static const divider = BoxShadow(

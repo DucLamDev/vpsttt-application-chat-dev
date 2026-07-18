@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../../../../core/network/api_response.dart';
 import '../../../../core/network/api_transport.dart';
 import '../../domain/entities/channel_file.dart';
@@ -230,19 +232,59 @@ final class ConversationRemoteDataSource {
     int limit = 50,
     String? beforeId,
   }) async {
+    final page = await listMessagePage(
+      workspaceId: workspaceId,
+      channelId: channelId,
+      limit: limit,
+      beforeId: beforeId,
+    );
+    return page.messages;
+  }
+
+  Future<MessagePage> listMessagePage({
+    required String workspaceId,
+    required String channelId,
+    int limit = 50,
+    String? beforeId,
+  }) async {
     final response = await _api.get<Object>(
       '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages',
-      queryParameters: compactMap({'limit': limit, 'before_id': beforeId}),
+      queryParameters: compactMap({'limit': limit, 'before': beforeId}),
     );
-    return envelopeList(response.data, 'messages')
-        .map((map) => _messageFromMap(map, workspaceId, channelId))
-        .toList(growable: false);
+    return _messagePageFromResponse(response.data, workspaceId, channelId);
   }
 
   Future<List<ChatMessage>> searchMessages({
     required String workspaceId,
     required String query,
     String? channelId,
+    String? senderId,
+    String? kind,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int limit = 30,
+  }) async {
+    final page = await searchMessagePage(
+      workspaceId: workspaceId,
+      query: query,
+      channelId: channelId,
+      senderId: senderId,
+      kind: kind,
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      limit: limit,
+    );
+    return page.messages;
+  }
+
+  Future<MessagePage> searchMessagePage({
+    required String workspaceId,
+    required String query,
+    String? channelId,
+    String? senderId,
+    String? kind,
+    DateTime? dateFrom,
+    DateTime? dateTo,
     int limit = 30,
   }) async {
     final response = await _api.get<Object>(
@@ -250,18 +292,31 @@ final class ConversationRemoteDataSource {
       queryParameters: compactMap({
         'q': query,
         'channel_id': channelId,
+        'sender_id': senderId,
+        'kind': kind,
+        'date_from': _dateParam(dateFrom),
+        'date_to': _dateParam(dateTo),
         'limit': limit,
       }),
     );
-    return envelopeList(response.data, 'messages')
-        .map((map) {
-          final resolvedChannelId = stringField(map, const [
-            'channel_id',
-            'channelId',
-          ], fallback: channelId ?? '');
-          return _messageFromMap(map, workspaceId, resolvedChannelId);
-        })
-        .toList(growable: false);
+    return _messagePageFromResponse(
+      response.data,
+      workspaceId,
+      channelId ?? '',
+    );
+  }
+
+  Future<MessagePage> listThread({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    int limit = 50,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}/thread',
+      queryParameters: {'limit': limit},
+    );
+    return _messagePageFromResponse(response.data, workspaceId, channelId);
   }
 
   Future<List<ChatMessage>> listPins({
@@ -280,15 +335,129 @@ final class ConversationRemoteDataSource {
     required String workspaceId,
     required String channelId,
     required String body,
+    String? clientMessageId,
+    String? parentId,
   }) async {
     final response = await _api.post<Object>(
       '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages',
-      data: {'body': body, 'kind': 'text'},
+      data: compactMap({
+        'body': body,
+        'kind': 'text',
+        'parent_id': parentId,
+        'client_message_id': clientMessageId,
+        'mentioned_user_ids': _mentionedUserIds(body),
+      }),
+      options: clientMessageId == null || clientMessageId.isEmpty
+          ? null
+          : Options(headers: {'Idempotency-Key': clientMessageId}),
     );
     return _messageFromMap(
       envelopeItem(response.data, 'message'),
       workspaceId,
       channelId,
+    );
+  }
+
+  Future<ChatMessage> editMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String body,
+  }) async {
+    final response = await _api.patch<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}',
+      data: {'body': body},
+    );
+    return _messageFromMap(
+      envelopeItem(response.data, 'message'),
+      workspaceId,
+      channelId,
+    );
+  }
+
+  Future<void> deleteMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) async {
+    await _api.delete<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}',
+    );
+  }
+
+  Future<ChatMessage> addReaction({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}/reactions',
+      data: {'emoji': emoji},
+    );
+    return _messageFromMap(
+      envelopeItem(response.data, 'message'),
+      workspaceId,
+      channelId,
+    );
+  }
+
+  Future<ChatMessage> removeReaction({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  }) async {
+    final response = await _api.delete<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}/reactions/${_e(emoji)}',
+    );
+    return _messageFromMap(
+      envelopeItem(response.data, 'message'),
+      workspaceId,
+      channelId,
+    );
+  }
+
+  Future<ChatMessage> pinMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}/pin',
+      data: const {},
+    );
+    return _messageFromMap(
+      envelopeItem(response.data, 'message'),
+      workspaceId,
+      channelId,
+    ).copyWith(isPinned: true);
+  }
+
+  Future<void> unpinMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) async {
+    await _api.delete<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}/pin',
+    );
+  }
+
+  Future<ChatMessage> forwardMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String targetChannelId,
+  }) async {
+    final response = await _api.post<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}/forward',
+      data: {'target_channel_id': targetChannelId},
+    );
+    return _messageFromMap(
+      envelopeItem(response.data, 'message'),
+      workspaceId,
+      targetChannelId,
     );
   }
 
@@ -305,6 +474,33 @@ final class ConversationRemoteDataSource {
       'files',
     ).map(_fileFromMap).toList(growable: false);
   }
+}
+
+MessagePage _messagePageFromResponse(
+  Object? response,
+  String workspaceId,
+  String channelId,
+) {
+  final messages = envelopeList(response, 'messages')
+      .map((map) {
+        final resolvedChannelId = stringField(map, const [
+          'channel_id',
+          'channelId',
+        ], fallback: channelId);
+        return _messageFromMap(map, workspaceId, resolvedChannelId);
+      })
+      .toList(growable: false);
+  final meta = _metaMap(response);
+  return MessagePage(
+    messages: messages,
+    nextCursor: nullableStringField(meta, const ['next_cursor', 'nextCursor']),
+    hasMore: boolField(meta, const ['has_more', 'hasMore']),
+  );
+}
+
+JsonMap _metaMap(Object? response) {
+  final map = jsonMap(response);
+  return jsonMap(field(map, const ['meta']));
 }
 
 ConversationSummary _channelFromMap(JsonMap map) {
@@ -488,12 +684,14 @@ ChannelMember _channelMemberFromMap(JsonMap map, {required String channelId}) {
 }
 
 ChatMessage _messageFromMap(JsonMap map, String workspaceId, String channelId) {
+  final messageId = stringField(map, const ['id']);
+  final resolvedWorkspaceId = stringField(map, const [
+    'workspace_id',
+    'workspaceId',
+  ], fallback: workspaceId);
   return ChatMessage(
-    id: stringField(map, const ['id']),
-    workspaceId: stringField(map, const [
-      'workspace_id',
-      'workspaceId',
-    ], fallback: workspaceId),
+    id: messageId,
+    workspaceId: resolvedWorkspaceId,
     channelId: stringField(map, const [
       'channel_id',
       'channelId',
@@ -514,9 +712,95 @@ ChatMessage _messageFromMap(JsonMap map, String workspaceId, String channelId) {
     ]),
     editedAt: nullableDateTimeField(map, const ['edited_at', 'editedAt']),
     deletedAt: nullableDateTimeField(map, const ['deleted_at', 'deletedAt']),
+    updatedAt: nullableDateTimeField(map, const ['updated_at', 'updatedAt']),
+    mentions: field(map, const ['mentions']) is List
+        ? (field(map, const ['mentions']) as List)
+              .map((value) => value.toString())
+              .where((value) => value.trim().isNotEmpty)
+              .toList(growable: false)
+        : const [],
     reactions: jsonMapList(
       field(map, const ['reactions']),
     ).map(_reactionFromMap).toList(growable: false),
+    attachments: _messageAttachmentsFromMap(
+      map,
+      workspaceId: resolvedWorkspaceId,
+      messageId: messageId,
+    ),
+  );
+}
+
+List<MessageAttachment> _messageAttachmentsFromMap(
+  JsonMap map, {
+  required String workspaceId,
+  required String messageId,
+}) {
+  return jsonMapList(field(map, const ['attachments', 'message_attachments']))
+      .map(
+        (attachmentMap) => _messageAttachmentFromMap(
+          attachmentMap,
+          workspaceId: workspaceId,
+          messageId: messageId,
+        ),
+      )
+      .toList(growable: false);
+}
+
+MessageAttachment _messageAttachmentFromMap(
+  JsonMap map, {
+  required String workspaceId,
+  required String messageId,
+}) {
+  final fileMap = jsonMap(field(map, const ['file']));
+  final file = _uploadedMessageFileFromMap(fileMap.isEmpty ? map : fileMap);
+  final resolvedMessageId = stringField(map, const [
+    'message_id',
+    'messageId',
+  ], fallback: messageId);
+  final fileId = stringField(map, const [
+    'file_id',
+    'fileId',
+  ], fallback: file.id);
+  return MessageAttachment(
+    id: stringField(map, const [
+      'id',
+      'attachment_id',
+      'attachmentId',
+    ], fallback: '$resolvedMessageId:$fileId'),
+    workspaceId: stringField(map, const [
+      'workspace_id',
+      'workspaceId',
+    ], fallback: workspaceId),
+    messageId: resolvedMessageId,
+    fileId: fileId,
+    file: file,
+    sortOrder: intField(map, const ['sort_order', 'sortOrder']),
+    createdAt: dateTimeField(map, const ['created_at', 'createdAt']),
+  );
+}
+
+UploadedMessageFile _uploadedMessageFileFromMap(JsonMap map) {
+  final id = stringField(map, const ['id', 'file_id', 'fileId']);
+  return UploadedMessageFile(
+    id: id,
+    name: stringField(map, const [
+      'name',
+      'file_name',
+      'original_name',
+      'originalName',
+    ], fallback: 'file'),
+    mimeType: stringField(map, const [
+      'mime_type',
+      'mimeType',
+    ], fallback: 'application/octet-stream'),
+    byteSize: intField(map, const ['byte_size', 'byteSize', 'size']),
+    downloadPath: stringField(map, const [
+      'download_url',
+      'downloadUrl',
+      'url',
+    ], fallback: id.isEmpty ? '' : '/files/$id/download'),
+    status: stringField(map, const ['status'], fallback: 'ready'),
+    createdAt: dateTimeField(map, const ['created_at', 'createdAt']),
   );
 }
 
@@ -585,6 +869,26 @@ String _avatarLabel(String value) {
 }
 
 String _e(String value) => Uri.encodeComponent(value);
+
+String? _dateParam(DateTime? value) {
+  if (value == null) {
+    return null;
+  }
+  final utc = value.toUtc();
+  return '${utc.year.toString().padLeft(4, '0')}-'
+      '${utc.month.toString().padLeft(2, '0')}-'
+      '${utc.day.toString().padLeft(2, '0')}';
+}
+
+List<String> _mentionedUserIds(String body) {
+  final matches = RegExp(
+    r'<@([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>',
+  ).allMatches(body);
+  return {
+    for (final match in matches)
+      if (match.group(1) != null) match.group(1)!,
+  }.toList(growable: false);
+}
 
 String _prefix(String value, int length) {
   if (value.length <= length) {

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Tải WebTui Chat cho Android bằng APK signed chính thức, kèm SHA-256 và release notes."
+    />
+    <title>Tải WebTui Chat cho Android</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="WebTui Chat">
+        <span class="brand-mark">W</span>
+        <span>WebTui Chat</span>
+      </a>
+      <nav class="top-nav" aria-label="Kênh tải">
+        <a href="#android">Android</a>
+        <a href="#checksum">Checksum</a>
+        <a href="#support">Hỗ trợ</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="android">
+        <div class="hero-copy">
+          <p class="eyebrow">Android direct download</p>
+          <h1>Tải WebTui Chat cho Android</h1>
+          <p class="lead">
+            Bản APK signed dành cho đội nội bộ và khách hàng thử nghiệm trước
+            khi phát hành chính thức trên CH Play.
+          </p>
+
+          <div class="release-panel" aria-live="polite">
+            <div>
+              <span class="label">Phiên bản</span>
+              <strong id="versionLabel">Đang tải manifest</strong>
+            </div>
+            <div>
+              <span class="label">Kênh</span>
+              <strong id="channelLabel">stable</strong>
+            </div>
+            <div>
+              <span class="label">Version code</span>
+              <strong id="versionCodeLabel">-</strong>
+            </div>
+          </div>
+
+          <div class="actions">
+            <a class="button primary" id="apkLink" href="#" download>
+              Tải APK Android
+            </a>
+            <a class="button secondary" id="storeLink" href="#" hidden>
+              Mở trên CH Play
+            </a>
+          </div>
+
+          <p class="install-note">
+            Chỉ cài APK từ domain này hoặc link Firebase/CH Play được đội phát
+            hành gửi chính thức.
+          </p>
+        </div>
+
+        <figure class="phone-preview">
+          <img
+            src="./assets/android-chat-preview.png"
+            width="390"
+            height="844"
+            alt="Ảnh xem trước giao diện chat WebTui trên Android"
+          />
+          <figcaption>Preview giao diện chat mobile hiện tại</figcaption>
+        </figure>
+      </section>
+
+      <section class="trust-strip" aria-label="Bảo đảm phát hành">
+        <div>
+          <strong>APK signed</strong>
+          <span>Không phát hành APK debug hoặc unsigned.</span>
+        </div>
+        <div>
+          <strong>SHA-256 công khai</strong>
+          <span>Checksum nằm cạnh link tải để kiểm tra file.</span>
+        </div>
+        <div>
+          <strong>Manifest version</strong>
+          <span>Trang đọc metadata từ artifact CI.</span>
+        </div>
+      </section>
+
+      <section class="details-grid">
+        <article class="info-card" id="checksum">
+          <p class="eyebrow">Xác minh file</p>
+          <h2>Checksum APK</h2>
+          <code id="checksumValue">Đang tải SHA-256...</code>
+          <p>
+            Nếu checksum file tải về khác giá trị này, không cài đặt và báo lại
+            cho đội phát hành.
+          </p>
+        </article>
+
+        <article class="info-card">
+          <p class="eyebrow">Cách cài</p>
+          <h2>4 bước cho Android</h2>
+          <ol class="steps">
+            <li>Tải APK từ nút Android ở đầu trang.</li>
+            <li>Cho phép cài app từ trình duyệt hoặc file manager tin cậy.</li>
+            <li>Đối chiếu SHA-256 nếu đây là build gửi cho tester.</li>
+            <li>Mở app, đăng nhập và chọn workspace của bạn.</li>
+          </ol>
+        </article>
+
+        <article class="info-card">
+          <p class="eyebrow">CH Play sau</p>
+          <h2>Khi store sẵn sàng</h2>
+          <p>
+            Trang này sẽ ưu tiên link CH Play khi manifest có `store_url`. APK
+            trực tiếp vẫn được giữ làm fallback cho nội bộ hoặc khách hàng B2B.
+          </p>
+        </article>
+      </section>
+
+      <section class="release-notes" aria-labelledby="releaseNotesTitle">
+        <div>
+          <p class="eyebrow">Release notes</p>
+          <h2 id="releaseNotesTitle">Ghi chú bản phát hành</h2>
+        </div>
+        <p id="releaseNotes">Đang tải ghi chú phát hành...</p>
+      </section>
+    </main>
+
+    <footer class="site-footer" id="support">
+      <span>WebTui Chat Android</span>
+      <a href="./privacy.html">Chính sách riêng tư</a>
+      <a href="mailto:support@vpsttt.com">support@vpsttt.com</a>
+    </footer>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

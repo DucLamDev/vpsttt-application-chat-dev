@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
 import '../tokens/webtui_density.dart';
+import '../tokens/webtui_radii.dart';
 import '../tokens/webtui_spacing.dart';
 import '../tokens/webtui_typography.dart';
 
@@ -39,12 +40,22 @@ class WebTuiSettingRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.lg),
             child: Row(
               children: [
-                Icon(
-                  icon,
-                  size: 20,
-                  color: destructive
-                      ? WebTuiColors.danger
-                      : WebTuiColors.textMuted,
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: destructive
+                        ? WebTuiColors.danger.withValues(alpha: 0.1)
+                        : WebTuiColors.primarySoft,
+                    borderRadius: BorderRadius.circular(WebTuiRadii.sm),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 19,
+                    color: destructive
+                        ? WebTuiColors.danger
+                        : WebTuiColors.primary,
+                  ),
                 ),
                 const SizedBox(width: WebTuiSpacing.md),
                 Expanded(

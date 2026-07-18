@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../design_system/components/webtui_components.dart';
+import '../../../../design_system/tokens/webtui_colors.dart';
+import '../../../../design_system/tokens/webtui_radii.dart';
 import '../../../../design_system/tokens/webtui_spacing.dart';
+import '../../../../design_system/tokens/webtui_typography.dart';
 import '../../../workspace/presentation/controllers/workspace_controller.dart';
 import '../../domain/entities/conversation_summary.dart';
 import '../controllers/channel_create_controller.dart';
@@ -52,8 +55,13 @@ class _ChannelCreateScreenState extends ConsumerState<ChannelCreateScreen> {
     final controller = ref.read(provider.notifier);
 
     return Scaffold(
+      backgroundColor: WebTuiColors.background,
       appBar: AppBar(
-        toolbarHeight: 48,
+        toolbarHeight: 54,
+        surfaceTintColor: Colors.transparent,
+        shape: Border(
+          bottom: BorderSide(color: WebTuiColors.border.withValues(alpha: 0.7)),
+        ),
         titleSpacing: 0,
         title: const Text('Tạo kênh'),
       ),
@@ -67,6 +75,55 @@ class _ChannelCreateScreenState extends ConsumerState<ChannelCreateScreen> {
                 title: 'Không tạo được kênh',
                 message: state.errorMessage!,
               ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: WebTuiColors.primarySoft,
+                borderRadius: BorderRadius.circular(WebTuiRadii.lg),
+                border: Border.all(
+                  color: WebTuiColors.primary.withValues(alpha: 0.12),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(WebTuiSpacing.lg),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const WebTuiAvatar(
+                      label: 'Kênh',
+                      icon: Icons.tag_rounded,
+                      size: 46,
+                      color: WebTuiColors.surface,
+                    ),
+                    const SizedBox(width: WebTuiSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Tạo không gian trao đổi',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WebTuiTypography.titleMedium.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: WebTuiSpacing.xs),
+                          Text(
+                            'Đặt tên rõ ràng để thành viên tìm và tham gia đúng kênh.',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: WebTuiTypography.bodySmall.copyWith(
+                              color: WebTuiColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: WebTuiSpacing.lg),
             TextField(
               controller: _nameController,
               textInputAction: TextInputAction.next,

@@ -29,14 +29,15 @@ class WebTuiMobileScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 52,
-        centerTitle: true,
+        toolbarHeight: 54,
+        centerTitle: false,
         leading: leading,
+        leadingWidth: leading == null ? 0 : 46,
         surfaceTintColor: Colors.transparent,
         shape: Border(
           bottom: BorderSide(color: WebTuiColors.border.withValues(alpha: 0.7)),
         ),
-        titleSpacing: 0,
+        titleSpacing: leading == null ? 16 : 0,
         title: Text(
           title,
           maxLines: 1,
@@ -68,6 +69,11 @@ class WebTuiMobileScaffold extends StatelessWidget {
             icon: Icon(CupertinoIcons.number),
             selectedIcon: Icon(CupertinoIcons.number_circle_fill),
             label: 'Kênh',
+          ),
+          NavigationDestination(
+            icon: Icon(CupertinoIcons.briefcase),
+            selectedIcon: Icon(CupertinoIcons.briefcase_fill),
+            label: 'Nghiep vu',
           ),
           NavigationDestination(
             icon: Icon(CupertinoIcons.gear),

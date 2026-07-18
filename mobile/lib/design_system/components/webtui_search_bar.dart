@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
+import '../tokens/webtui_radii.dart';
 import '../tokens/webtui_spacing.dart';
 import '../tokens/webtui_typography.dart';
 
@@ -11,6 +14,7 @@ class WebTuiSearchBar extends StatefulWidget {
     this.controller,
     this.onChanged,
     this.onTap,
+    this.debounceDuration = const Duration(milliseconds: 250),
     super.key,
   });
 
@@ -18,6 +22,7 @@ class WebTuiSearchBar extends StatefulWidget {
   final TextEditingController? controller;
   final ValueChanged<String>? onChanged;
   final VoidCallback? onTap;
+  final Duration debounceDuration;
 
   @override
   State<WebTuiSearchBar> createState() => _WebTuiSearchBarState();
@@ -25,6 +30,7 @@ class WebTuiSearchBar extends StatefulWidget {
 
 class _WebTuiSearchBarState extends State<WebTuiSearchBar> {
   final _focusNode = FocusNode();
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -34,6 +40,7 @@ class _WebTuiSearchBarState extends State<WebTuiSearchBar> {
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _focusNode
       ..removeListener(_handleFocusChanged)
       ..dispose();
@@ -48,25 +55,25 @@ class _WebTuiSearchBarState extends State<WebTuiSearchBar> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOutCubic,
-      height: 52,
+      height: 42,
       decoration: BoxDecoration(
-        color: WebTuiColors.surface,
-        borderRadius: BorderRadius.circular(18),
+        color: focused ? WebTuiColors.surface : WebTuiColors.backgroundMuted,
+        borderRadius: BorderRadius.circular(WebTuiRadii.md),
         border: Border.all(
           color: focused
               ? WebTuiColors.primary.withValues(alpha: 0.72)
-              : WebTuiColors.border,
-          width: focused ? 1.3 : 1,
+              : WebTuiColors.border.withValues(alpha: 0.55),
+          width: focused ? 1.2 : 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: WebTuiColors.textPrimary.withValues(
-              alpha: focused ? 0.08 : 0.045,
-            ),
-            blurRadius: focused ? 18 : 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        boxShadow: focused
+            ? [
+                BoxShadow(
+                  color: WebTuiColors.primary.withValues(alpha: 0.09),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : null,
       ),
       child: Material(
         color: Colors.transparent,
@@ -77,7 +84,7 @@ class _WebTuiSearchBarState extends State<WebTuiSearchBar> {
               _focusNode.requestFocus();
             }
           },
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(WebTuiRadii.md),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.md),
             child: Row(
@@ -89,17 +96,26 @@ class _WebTuiSearchBarState extends State<WebTuiSearchBar> {
                       ? WebTuiColors.primary
                       : WebTuiColors.textSecondary,
                 ),
-                const SizedBox(width: WebTuiSpacing.md),
+                const SizedBox(width: WebTuiSpacing.sm),
                 Expanded(
                   child: interactive
                       ? TextField(
                           controller: widget.controller,
                           focusNode: _focusNode,
-                          onChanged: widget.onChanged,
+                          onChanged: _handleTextChanged,
                           maxLines: 1,
                           textInputAction: TextInputAction.search,
                           cursorColor: WebTuiColors.primary,
-                          decoration: InputDecoration.collapsed(
+                          decoration: InputDecoration(
+                            isCollapsed: true,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            errorBorder: InputBorder.none,
+                            focusedErrorBorder: InputBorder.none,
+                            filled: false,
+                            contentPadding: EdgeInsets.zero,
                             hintText: widget.hintText,
                             hintStyle: WebTuiTypography.bodyMedium.copyWith(
                               color: WebTuiColors.textMuted,
@@ -131,5 +147,22 @@ class _WebTuiSearchBarState extends State<WebTuiSearchBar> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  void _handleTextChanged(String value) {
+    final onChanged = widget.onChanged;
+    if (onChanged == null) {
+      return;
+    }
+    _debounceTimer?.cancel();
+    if (widget.debounceDuration == Duration.zero) {
+      onChanged(value);
+      return;
+    }
+    _debounceTimer = Timer(widget.debounceDuration, () {
+      if (mounted) {
+        onChanged(value);
+      }
+    });
   }
 }

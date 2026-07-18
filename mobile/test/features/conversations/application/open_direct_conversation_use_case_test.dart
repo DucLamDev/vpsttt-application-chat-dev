@@ -244,7 +244,45 @@ final class _FakeConversationRepository implements ConversationRepository {
     required String workspaceId,
     required String query,
     String? channelId,
+    String? senderId,
+    String? kind,
+    DateTime? dateFrom,
+    DateTime? dateTo,
     int limit = 30,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<MessagePage>> searchMessagePage({
+    required String workspaceId,
+    required String query,
+    String? channelId,
+    String? senderId,
+    String? kind,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int limit = 30,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<MessagePage>> listMessagePage({
+    required String workspaceId,
+    required String channelId,
+    int limit = 50,
+    String? beforeId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<MessagePage>> listThread({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    int limit = 50,
   }) {
     throw UnimplementedError();
   }
@@ -254,6 +292,75 @@ final class _FakeConversationRepository implements ConversationRepository {
     required String workspaceId,
     required String channelId,
     required String body,
+    String? clientMessageId,
+    String? parentId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<ChatMessage>> editMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String body,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<void>> deleteMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<ChatMessage>> addReaction({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<ChatMessage>> removeReaction({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<ChatMessage>> pinMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<void>> unpinMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Result<ChatMessage>> forwardMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String targetChannelId,
   }) {
     throw UnimplementedError();
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../tokens/webtui_colors.dart';
 import '../tokens/webtui_radii.dart';
+import '../tokens/webtui_shadows.dart';
 import '../tokens/webtui_spacing.dart';
 import '../tokens/webtui_typography.dart';
 
@@ -12,6 +13,7 @@ class WebTuiMessageBubble extends StatelessWidget {
     this.outgoing = false,
     this.statusLabel,
     this.reactions = const [],
+    this.textSpan,
     super.key,
   });
 
@@ -20,12 +22,19 @@ class WebTuiMessageBubble extends StatelessWidget {
   final bool outgoing;
   final String? statusLabel;
   final List<String> reactions;
+  final InlineSpan? textSpan;
+
+  TextStyle get _bodyStyle => WebTuiTypography.bodyMedium.copyWith(
+    color: WebTuiColors.textPrimary,
+    fontWeight: FontWeight.w500,
+    height: 1.38,
+  );
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final widthFactor = constraints.maxWidth >= 700 ? 0.64 : 0.78;
+        final widthFactor = constraints.maxWidth >= 700 ? 0.58 : 0.68;
         final maxWidth = (constraints.maxWidth * widthFactor)
             .clamp(64.0, 520.0)
             .toDouble();
@@ -43,39 +52,34 @@ class WebTuiMessageBubble extends StatelessWidget {
                 DecoratedBox(
                   decoration: BoxDecoration(
                     color: outgoing
-                        ? WebTuiColors.primary
+                        ? WebTuiColors.messageOutgoing
                         : WebTuiColors.messageIncoming,
+                    border: Border.all(
+                      color: outgoing
+                          ? WebTuiColors.messageOutgoingBorder
+                          : WebTuiColors.border.withValues(alpha: 0.58),
+                    ),
                     borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(WebTuiRadii.md),
-                      topRight: const Radius.circular(WebTuiRadii.md),
+                      topLeft: const Radius.circular(WebTuiRadii.lg),
+                      topRight: const Radius.circular(WebTuiRadii.lg),
                       bottomLeft: Radius.circular(
-                        outgoing ? WebTuiRadii.md : WebTuiRadii.xs,
+                        outgoing ? WebTuiRadii.lg : WebTuiRadii.xs,
                       ),
                       bottomRight: Radius.circular(
-                        outgoing ? WebTuiRadii.xs : WebTuiRadii.md,
+                        outgoing ? WebTuiRadii.xs : WebTuiRadii.lg,
                       ),
                     ),
+                    boxShadow: outgoing ? null : WebTuiShadows.soft,
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      WebTuiSpacing.md,
-                      10,
-                      WebTuiSpacing.md,
-                      WebTuiSpacing.sm,
-                    ),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 7),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          text,
-                          style: WebTuiTypography.bodyMedium.copyWith(
-                            color: outgoing
-                                ? WebTuiColors.textOnPrimary
-                                : WebTuiColors.textPrimary,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
+                        textSpan == null
+                            ? Text(text, style: _bodyStyle)
+                            : RichText(text: textSpan!),
                         const SizedBox(height: WebTuiSpacing.xs),
                         Semantics(
                           label: statusLabel == null
@@ -90,9 +94,7 @@ class WebTuiMessageBubble extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                                 style: WebTuiTypography.labelSmall.copyWith(
                                   color: outgoing
-                                      ? WebTuiColors.textOnPrimary.withValues(
-                                          alpha: 0.78,
-                                        )
+                                      ? WebTuiColors.textMuted
                                       : WebTuiColors.textMuted,
                                 ),
                               ),
@@ -101,9 +103,7 @@ class WebTuiMessageBubble extends StatelessWidget {
                                 Icon(
                                   Icons.done_all_rounded,
                                   size: 14,
-                                  color: WebTuiColors.textOnPrimary.withValues(
-                                    alpha: 0.9,
-                                  ),
+                                  color: WebTuiColors.primary,
                                 ),
                               ],
                             ],

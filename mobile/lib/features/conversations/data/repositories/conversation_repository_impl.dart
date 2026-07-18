@@ -234,10 +234,31 @@ final class ConversationRepositoryImpl implements ConversationRepository {
   }
 
   @override
+  Future<Result<MessagePage>> listMessagePage({
+    required String workspaceId,
+    required String channelId,
+    int limit = 50,
+    String? beforeId,
+  }) {
+    return guardResult(
+      () => _remote.listMessagePage(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        limit: limit,
+        beforeId: beforeId,
+      ),
+    );
+  }
+
+  @override
   Future<Result<List<ChatMessage>>> searchMessages({
     required String workspaceId,
     required String query,
     String? channelId,
+    String? senderId,
+    String? kind,
+    DateTime? dateFrom,
+    DateTime? dateTo,
     int limit = 30,
   }) {
     return guardResult(
@@ -245,6 +266,52 @@ final class ConversationRepositoryImpl implements ConversationRepository {
         workspaceId: workspaceId,
         query: query,
         channelId: channelId,
+        senderId: senderId,
+        kind: kind,
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+        limit: limit,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<MessagePage>> searchMessagePage({
+    required String workspaceId,
+    required String query,
+    String? channelId,
+    String? senderId,
+    String? kind,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int limit = 30,
+  }) {
+    return guardResult(
+      () => _remote.searchMessagePage(
+        workspaceId: workspaceId,
+        query: query,
+        channelId: channelId,
+        senderId: senderId,
+        kind: kind,
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+        limit: limit,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<MessagePage>> listThread({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    int limit = 50,
+  }) {
+    return guardResult(
+      () => _remote.listThread(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        messageId: messageId,
         limit: limit,
       ),
     );
@@ -265,12 +332,129 @@ final class ConversationRepositoryImpl implements ConversationRepository {
     required String workspaceId,
     required String channelId,
     required String body,
+    String? clientMessageId,
+    String? parentId,
   }) {
     return guardResult(
       () => _remote.sendMessage(
         workspaceId: workspaceId,
         channelId: channelId,
         body: body,
+        clientMessageId: clientMessageId,
+        parentId: parentId,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<ChatMessage>> editMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String body,
+  }) {
+    return guardResult(
+      () => _remote.editMessage(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        messageId: messageId,
+        body: body,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<void>> deleteMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) {
+    return guardResult(
+      () => _remote.deleteMessage(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        messageId: messageId,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<ChatMessage>> addReaction({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  }) {
+    return guardResult(
+      () => _remote.addReaction(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        messageId: messageId,
+        emoji: emoji,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<ChatMessage>> removeReaction({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  }) {
+    return guardResult(
+      () => _remote.removeReaction(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        messageId: messageId,
+        emoji: emoji,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<ChatMessage>> pinMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) {
+    return guardResult(
+      () => _remote.pinMessage(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        messageId: messageId,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<void>> unpinMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  }) {
+    return guardResult(
+      () => _remote.unpinMessage(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        messageId: messageId,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<ChatMessage>> forwardMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String targetChannelId,
+  }) {
+    return guardResult(
+      () => _remote.forwardMessage(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        messageId: messageId,
+        targetChannelId: targetChannelId,
       ),
     );
   }

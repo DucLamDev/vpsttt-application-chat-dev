@@ -1,6 +1,7 @@
 import '../../../../core/result/result.dart';
 import '../entities/channel_file.dart';
 import '../entities/chat_message.dart';
+import '../entities/conversation_realtime_event.dart';
 import '../entities/conversation_summary.dart';
 
 abstract interface class ConversationRepository {
@@ -98,11 +99,40 @@ abstract interface class ConversationRepository {
     String? beforeId,
   });
 
+  Future<Result<MessagePage>> listMessagePage({
+    required String workspaceId,
+    required String channelId,
+    int limit = 50,
+    String? beforeId,
+  });
+
   Future<Result<List<ChatMessage>>> searchMessages({
     required String workspaceId,
     required String query,
     String? channelId,
+    String? senderId,
+    String? kind,
+    DateTime? dateFrom,
+    DateTime? dateTo,
     int limit = 30,
+  });
+
+  Future<Result<MessagePage>> searchMessagePage({
+    required String workspaceId,
+    required String query,
+    String? channelId,
+    String? senderId,
+    String? kind,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int limit = 30,
+  });
+
+  Future<Result<MessagePage>> listThread({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    int limit = 50,
   });
 
   Future<Result<List<ChatMessage>>> listPins({
@@ -114,12 +144,75 @@ abstract interface class ConversationRepository {
     required String workspaceId,
     required String channelId,
     required String body,
+    String? clientMessageId,
+    String? parentId,
+  });
+
+  Future<Result<ChatMessage>> editMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String body,
+  });
+
+  Future<Result<void>> deleteMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  });
+
+  Future<Result<ChatMessage>> addReaction({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  });
+
+  Future<Result<ChatMessage>> removeReaction({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String emoji,
+  });
+
+  Future<Result<ChatMessage>> pinMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  });
+
+  Future<Result<void>> unpinMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+  });
+
+  Future<Result<ChatMessage>> forwardMessage({
+    required String workspaceId,
+    required String channelId,
+    required String messageId,
+    required String targetChannelId,
   });
 
   Future<Result<List<ChannelFile>>> listFiles({
     required String workspaceId,
     int limit = 40,
   });
+}
+
+abstract interface class ConversationRealtimeRepository {
+  Stream<ConversationRealtimeEvent> subscribeToChannel({
+    required String workspaceId,
+    required String channelId,
+  });
+
+  Future<void> sendTyping({
+    required String workspaceId,
+    required String channelId,
+    required bool isTyping,
+  });
+
+  Future<void> disconnect();
 }
 
 abstract interface class ConversationDraftRepository {
