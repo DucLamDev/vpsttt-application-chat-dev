@@ -45,8 +45,8 @@ TAURI_BUILD=1 -> next build (output: export) -> apps/web/out
 
 ## 3. Nguyên tắc bắt buộc
 
-- REST base URL production: `https://api.vpsttt.com`.
-- WebSocket production: `wss://api.vpsttt.com/api/v1/ws`.
+- REST base URL production: `https://chat.vpsttt.com`.
+- WebSocket production: `wss://chat.vpsttt.com/ws`.
 - Mọi request đi qua `packages/api-client`; component không tự gọi URL backend.
 - Access token giữ trong memory; refresh token lưu bằng OS keychain hoặc Tauri Stronghold.
 - Không ghi token, API key, nội dung nhạy cảm hoặc URL WebSocket chứa token vào log.

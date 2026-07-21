@@ -131,7 +131,6 @@ services:
     environment:
       API_DOMAIN: ${API_DOMAIN:-chat.vpsttt.com}
       FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:-chat.vpsttt.com}
-      DOWNLOAD_DOMAIN: ${DOWNLOAD_DOMAIN:-download.vpsttt.com}
       API_UPSTREAM: api:8080
       FRONTEND_UPSTREAM: web:3000
       ADMIN_UPSTREAM: admin:3001

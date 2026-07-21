@@ -1,7 +1,8 @@
 # Download Page Spec
 
-The public Android download entrypoint should live at `download.vpsttt.com`.
-This page is the first distribution surface while Google Play is prepared later.
+The public Android download entrypoint should live at
+`https://chat.vpsttt.com/download/` on the same project subdomain. This page is
+the first distribution surface while Google Play is prepared later.
 
 ## Source Metadata
 
@@ -42,8 +43,8 @@ The APK fallback must show:
 - SHA-256 checksum.
 - Release notes.
 - Install guidance for internal testers.
-- Warning to install only from `download.vpsttt.com` or trusted Firebase/Play
-  links.
+- Warning to install only from `chat.vpsttt.com/download/` or trusted
+  Firebase/Play links.
 
 ## Required Links
 

@@ -71,7 +71,7 @@ void main() {
       label: 'Download page plan',
       file: File('docs/download-page-spec.md'),
       mustContain: const [
-        'download.vpsttt.com',
+        'chat.vpsttt.com/download/',
         'SHA-256',
         'mobile-release-manifest.json',
       ],
@@ -82,7 +82,7 @@ void main() {
       mustContain: const [
         'Android Direct Download Plan',
         'signed Android APK',
-        'download.vpsttt.com/android/stable/',
+        'chat.vpsttt.com/downloads/files/android/stable/',
       ],
     ),
     _ReleaseCheck(
@@ -126,6 +126,7 @@ void main() {
         'com.vpsttt.webtui_chat',
         'checksum_sha256',
         'download_url',
+        'chat.vpsttt.com/downloads/files/android/stable/app-prod-release.apk',
       ],
     ),
   ];

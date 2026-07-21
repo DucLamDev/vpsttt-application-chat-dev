@@ -537,7 +537,7 @@ Phạm vi:
 - Build signed AAB/APK, versionCode tăng tự động.
 - Debug symbols/mapping.
 - Firebase App Distribution.
-- Direct APK download fallback lên download.vpsttt.com.
+- Direct APK download fallback trên chat.vpsttt.com/download/.
 - Mobile update metadata.
 - Tài liệu cài Android nội bộ.
 
@@ -620,7 +620,7 @@ Tạo hoặc hoàn thiện trang download public cho WebTui Chat.
 
 Mục tiêu:
 - Trang tự nhận nền tảng Android/iOS/Desktop nếu có thể.
-- Android: ưu tiên CH Play, fallback APK signed tại download.vpsttt.com.
+- Android: ưu tiên CH Play, fallback APK signed tại chat.vpsttt.com/download/.
 - iOS: TestFlight/App Store khi có.
 - Desktop: Windows/macOS/Linux installer.
 - Hiển thị version, release notes, checksum SHA-256, ngày phát hành.

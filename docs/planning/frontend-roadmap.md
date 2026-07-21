@@ -8,7 +8,7 @@ Tài liệu này chia nhỏ kế hoạch frontend thành các phase và task có
 - Có `apps/admin` cho quản trị workspace, user, RBAC, tích hợp và vận hành.
 - Dùng Next.js App Router, TypeScript, Tailwind, shadcn/ui, TanStack Query, Zustand.
 - Dùng API thật từ backend qua `packages/api-client`, không gọi API trực tiếp trong component.
-- Mọi môi trường frontend mặc định dùng backend đã deploy: `NEXT_PUBLIC_API_BASE_URL=https://api.vpsttt.com` và `NEXT_PUBLIC_WS_BASE_URL=wss://api.vpsttt.com/api/v1/ws`, không dùng `localhost` nếu không có yêu cầu backend-dev riêng.
+- Mọi môi trường frontend mặc định dùng backend đã deploy: `NEXT_PUBLIC_API_BASE_URL=https://chat.vpsttt.com` và `NEXT_PUBLIC_WS_BASE_URL=wss://chat.vpsttt.com/ws`, không dùng `localhost` nếu không có yêu cầu backend-dev riêng.
 - Bám theme ảnh số 3: rail xanh đậm, vùng chat sáng, panel phải cho ghim/ảnh/file, admin dense và dễ quét.
 - Chuẩn bị đường mở rộng desktop app Tauri và mobile Flutter sau MVP web.
 
@@ -80,7 +80,7 @@ Trạng thái hiện tại:
 | F0.2 | Đối chiếu `backend-api-map.md` với `openapi.yaml` | Không | Danh sách endpoint frontend sẽ dùng | Không bỏ sót API MVP | P0 |
 | F0.3 | Chốt MVP screens | F0.1 | Danh sách screen web/admin | Không có màn ngoài scope MVP | P0 |
 | F0.4 | Chốt route frontend | F0.3 | Route table `apps/web`, `apps/admin` | Route phản ánh workspace/channel/message | P0 |
-| F0.5 | Chốt env frontend | F0.2 | `.env.example` frontend | `NEXT_PUBLIC_API_BASE_URL=https://api.vpsttt.com`, `NEXT_PUBLIC_WS_BASE_URL=wss://api.vpsttt.com/api/v1/ws`; không mặc định `localhost` | P0 |
+| F0.5 | Chốt env frontend | F0.2 | `.env.example` frontend | `NEXT_PUBLIC_API_BASE_URL=https://chat.vpsttt.com`, `NEXT_PUBLIC_WS_BASE_URL=wss://chat.vpsttt.com/ws`; không mặc định `localhost` | P0 |
 | F0.6 | Chốt token storage strategy | F0.2 | Quyết định storage/cookie/local | Refresh flow rõ, logout sạch | P0 |
 | F0.7 | Chốt WebSocket auth strategy | F0.2 | Dùng query `access_token` trong browser | Không dùng header Authorization trong native WS | P0 |
 | F0.8 | Chốt backend gaps | F0.2 | Backlog backend hardening | RBAC admin/user và realtime gap được ghi rõ | P1 |
@@ -408,7 +408,7 @@ Trạng thái hiện tại:
 
 - Code đúng ranh giới: component không gọi API trực tiếp.
 - TypeScript không lỗi.
-- Không hardcode base URL trong component; base URL đi qua config/env và mặc định trỏ `https://api.vpsttt.com`.
+- Không hardcode base URL trong component; base URL đi qua config/env và mặc định trỏ `https://chat.vpsttt.com`.
 - Loading, empty, error state có xử lý.
 - Permission gate đúng nếu là action nhạy cảm.
 - Không log secret, access token, refresh token, webhook secret.
@@ -493,7 +493,7 @@ Nếu bắt đầu code ngay, thứ tự commit nên là:
 
 ### Phase F8 hoàn thành
 
-- Realtime hook kết nối `wss://api.vpsttt.com/api/v1/ws` bằng query `access_token`; subprotocol JWT chỉ là fallback cấu hình.
+- Realtime hook kết nối `wss://chat.vpsttt.com/ws` bằng query `access_token`; subprotocol JWT chỉ là fallback cấu hình.
 - Khi chọn channel, frontend join room `workspace:{workspaceId}:channel:{channelId}` và leave khi đổi kênh/unmount.
 - Socket có trạng thái `idle`, `connecting`, `connected`, `reconnecting`, `offline` trong Zustand.
 - Event `MessageCreated`, `MessageUpdated`, `MessageDeleted`, `ReactionChanged` merge vào cache timeline, có chống trùng.

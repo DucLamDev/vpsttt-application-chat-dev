@@ -12,7 +12,7 @@ void main() {
         'current_version': '1.1.0',
         'version': '1.1.0',
         'download_url':
-            'https://download.vpsttt.com/android/stable/app-prod-release.apk',
+            'https://chat.vpsttt.com/downloads/files/android/stable/app-prod-release.apk',
         'checksum_sha256': 'abc',
       }),
     );
@@ -28,7 +28,7 @@ void main() {
     expect(policy.recommendsUpdate, isTrue);
     expect(
       policy.downloadUrl,
-      'https://download.vpsttt.com/android/stable/app-prod-release.apk',
+      'https://chat.vpsttt.com/downloads/files/android/stable/app-prod-release.apk',
     );
   });
 }

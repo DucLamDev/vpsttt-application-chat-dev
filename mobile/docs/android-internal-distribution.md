@@ -30,28 +30,20 @@ for the static Android download page.
 
 ## Direct Android Download
 
-Before Google Play is ready, publish the signed APK through
-`download.vpsttt.com`.
-
-DNS for `download.vpsttt.com` must point to the same production VPS running the
-Nginx download host. The Let's Encrypt certificate must include
-`download.vpsttt.com`; otherwise Chrome will block the APK URL with
-`NET::ERR_CERT_COMMON_NAME_INVALID`.
-
-Deploy keeps the primary app/API TLS certificate independent from the download
-domain by default. After DNS for `download.vpsttt.com` points to the production
-VPS, set `ENABLE_DOWNLOAD_DOMAIN_TLS=true` in production `.env` and rerun deploy
-or `deploy/scripts/init-letsencrypt.sh` to add the download host to the
-certificate.
+Before Google Play is ready, publish the signed APK through the same production
+subdomain: `https://chat.vpsttt.com/download/`. The APK file itself is served
+from `https://chat.vpsttt.com/downloads/files/android/stable/app-prod-release.apk`.
 
 Expected host layout:
 
 ```text
-download.vpsttt.com/
+chat.vpsttt.com/download/
   index.html
   styles.css
   app.js
   assets/android-chat-preview.png
+
+chat.vpsttt.com/downloads/files/
   android/stable/app-prod-release.apk
   android/stable/app-prod-release.apk.sha256
   android/stable/mobile-release-manifest.json

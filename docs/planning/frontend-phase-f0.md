@@ -18,8 +18,8 @@ Phase F0 đã chốt các quyết định nền để các phase triển khai kh
 
 ## Quyết định contract
 
-- REST base URL mặc định: `https://api.vpsttt.com`.
-- WebSocket endpoint mặc định: `wss://api.vpsttt.com/api/v1/ws`.
+- REST base URL mặc định: `https://chat.vpsttt.com`.
+- WebSocket endpoint mặc định: `wss://chat.vpsttt.com/ws`.
 - Không dùng backend `localhost` trong frontend MVP/production. Chỉ dùng local backend khi có yêu cầu backend-dev riêng.
 - Tất cả request nghiệp vụ đi qua `packages/api-client`.
 - Component React không gọi `fetch`, `axios` hoặc `WebSocket` trực tiếp.
@@ -30,8 +30,8 @@ Phase F0 đã chốt các quyết định nền để các phase triển khai kh
 ## Env frontend
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=https://api.vpsttt.com
-NEXT_PUBLIC_WS_BASE_URL=wss://api.vpsttt.com/api/v1/ws
+NEXT_PUBLIC_API_BASE_URL=https://chat.vpsttt.com
+NEXT_PUBLIC_WS_BASE_URL=wss://chat.vpsttt.com/ws
 NEXT_PUBLIC_APP_NAME=WebTui Chat
 NEXT_PUBLIC_DEFAULT_LOCALE=vi-VN
 ```
@@ -51,7 +51,7 @@ MVP dùng `AuthTokenStore` dạng adapter để có thể thay đổi nơi lưu 
 Frontend mặc định dùng:
 
 ```ts
-new WebSocket(`wss://api.vpsttt.com/api/v1/ws?access_token=${encodeURIComponent(accessToken)}`);
+new WebSocket(`wss://chat.vpsttt.com/ws?access_token=${encodeURIComponent(accessToken)}`);
 ```
 
 Quy ước triển khai:
@@ -117,7 +117,7 @@ Quy ước triển khai:
 | Một số operation có thể thiếu trong OpenAPI | Sinh client tự động dễ thiếu endpoint | Route Go là nguồn sự thật khi có lệch. |
 | Pin/ticket/task có thể chưa đủ API MVP | Panel mockup có phần chưa có dữ liệu thật | Làm placeholder rõ, không giả endpoint production. |
 | Refresh token chưa có cookie `HttpOnly` | Token browser còn rủi ro XSS | Dùng adapter token, chuẩn bị đường đổi sang cookie. |
-| CORS production cần xác nhận origin frontend | App local gọi `https://api.vpsttt.com` có thể bị chặn | Nếu gặp CORS, sửa allowlist/proxy, không đổi base API sang backend local. |
+| CORS production cần xác nhận origin frontend | App local gọi `https://chat.vpsttt.com` có thể bị chặn | Nếu gặp CORS, sửa allowlist/proxy, không đổi base API sang backend local. |
 
 ## Quy tắc nội dung tiếng Việt
 

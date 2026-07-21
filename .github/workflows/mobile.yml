@@ -204,7 +204,7 @@ jobs:
             "recommended_version": "${BUILD_NAME}",
             "apk_file": "app-prod-release.apk",
             "aab_file": "app-prod-release.aab",
-            "download_url": "https://download.vpsttt.com/android/${RELEASE_CHANNEL}/app-prod-release.apk",
+            "download_url": "https://chat.vpsttt.com/downloads/files/android/${RELEASE_CHANNEL}/app-prod-release.apk",
             "store_url": "",
             "checksum_sha256": "${APK_SHA256}",
             "aab_checksum_sha256": "${AAB_SHA256}",
@@ -222,7 +222,7 @@ jobs:
                 "platform": "android",
                 "version": "${BUILD_NAME}",
                 "version_code": ${GITHUB_RUN_NUMBER},
-                "url": "https://download.vpsttt.com/android/${RELEASE_CHANNEL}/app-prod-release.apk",
+                "url": "https://chat.vpsttt.com/downloads/files/android/${RELEASE_CHANNEL}/app-prod-release.apk",
                 "checksum_sha256": "${APK_SHA256}"
               },
               {

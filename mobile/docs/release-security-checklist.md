@@ -34,4 +34,4 @@ Use this checklist before any internal, beta, or production Android release.
 - Signed APK/AAB SHA-256 checksum generated and stored with the artifact.
 - Mobile release manifest generated for `/mobile/releases` publishing.
 - Direct download page reads the same manifest and shows the APK checksum before install.
-- `download.vpsttt.com` contains only signed APK artifacts, checksums, static page assets, and public metadata.
+- `chat.vpsttt.com/download/` and `/downloads/files/` contain only signed APK artifacts, checksums, static page assets, and public metadata.

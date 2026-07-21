@@ -95,7 +95,7 @@ API/WebSocket cần đảm bảo:
 ## P8 - Hoàn thiện triển khai
 
 - Docker frontend production cho `https://chat.vpsttt.com`.
-- ENV rõ ràng: `NEXT_PUBLIC_API_BASE_URL=https://api.vpsttt.com`.
+- ENV rõ ràng: `NEXT_PUBLIC_API_BASE_URL=https://chat.vpsttt.com`.
 - CI chạy typecheck, lint, build, Docker build web/admin.
 - Health check frontend và smoke test login.
 

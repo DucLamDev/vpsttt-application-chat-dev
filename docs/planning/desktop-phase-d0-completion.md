@@ -22,7 +22,7 @@ Phase này khóa phạm vi và contract nền tảng cho desktop app Tauri. Đâ
 | OpenAPI contract test | Xong | Thêm `frontend/tests/unit/desktop-openapi-contract.test.ts`. |
 | Static export POC hook | Xong | `frontend/apps/web/next.config.mjs` chỉ bật `output: "export"` khi có `TAURI_BUILD=1`. |
 | Desktop build script | Xong | Chạy `npm --workspace @webtui/web run build:desktop` trong thư mục `frontend`. |
-| CORS/CSP strategy | Chốt hướng | Desktop production dùng static local bundle và gọi `https://api.vpsttt.com` / `wss://api.vpsttt.com/api/v1/ws`. |
+| CORS/CSP strategy | Chốt hướng | Desktop production dùng static local bundle và gọi `https://chat.vpsttt.com` / `wss://chat.vpsttt.com/ws`. |
 | Telemetry/privacy | Chốt hướng | Không log token, API key, nội dung chat, URL websocket có token hoặc file nhạy cảm. |
 
 ## API contract hiện tại

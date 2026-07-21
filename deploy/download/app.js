@@ -3,7 +3,7 @@ const fallbackManifest = {
   channel: "stable",
   version: "1.0.0",
   version_code: 100,
-  download_url: "./android/stable/app-prod-release.apk",
+  download_url: "/downloads/files/android/stable/app-prod-release.apk",
   store_url: "",
   checksum_sha256: "replace-with-apk-sha256",
   release_notes: "Internal Android release."

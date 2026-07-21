@@ -1,8 +1,8 @@
 # Download Host Artifacts
 
-`download.vpsttt.com` publishes signed release artifacts only. The current scope
-is Android direct download first; Google Play links are added later through the
-manifest `store_url`.
+`chat.vpsttt.com/download/` publishes signed release artifacts on the same
+project subdomain. The current scope is Android direct download first; Google
+Play links are added later through the manifest `store_url`.
 
 ## Static Page
 
@@ -19,6 +19,9 @@ Publish CI release artifacts under the host path below:
 - `android/stable/app-prod-release.apk`
 - `android/stable/app-prod-release.apk.sha256`
 - `android/stable/mobile-release-manifest.json`
+
+The canonical APK URL is
+`https://chat.vpsttt.com/downloads/files/android/stable/app-prod-release.apk`.
 
 The manifest format mirrors the M11 workflow artifact and the backend
 `/mobile/releases/{platform}/{channel}/{current_version}` response.
