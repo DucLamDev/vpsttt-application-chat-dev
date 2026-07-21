@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/screens/login_screen.dart';
+import '../../features/conversations/domain/entities/conversation_summary.dart';
 import '../../features/conversations/presentation/screens/channel_create_screen.dart';
 import '../../features/conversations/presentation/screens/channel_detail_screen.dart';
 import '../../features/conversations/presentation/screens/chat_room_screen.dart';
@@ -36,12 +37,22 @@ final appRouterProvider = Provider<GoRouter>((_) {
         path: '/conversations/:channel_id',
         name: 'conversation',
         builder: (context, state) {
+          final participantIds = state.uri.queryParameters['participantIds']
+              ?.split(',')
+              .map((id) => id.trim())
+              .where((id) => id.isNotEmpty)
+              .toList(growable: false);
           return ChatRoomScreen(
             channelId: state.pathParameters['channel_id'] ?? '',
             workspaceId: state.uri.queryParameters['workspaceId'],
             avatarUrl: state.uri.queryParameters['avatarUrl'],
             title: state.uri.queryParameters['title'] ?? 'Hội thoại',
             initialMessageId: state.uri.queryParameters['messageId'],
+            conversation: state.extra is ConversationSummary
+                ? state.extra! as ConversationSummary
+                : null,
+            peerUserId: state.uri.queryParameters['peerUserId'],
+            participantIds: participantIds ?? const [],
           );
         },
       ),

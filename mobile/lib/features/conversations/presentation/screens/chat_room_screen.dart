@@ -37,6 +37,9 @@ class ChatRoomScreen extends ConsumerStatefulWidget {
     this.workspaceId,
     this.avatarUrl,
     this.initialMessageId,
+    this.conversation,
+    this.peerUserId,
+    this.participantIds = const [],
     this.embedded = false,
     super.key,
   });
@@ -46,6 +49,9 @@ class ChatRoomScreen extends ConsumerStatefulWidget {
   final String title;
   final String? avatarUrl;
   final String? initialMessageId;
+  final ConversationSummary? conversation;
+  final String? peerUserId;
+  final List<String> participantIds;
   final bool embedded;
 
   @override
@@ -236,14 +242,26 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen>
           ),
           IconButton(
             tooltip: 'Gọi thoại',
-            onPressed: () =>
-                _openCallTargetSheet(context, controller, CallMode.audio),
+            onPressed: () => unawaited(
+              _startCallFromCurrentConversation(
+                context,
+                controller,
+                state,
+                CallMode.audio,
+              ),
+            ),
             icon: const Icon(CupertinoIcons.phone, size: 21),
           ),
           IconButton(
             tooltip: 'Gọi video',
-            onPressed: () =>
-                _openCallTargetSheet(context, controller, CallMode.video),
+            onPressed: () => unawaited(
+              _startCallFromCurrentConversation(
+                context,
+                controller,
+                state,
+                CallMode.video,
+              ),
+            ),
             icon: const Icon(CupertinoIcons.video_camera, size: 22),
           ),
           IconButton(
@@ -349,80 +367,56 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen>
     }
   }
 
-  Future<void> _openCallTargetSheet(
+  Future<void> _startCallFromCurrentConversation(
     BuildContext context,
     ChatRoomController controller,
+    ChatRoomState state,
     CallMode mode,
   ) async {
-    final textController = TextEditingController();
-    final targetUserId = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: WebTuiColors.surface,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              WebTuiSpacing.lg,
-              WebTuiSpacing.sm,
-              WebTuiSpacing.lg,
-              MediaQuery.viewInsetsOf(context).bottom + WebTuiSpacing.lg,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  mode == CallMode.video ? 'Gọi video' : 'Gọi thoại',
-                  style: WebTuiTypography.titleMedium.copyWith(
-                    color: WebTuiColors.textPrimary,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: WebTuiSpacing.md),
-                TextField(
-                  controller: textController,
-                  autofocus: true,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (value) => Navigator.of(context).pop(value),
-                  decoration: InputDecoration(
-                    labelText: 'Target user ID',
-                    hintText: 'Nhập user_id người nhận',
-                    prefixIcon: const Icon(Icons.person_outline_rounded),
-                    filled: true,
-                    fillColor: WebTuiColors.backgroundMuted,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(WebTuiRadii.lg),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: WebTuiSpacing.md),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.icon(
-                    onPressed: () =>
-                        Navigator.of(context).pop(textController.text),
-                    icon: Icon(
-                      mode == CallMode.video
-                          ? CupertinoIcons.video_camera
-                          : CupertinoIcons.phone,
-                    ),
-                    label: const Text('Bắt đầu'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-    textController.dispose();
-    final normalized = targetUserId?.trim();
-    if (normalized != null && normalized.isNotEmpty) {
-      await controller.startCall(targetUserId: normalized, mode: mode);
+    final targetUserId = _callTargetUserId(state);
+    if (targetUserId == null) {
+      _showCallUnavailable(context);
+      return;
     }
+    _draftFocusNode.unfocus();
+    await controller.startCall(targetUserId: targetUserId, mode: mode);
+  }
+
+  String? _callTargetUserId(ChatRoomState state) {
+    final targetFromConversation = widget.conversation?.directCallTargetUserId(
+      currentUserId: state.currentUserId,
+    );
+    if (targetFromConversation != null) {
+      return targetFromConversation;
+    }
+    final current = state.currentUserId?.trim();
+    final routePeerUserId = widget.peerUserId?.trim();
+    if (routePeerUserId != null &&
+        routePeerUserId.isNotEmpty &&
+        routePeerUserId != current) {
+      return routePeerUserId;
+    }
+    final candidates = widget.participantIds
+        .map((participantId) => participantId.trim())
+        .where((participantId) => participantId.isNotEmpty)
+        .toSet();
+    if (current == null || current.isEmpty) {
+      return candidates.length == 1 ? candidates.first : null;
+    }
+    for (final candidate in candidates) {
+      if (candidate != current) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  void _showCallUnavailable(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Cuộc gọi hiện chỉ hỗ trợ hội thoại riêng 1-1.'),
+      ),
+    );
   }
 }
 

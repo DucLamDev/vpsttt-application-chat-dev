@@ -53,6 +53,29 @@ final class ConversationSummary {
   bool get isMember =>
       membershipStatus == MembershipStatus.active ||
       membershipStatus == MembershipStatus.muted;
+  String? directCallTargetUserId({String? currentUserId}) {
+    if (kind != ConversationKind.direct) {
+      return null;
+    }
+    final current = currentUserId?.trim();
+    final peer = peerUserId?.trim();
+    if (peer != null && peer.isNotEmpty && peer != current) {
+      return peer;
+    }
+    final candidates = participantIds
+        .map((participantId) => participantId.trim())
+        .where((participantId) => participantId.isNotEmpty)
+        .toSet();
+    if (current == null || current.isEmpty) {
+      return candidates.length == 1 ? candidates.first : null;
+    }
+    for (final candidate in candidates) {
+      if (candidate != current) {
+        return candidate;
+      }
+    }
+    return null;
+  }
 
   ConversationSummary copyWith({
     int? unreadCount,

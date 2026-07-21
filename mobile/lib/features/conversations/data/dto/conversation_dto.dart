@@ -149,6 +149,7 @@ final class DirectConversationDto {
       avatarLabel: title.isEmpty ? 'Hội thoại riêng' : title,
       updatedAt: message?.createdAt ?? updatedAt,
       unreadCount: unreadCount,
+      peerUserId: peer?.userId,
       memberCount: participantIds.length,
       participantIds: participantIds,
       channelVisibility: ChannelVisibility.direct,

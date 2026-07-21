@@ -68,6 +68,7 @@ class MessagesHomeView extends ConsumerWidget {
                       workspaceId: workspaceId,
                       channelId: selected.channelId,
                       title: selected.title,
+                      conversation: selected,
                       embedded: true,
                     ),
             ),
@@ -446,16 +447,31 @@ class _TopSearch extends StatelessWidget {
 }
 
 void _openChat(BuildContext context, ConversationSummary conversation) {
-  final queryParameters = {'title': conversation.title};
+  final queryParameters = {
+    'title': conversation.title,
+    'kind': conversation.kind.name,
+  };
   final avatarUrl = conversation.avatarUrl?.trim();
   if (avatarUrl != null && avatarUrl.isNotEmpty) {
     queryParameters['avatarUrl'] = avatarUrl;
+  }
+  final peerUserId = conversation.peerUserId?.trim();
+  if (peerUserId != null && peerUserId.isNotEmpty) {
+    queryParameters['peerUserId'] = peerUserId;
+  }
+  final participantIds = conversation.participantIds
+      .map((id) => id.trim())
+      .where((id) => id.isNotEmpty)
+      .join(',');
+  if (participantIds.isNotEmpty) {
+    queryParameters['participantIds'] = participantIds;
   }
   context.push(
     Uri(
       path: '/conversations/${conversation.channelId}',
       queryParameters: queryParameters,
     ).toString(),
+    extra: conversation,
   );
 }
 
