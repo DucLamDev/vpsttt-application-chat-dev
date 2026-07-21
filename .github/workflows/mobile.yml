@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - master
     paths:
       - "mobile/**"
       - ".github/workflows/mobile.yml"
@@ -33,6 +34,7 @@ permissions:
 env:
   FLUTTER_VERSION: "3.38.4"
   WEBTUI_API_BASE_URL: "https://chat.vpsttt.com"
+  DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/webtui-chat' }}
 
 jobs:
   validate:
@@ -106,7 +108,7 @@ jobs:
     name: Signed Android AAB/APK
     runs-on: ubuntu-latest
     needs: validate
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
     defaults:
       run:
         working-directory: mobile
@@ -114,6 +116,7 @@ jobs:
       RELEASE_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.release_channel || 'stable' }}
       BUILD_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.build_name || '1.0.0' }}
       HAS_ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+      HAS_DOWNLOAD_DEPLOY: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && (secrets.DEPLOY_PASSWORD != '' || secrets.DEPLOY_SSH_KEY != '') }}
 
     steps:
       - name: Checkout
@@ -247,3 +250,51 @@ jobs:
             mobile/build/app/outputs/bundle/prodRelease/app-prod-release.aab
             mobile/build/release-metadata/*
           if-no-files-found: error
+
+      - name: Download deploy secrets missing
+        if: ${{ env.HAS_ANDROID_SIGNING == 'true' && env.HAS_DOWNLOAD_DEPLOY != 'true' }}
+        run: |
+          echo "::warning title=Download publish skipped::DEPLOY_HOST, DEPLOY_USER and DEPLOY_PASSWORD or DEPLOY_SSH_KEY are required to publish APK to chat.vpsttt.com/download/."
+
+      - name: Stage download host files
+        if: ${{ env.HAS_ANDROID_SIGNING == 'true' && env.HAS_DOWNLOAD_DEPLOY == 'true' }}
+        run: |
+          mkdir -p build/download
+          cp -R ../deploy/download/. build/download/
+          mkdir -p "build/download/android/${RELEASE_CHANNEL}"
+          cp build/app/outputs/flutter-apk/app-prod-release.apk "build/download/android/${RELEASE_CHANNEL}/app-prod-release.apk"
+          cp build/release-metadata/app-prod-release.apk.sha256 "build/download/android/${RELEASE_CHANNEL}/app-prod-release.apk.sha256"
+          cp build/release-metadata/mobile-release-manifest.json "build/download/android/${RELEASE_CHANNEL}/mobile-release-manifest.json"
+          cp build/release-metadata/latest.json "build/download/android/${RELEASE_CHANNEL}/latest.json"
+          cp build/release-metadata/download-manifest.json "build/download/android/${RELEASE_CHANNEL}/download-manifest.json"
+
+      - name: Create download directory on VPS
+        if: ${{ env.HAS_ANDROID_SIGNING == 'true' && env.HAS_DOWNLOAD_DEPLOY == 'true' }}
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            mkdir -p "${{ env.DEPLOY_PATH }}/data/downloads"
+
+      - name: Publish APK to download host
+        if: ${{ env.HAS_ANDROID_SIGNING == 'true' && env.HAS_DOWNLOAD_DEPLOY == 'true' }}
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "mobile/build/download/*"
+          target: ${{ env.DEPLOY_PATH }}/data/downloads
+          strip_components: 3
+          overwrite: true
+
+      - name: Verify public APK URL
+        if: ${{ env.HAS_ANDROID_SIGNING == 'true' && env.HAS_DOWNLOAD_DEPLOY == 'true' }}
+        run: |
+          curl -fsSI "https://chat.vpsttt.com/downloads/files/android/${RELEASE_CHANNEL}/app-prod-release.apk"

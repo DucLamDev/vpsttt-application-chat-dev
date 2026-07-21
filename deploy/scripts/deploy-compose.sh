@@ -50,6 +50,10 @@ require_value WEBTUI_ADMIN_IMAGE "$WEBTUI_ADMIN_IMAGE"
 
 mkdir -p data/desktop-releases data/mobile-releases data/download-manifests data/downloads
 
+if [ -d deploy/download ]; then
+  cp -R deploy/download/. data/downloads/
+fi
+
 write_compose_env_file() {
   {
     printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
