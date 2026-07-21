@@ -16,6 +16,8 @@ export API_DOMAIN="${API_DOMAIN:-$(read_env_value API_DOMAIN)}"
 export API_DOMAIN="${API_DOMAIN:-chat.vpsttt.com}"
 export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(read_env_value FRONTEND_DOMAIN)}"
 export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-chat.vpsttt.com}"
+export DOWNLOAD_DOMAIN="${DOWNLOAD_DOMAIN:-$(read_env_value DOWNLOAD_DOMAIN)}"
+export DOWNLOAD_DOMAIN="${DOWNLOAD_DOMAIN:-download.vpsttt.com}"
 export LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-$(read_env_value LETSENCRYPT_EMAIL)}"
 export WEBTUI_API_IMAGE="${WEBTUI_API_IMAGE:-$(read_env_value WEBTUI_API_IMAGE)}"
 export WEBTUI_WORKER_IMAGE="${WEBTUI_WORKER_IMAGE:-$(read_env_value WEBTUI_WORKER_IMAGE)}"
@@ -41,6 +43,7 @@ write_compose_env_file() {
   {
     printf 'API_DOMAIN=%s\n' "$API_DOMAIN"
     printf 'FRONTEND_DOMAIN=%s\n' "$FRONTEND_DOMAIN"
+    printf 'DOWNLOAD_DOMAIN=%s\n' "$DOWNLOAD_DOMAIN"
     printf 'WEBTUI_API_IMAGE=%s\n' "$WEBTUI_API_IMAGE"
     printf 'WEBTUI_WORKER_IMAGE=%s\n' "$WEBTUI_WORKER_IMAGE"
     printf 'WEBTUI_WEB_IMAGE=%s\n' "$WEBTUI_WEB_IMAGE"
@@ -86,6 +89,7 @@ append_domain_arg() {
 }
 
 append_domain_arg "$FRONTEND_DOMAIN"
+append_domain_arg "$DOWNLOAD_DOMAIN"
 
 request_certificate() {
   extra_args="$1"

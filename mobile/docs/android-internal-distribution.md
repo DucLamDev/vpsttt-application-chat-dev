@@ -33,6 +33,11 @@ for the static Android download page.
 Before Google Play is ready, publish the signed APK through
 `download.vpsttt.com`.
 
+DNS for `download.vpsttt.com` must point to the same production VPS running the
+Nginx download host. The Let's Encrypt certificate must include
+`download.vpsttt.com`; otherwise Chrome will block the APK URL with
+`NET::ERR_CERT_COMMON_NAME_INVALID`.
+
 Expected host layout:
 
 ```text

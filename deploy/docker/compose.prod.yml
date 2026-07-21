@@ -58,6 +58,7 @@ services:
       REGISTRATION_DEFAULT_WORKSPACE_ID: ${REGISTRATION_DEFAULT_WORKSPACE_ID:-3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c}
     volumes:
       - ../../data/desktop-releases:/var/lib/webtui/desktop-releases:ro
+      - ../../data/mobile-releases:/var/lib/webtui/mobile-releases:ro
       - ../../data/download-manifests:/var/lib/webtui/download-manifests:ro
     expose:
       - "8080"
@@ -130,6 +131,7 @@ services:
     environment:
       API_DOMAIN: ${API_DOMAIN:-chat.vpsttt.com}
       FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:-chat.vpsttt.com}
+      DOWNLOAD_DOMAIN: ${DOWNLOAD_DOMAIN:-download.vpsttt.com}
       API_UPSTREAM: api:8080
       FRONTEND_UPSTREAM: web:3000
       ADMIN_UPSTREAM: admin:3001
