@@ -7827,7 +7827,6 @@ function AttachmentMedia({
       <span className="attachment-media-card__preview">
         {resolvedSource ? <img alt={attachment.name} decoding="async" loading="lazy" src={resolvedSource} /> : <span className="attachment-media-loading">Đang tải ảnh...</span>}
       </span>
-      <span className="attachment-media-card__caption">{attachment.name}</span>
     </button>
   );
 }
@@ -7947,6 +7946,7 @@ function formatVoiceTime(seconds: number) {
 
 function shouldRenderMessageBody(message: ChatMessage): boolean {
   const body = message.body.trim();
+  const normalizedBody = normalizeAttachmentMessageBody(body);
   if (!body) {
     return false;
   }
@@ -7956,6 +7956,9 @@ function shouldRenderMessageBody(message: ChatMessage): boolean {
   }
 
   const attachments = message.attachments ?? [];
+  if (isGeneratedAttachmentBody(normalizedBody, attachments)) {
+    return false;
+  }
   const hasOnlyImages = attachments.length > 0 && attachments.every((attachment) => attachment.isImage);
   const hasOnlyAudio = attachments.length > 0 && attachments.every((attachment) => attachment.isAudio);
   if (hasOnlyAudio && /^Đã gửi(?: \d+)? tin nhắn thoại$/.test(body)) {
@@ -7972,6 +7975,40 @@ function shouldRenderMessageBody(message: ChatMessage): boolean {
   }
 
   return !/^Đã gửi(?: \d+)? ảnh$/.test(body);
+}
+
+function isGeneratedAttachmentBody(normalizedBody: string, attachments: MessageAttachmentItem[]): boolean {
+  if (!attachments.length || !normalizedBody) {
+    return false;
+  }
+  if (normalizedBody === "da gui tep dinh kem") {
+    return true;
+  }
+
+  const hasOnlyImages = attachments.every((attachment) => attachment.isImage);
+  const hasOnlyAudio = attachments.every((attachment) => attachment.isAudio);
+  if (hasOnlyImages && /^da gui(?: \d+)? anh$/.test(normalizedBody)) {
+    return true;
+  }
+  if (hasOnlyAudio && /^da gui(?: \d+)? tin nhan thoai$/.test(normalizedBody)) {
+    return true;
+  }
+  if (attachments.length === 1) {
+    const attachmentName = normalizeAttachmentMessageBody(attachments[0].name);
+    return normalizedBody === `da gui file ${attachmentName}` || (hasOnlyImages && normalizedBody === attachmentName);
+  }
+  return normalizedBody === `da gui ${attachments.length} file`;
+}
+
+function normalizeAttachmentMessageBody(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "d")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isImageOnlyMessage(message: ChatMessage): boolean {

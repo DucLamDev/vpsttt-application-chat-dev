@@ -37,6 +37,7 @@ type Config struct {
 	RabbitMQ     RabbitMQConfig
 	Storage      StorageConfig
 	Security     SecurityConfig
+	StreamVideo  StreamVideoConfig
 	Registration RegistrationConfig
 	Order        OrderConfig
 }
@@ -131,6 +132,12 @@ type SecurityConfig struct {
 	GoogleClientID       string
 }
 
+type StreamVideoConfig struct {
+	APIKey    string
+	APISecret string
+	TokenTTL  time.Duration
+}
+
 type RegistrationConfig struct {
 	DefaultWorkspaceID string
 }
@@ -222,6 +229,11 @@ func Load() (*Config, error) {
 			WebhookSigningSecret: getEnv("WEBHOOK_SIGNING_SECRET", ""),
 			GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
 		},
+		StreamVideo: StreamVideoConfig{
+			APIKey:    getEnv("STREAM_VIDEO_API_KEY", ""),
+			APISecret: getEnv("STREAM_VIDEO_API_SECRET", ""),
+			TokenTTL:  getEnvDuration("STREAM_VIDEO_TOKEN_TTL", 24*time.Hour),
+		},
 		Registration: RegistrationConfig{
 			DefaultWorkspaceID: getEnv("REGISTRATION_DEFAULT_WORKSPACE_ID", ""),
 		},
@@ -295,6 +307,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Order.Timeout <= 0 {
 		problems = append(problems, "ORDER_API_TIMEOUT must be greater than 0")
+	}
+	if (strings.TrimSpace(c.StreamVideo.APIKey) == "") != (strings.TrimSpace(c.StreamVideo.APISecret) == "") {
+		problems = append(problems, "STREAM_VIDEO_API_KEY and STREAM_VIDEO_API_SECRET must be configured together")
+	}
+	if c.StreamVideo.TokenTTL <= 0 {
+		problems = append(problems, "STREAM_VIDEO_TOKEN_TTL must be greater than 0")
 	}
 	if c.Registration.DefaultWorkspaceID != "" && !uuidPattern.MatchString(c.Registration.DefaultWorkspaceID) {
 		problems = append(problems, "REGISTRATION_DEFAULT_WORKSPACE_ID must be a valid UUID")

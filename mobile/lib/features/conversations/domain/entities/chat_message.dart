@@ -143,7 +143,8 @@ final class MessageAttachment {
   final DateTime createdAt;
   final int sortOrder;
 
-  MessageAttachmentKind get kind => _attachmentKind(file.mimeType);
+  MessageAttachmentKind get kind =>
+      _attachmentKind(file.mimeType, fileName: file.name);
   bool get isImage => kind == MessageAttachmentKind.image;
   bool get isAudio => kind == MessageAttachmentKind.audio;
   bool get isVideo => kind == MessageAttachmentKind.video;
@@ -237,15 +238,28 @@ final class ChannelMember {
   final String? lastReadMessageId;
 }
 
-MessageAttachmentKind _attachmentKind(String mimeType) {
+MessageAttachmentKind _attachmentKind(String mimeType, {String fileName = ''}) {
   final normalized = mimeType.trim().toLowerCase();
-  if (normalized.startsWith('image/')) {
+  final nameParts = fileName.trim().toLowerCase().split('.');
+  final extension = nameParts.length > 1 ? nameParts.last : '';
+  if (normalized.startsWith('image/') ||
+      const {
+        'gif',
+        'heic',
+        'heif',
+        'jpeg',
+        'jpg',
+        'png',
+        'webp',
+      }.contains(extension)) {
     return MessageAttachmentKind.image;
   }
-  if (normalized.startsWith('video/')) {
+  if (normalized.startsWith('video/') ||
+      const {'m4v', 'mov', 'mp4', 'webm'}.contains(extension)) {
     return MessageAttachmentKind.video;
   }
-  if (normalized.startsWith('audio/')) {
+  if (normalized.startsWith('audio/') ||
+      const {'aac', 'm4a', 'mp3', 'ogg', 'opus', 'wav'}.contains(extension)) {
     return MessageAttachmentKind.audio;
   }
   return MessageAttachmentKind.file;

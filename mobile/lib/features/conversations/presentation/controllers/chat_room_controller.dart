@@ -59,6 +59,7 @@ final chatRoomControllerProvider = StateNotifierProvider.autoDispose
           newAttachmentUploadItemUseCaseProvider,
         ),
         startCallUseCase: ref.watch(startCallUseCaseProvider),
+        endCallUseCase: ref.watch(endCallUseCaseProvider),
         markConversationReadUseCase: ref.watch(
           markConversationReadUseCaseProvider,
         ),
@@ -118,6 +119,7 @@ final class ChatRoomState {
     this.isSendingThread = false,
     this.isSearching = false,
     this.isRecordingVoice = false,
+    this.isStartingCall = false,
     this.errorMessage,
     this.noticeMessage,
     this.currentUserId,
@@ -147,6 +149,7 @@ final class ChatRoomState {
   final bool isSendingThread;
   final bool isSearching;
   final bool isRecordingVoice;
+  final bool isStartingCall;
   final String? errorMessage;
   final String? noticeMessage;
   final String? currentUserId;
@@ -193,6 +196,7 @@ final class ChatRoomState {
     bool? isSendingThread,
     bool? isSearching,
     bool? isRecordingVoice,
+    bool? isStartingCall,
     String? errorMessage,
     String? noticeMessage,
     String? currentUserId,
@@ -237,6 +241,7 @@ final class ChatRoomState {
       isSendingThread: isSendingThread ?? this.isSendingThread,
       isSearching: isSearching ?? this.isSearching,
       isRecordingVoice: isRecordingVoice ?? this.isRecordingVoice,
+      isStartingCall: isStartingCall ?? this.isStartingCall,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       noticeMessage: clearNotice ? null : noticeMessage ?? this.noticeMessage,
       currentUserId: currentUserId ?? this.currentUserId,
@@ -282,6 +287,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     required NewClientMessageIdUseCase newClientMessageIdUseCase,
     required NewAttachmentUploadItemUseCase newAttachmentUploadItemUseCase,
     required StartCallUseCase startCallUseCase,
+    required EndCallUseCase endCallUseCase,
     required MarkConversationReadUseCase markConversationReadUseCase,
     required SubscribeConversationRealtimeUseCase
     subscribeConversationRealtimeUseCase,
@@ -313,6 +319,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
        _newClientMessageIdUseCase = newClientMessageIdUseCase,
        _newAttachmentUploadItemUseCase = newAttachmentUploadItemUseCase,
        _startCallUseCase = startCallUseCase,
+       _endCallUseCase = endCallUseCase,
        _markConversationReadUseCase = markConversationReadUseCase,
        _subscribeConversationRealtimeUseCase =
            subscribeConversationRealtimeUseCase,
@@ -346,6 +353,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
   final NewClientMessageIdUseCase _newClientMessageIdUseCase;
   final NewAttachmentUploadItemUseCase _newAttachmentUploadItemUseCase;
   final StartCallUseCase _startCallUseCase;
+  final EndCallUseCase _endCallUseCase;
   final MarkConversationReadUseCase _markConversationReadUseCase;
   final SubscribeConversationRealtimeUseCase
   _subscribeConversationRealtimeUseCase;
@@ -1118,10 +1126,18 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     state = state.copyWith(highlightedMessageId: normalized);
   }
 
-  Future<void> startCall({
+  Future<CallSession?> startCall({
     required String targetUserId,
     required CallMode mode,
   }) async {
+    if (state.isStartingCall) {
+      return null;
+    }
+    state = state.copyWith(
+      isStartingCall: true,
+      clearError: true,
+      clearNotice: true,
+    );
     final result = await _startCallUseCase.execute(
       workspaceId: state.scope.workspaceId,
       channelId: state.scope.channelId,
@@ -1132,11 +1148,36 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
       case Success<CallSession>(value: final call):
         state = state.copyWith(
           activeCall: call,
+          isStartingCall: false,
           noticeMessage: mode == CallMode.video
               ? 'Đang bắt đầu cuộc gọi video.'
               : 'Đang bắt đầu cuộc gọi thoại.',
           clearError: true,
         );
+        return call;
+      case FailureResult<CallSession>(failure: final failure):
+        state = state.copyWith(
+          isStartingCall: false,
+          errorMessage: failure.message,
+        );
+        return null;
+    }
+  }
+
+  Future<void> endActiveCall({String? reason}) async {
+    final call = state.activeCall;
+    if (call == null) {
+      return;
+    }
+    final result = await _endCallUseCase.execute(
+      workspaceId: state.scope.workspaceId,
+      callId: call.id,
+      currentStatus: call.status,
+      reason: reason,
+    );
+    switch (result) {
+      case Success<CallSession>():
+        state = state.copyWith(clearActiveCall: true, clearError: true);
       case FailureResult<CallSession>(failure: final failure):
         state = state.copyWith(errorMessage: failure.message);
     }

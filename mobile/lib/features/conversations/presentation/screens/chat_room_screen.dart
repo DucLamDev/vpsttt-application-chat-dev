@@ -17,6 +17,7 @@ import '../../domain/entities/call_session.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/conversation_summary.dart';
 import '../controllers/chat_room_controller.dart';
+import 'stream_video_call_screen.dart';
 
 final _forwardChannelsProvider = FutureProvider.autoDispose
     .family<List<ConversationSummary>, String>((ref, workspaceId) async {
@@ -379,7 +380,27 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen>
       return;
     }
     _draftFocusNode.unfocus();
-    await controller.startCall(targetUserId: targetUserId, mode: mode);
+    final call = await controller.startCall(
+      targetUserId: targetUserId,
+      mode: mode,
+    );
+    if (!context.mounted || call == null) {
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => StreamVideoCallScreen(
+          workspaceId: call.workspaceId,
+          channelId: call.channelId,
+          callId: call.id,
+          targetUserId: targetUserId,
+          title: widget.title,
+          mode: mode,
+          onLeave: () => controller.endActiveCall(reason: 'stream_call_left'),
+        ),
+      ),
+    );
   }
 
   String? _callTargetUserId(ChatRoomState state) {
@@ -2349,20 +2370,22 @@ class _MessageRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final showBody = text.trim().isNotEmpty || message.isDeleted;
     if (outgoing) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          WebTuiMessageBubble(
-            text: text,
-            textSpan: message.isDeleted
-                ? null
-                : _messageTextSpan(message, true),
-            timeLabel: timeLabel,
-            outgoing: true,
-            statusLabel: 'Đã gửi',
-            reactions: reactions,
-          ),
+          if (showBody)
+            WebTuiMessageBubble(
+              text: text,
+              textSpan: message.isDeleted
+                  ? null
+                  : _messageTextSpan(message, true),
+              timeLabel: timeLabel,
+              outgoing: true,
+              statusLabel: 'Đã gửi',
+              reactions: reactions,
+            ),
           if (message.attachments.isNotEmpty)
             _MessageAttachmentList(
               attachments: message.attachments,
@@ -2385,14 +2408,15 @@ class _MessageRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              WebTuiMessageBubble(
-                text: text,
-                textSpan: message.isDeleted
-                    ? null
-                    : _messageTextSpan(message, false),
-                timeLabel: timeLabel,
-                reactions: reactions,
-              ),
+              if (showBody)
+                WebTuiMessageBubble(
+                  text: text,
+                  textSpan: message.isDeleted
+                      ? null
+                      : _messageTextSpan(message, false),
+                  timeLabel: timeLabel,
+                  reactions: reactions,
+                ),
               if (message.attachments.isNotEmpty)
                 _MessageAttachmentList(
                   attachments: message.attachments,
@@ -2417,6 +2441,7 @@ class _MessageAttachmentList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final networkScope = WebTuiAvatarNetworkScope.maybeOf(context);
     return Padding(
       padding: const EdgeInsets.only(top: WebTuiSpacing.xs),
       child: Column(
@@ -2427,57 +2452,144 @@ class _MessageAttachmentList extends StatelessWidget {
           for (final attachment in attachments)
             Padding(
               padding: const EdgeInsets.only(top: WebTuiSpacing.xs),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 250),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: outgoing
-                        ? WebTuiColors.primarySoft
-                        : WebTuiColors.surface,
-                    borderRadius: BorderRadius.circular(WebTuiRadii.lg),
-                    border: Border.all(color: WebTuiColors.border),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(WebTuiSpacing.sm),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _messageAttachmentIcon(attachment.kind),
-                          size: 20,
-                          color: WebTuiColors.primary,
-                        ),
-                        const SizedBox(width: WebTuiSpacing.sm),
-                        Flexible(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                attachment.file.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: WebTuiTypography.labelSmall.copyWith(
-                                  color: WebTuiColors.textPrimary,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              Text(
-                                _formatBytes(attachment.file.byteSize),
-                                style: WebTuiTypography.labelSmall.copyWith(
-                                  color: WebTuiColors.textMuted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+              child: attachment.isImage
+                  ? _MessageImageAttachmentTile(
+                      attachment: attachment,
+                      apiBaseUri: networkScope?.apiBaseUri,
+                      headers: networkScope?.headers,
+                    )
+                  : _MessageFileAttachmentTile(
+                      attachment: attachment,
+                      outgoing: outgoing,
                     ),
-                  ),
-                ),
-              ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _MessageImageAttachmentTile extends StatelessWidget {
+  const _MessageImageAttachmentTile({
+    required this.attachment,
+    this.apiBaseUri,
+    this.headers,
+  });
+
+  final MessageAttachment attachment;
+  final Uri? apiBaseUri;
+  final Map<String, String>? headers;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUri = _attachmentDownloadUri(attachment, apiBaseUri);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 240),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(WebTuiRadii.lg),
+        child: AspectRatio(
+          aspectRatio: 4 / 3,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: WebTuiColors.surface,
+              border: Border.all(color: WebTuiColors.border),
+            ),
+            child: imageUri == null
+                ? const _MessageImagePlaceholder()
+                : Image.network(
+                    imageUri.toString(),
+                    fit: BoxFit.cover,
+                    headers: headers,
+                    errorBuilder: (_, _, _) => const _MessageImagePlaceholder(),
+                    frameBuilder:
+                        (context, child, frame, wasSynchronouslyLoaded) {
+                          if (wasSynchronouslyLoaded || frame != null) {
+                            return child;
+                          }
+                          return const _MessageImagePlaceholder();
+                        },
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageImagePlaceholder extends StatelessWidget {
+  const _MessageImagePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: WebTuiColors.primarySoft,
+      child: Center(
+        child: Icon(
+          CupertinoIcons.photo,
+          color: WebTuiColors.primary,
+          size: 28,
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageFileAttachmentTile extends StatelessWidget {
+  const _MessageFileAttachmentTile({
+    required this.attachment,
+    required this.outgoing,
+  });
+
+  final MessageAttachment attachment;
+  final bool outgoing;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 250),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: outgoing ? WebTuiColors.primarySoft : WebTuiColors.surface,
+          borderRadius: BorderRadius.circular(WebTuiRadii.lg),
+          border: Border.all(color: WebTuiColors.border),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(WebTuiSpacing.sm),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _messageAttachmentIcon(attachment.kind),
+                size: 20,
+                color: WebTuiColors.primary,
+              ),
+              const SizedBox(width: WebTuiSpacing.sm),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      attachment.file.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: WebTuiTypography.labelSmall.copyWith(
+                        color: WebTuiColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      _formatBytes(attachment.file.byteSize),
+                      style: WebTuiTypography.labelSmall.copyWith(
+                        color: WebTuiColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2715,7 +2827,67 @@ String _displayMessageBody(ChatMessage message) {
   if (message.isDeleted) {
     return 'Tin nhắn đã được thu hồi';
   }
+  if (_isGeneratedAttachmentBody(message.body, message.attachments)) {
+    return '';
+  }
   return message.body;
+}
+
+bool _isGeneratedAttachmentBody(
+  String body,
+  List<MessageAttachment> attachments,
+) {
+  if (attachments.isEmpty) {
+    return false;
+  }
+  final normalized = _compactMessageText(body);
+  if (normalized.isEmpty) {
+    return false;
+  }
+  if (normalized == 'đã gửi tệp đính kèm' ||
+      normalized == 'da gui tep dinh kem') {
+    return true;
+  }
+
+  final hasOnlyImages = attachments.every((attachment) => attachment.isImage);
+  final hasOnlyAudio = attachments.every((attachment) => attachment.isAudio);
+  if (hasOnlyImages &&
+      (RegExp(r'^đã gửi(?: \d+)? ảnh$').hasMatch(normalized) ||
+          RegExp(r'^da gui(?: \d+)? anh$').hasMatch(normalized))) {
+    return true;
+  }
+  if (hasOnlyAudio &&
+      (RegExp(r'^đã gửi(?: \d+)? tin nhắn thoại$').hasMatch(normalized) ||
+          RegExp(r'^da gui(?: \d+)? tin nhan thoai$').hasMatch(normalized))) {
+    return true;
+  }
+  if (attachments.length == 1) {
+    final fileName = _compactMessageText(attachments.first.file.name);
+    return normalized == 'đã gửi file $fileName' ||
+        normalized == 'da gui file $fileName' ||
+        (hasOnlyImages && normalized == fileName);
+  }
+  return normalized == 'đã gửi ${attachments.length} file' ||
+      normalized == 'da gui ${attachments.length} file';
+}
+
+String _compactMessageText(String value) {
+  return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+}
+
+Uri? _attachmentDownloadUri(MessageAttachment attachment, Uri? apiBaseUri) {
+  final rawPath = attachment.file.downloadPath.trim();
+  if (rawPath.isEmpty) {
+    return null;
+  }
+  final uri = Uri.tryParse(rawPath);
+  if (uri == null) {
+    return null;
+  }
+  if (uri.hasScheme) {
+    return uri;
+  }
+  return apiBaseUri?.resolve(rawPath);
 }
 
 String _messageSemanticLabel(

@@ -51,6 +51,7 @@ import '../../features/conversations/data/datasources/conversation_cache_data_so
 import '../../features/conversations/data/datasources/conversation_remote_data_source.dart';
 import '../../features/conversations/data/datasources/message_attachment_remote_data_source.dart';
 import '../../features/conversations/data/datasources/message_outbox_data_source.dart';
+import '../../features/conversations/data/datasources/stream_video_remote_data_source.dart';
 import '../../features/conversations/data/repositories/audio_message_attachment_repository.dart';
 import '../../features/conversations/data/repositories/caching_conversation_repository.dart';
 import '../../features/conversations/data/repositories/call_repository_impl.dart';
@@ -517,6 +518,11 @@ final messageAttachmentRepositoryProvider =
 final callRemoteDataSourceProvider = Provider<CallRemoteDataSource>((ref) {
   return CallRemoteDataSource(ref.watch(apiTransportProvider));
 });
+
+final streamVideoRemoteDataSourceProvider =
+    Provider<StreamVideoRemoteDataSource>((ref) {
+      return StreamVideoRemoteDataSource(ref.watch(apiTransportProvider));
+    });
 
 final callRepositoryProvider = Provider<CallRepository>((ref) {
   return CallRepositoryImpl(ref.watch(callRemoteDataSourceProvider));

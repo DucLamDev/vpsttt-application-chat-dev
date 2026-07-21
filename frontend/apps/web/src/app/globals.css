@@ -11573,7 +11573,7 @@ textarea {
 }
 
 .chat-app-shell--zalo .message-row--media-only .attachment-image > .attachment-media-card__caption {
-  display: block;
+  display: none;
 }
 
 /* Keep message actions above adjacent virtualized rows and reveal them on desktop hover. */

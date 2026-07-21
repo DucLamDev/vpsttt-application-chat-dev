@@ -74,6 +74,7 @@ import (
 	usersapp "github.com/duclamdev/application-chat/backend/internal/modules/users/application"
 	usershttp "github.com/duclamdev/application-chat/backend/internal/modules/users/delivery/http"
 	userspostgres "github.com/duclamdev/application-chat/backend/internal/modules/users/infrastructure/postgres"
+	videohttp "github.com/duclamdev/application-chat/backend/internal/modules/video/delivery/http"
 	webhooksapp "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/application"
 	webhookshttp "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/delivery/http"
 	webhooksender "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/infrastructure/httpclient"
@@ -240,6 +241,13 @@ func (a *API) registerAPIV1() {
 	callsService := callsapp.NewService(callsRepo, rbacService, callsRealtime)
 	callsHandler := callshttp.NewHandler(callsService)
 	callsHandler.RegisterRoutes(v1, authMiddleware)
+
+	videoHandler := videohttp.NewHandler(
+		a.cfg.StreamVideo.APIKey,
+		a.cfg.StreamVideo.APISecret,
+		a.cfg.StreamVideo.TokenTTL,
+	)
+	videoHandler.RegisterRoutes(v1, authMiddleware)
 
 	orderRepo := orderpostgres.NewRepository(pool)
 	orderAPIClient := orderclient.New(orderclient.Config{
