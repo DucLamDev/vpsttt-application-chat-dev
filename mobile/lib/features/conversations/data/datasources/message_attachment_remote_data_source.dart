@@ -25,7 +25,10 @@ final class MessageAttachmentRemoteDataSource {
       data: form,
       options: Options(contentType: Headers.multipartFormDataContentType),
     );
-    return _uploadedFileFromMap(envelopeItem(response.data, 'file'));
+    return _uploadedFileFromMap(
+      envelopeItem(response.data, 'file'),
+      fallbackWorkspaceId: workspaceId,
+    );
   }
 
   Future<MessageAttachment> attachFile({
@@ -39,7 +42,10 @@ final class MessageAttachmentRemoteDataSource {
       '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}/attachments',
       data: {'file_id': fileId, 'sort_order': sortOrder},
     );
-    return _attachmentFromMap(envelopeItem(response.data, 'attachment'));
+    return _attachmentFromMap(
+      envelopeItem(response.data, 'attachment'),
+      fallbackWorkspaceId: workspaceId,
+    );
   }
 
   Future<List<MessageAttachment>> listAttachments({
@@ -50,16 +56,24 @@ final class MessageAttachmentRemoteDataSource {
     final response = await _api.get<Object>(
       '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/messages/${_e(messageId)}/attachments',
     );
-    return envelopeList(
-      response.data,
-      'attachments',
-    ).map(_attachmentFromMap).toList(growable: false);
+    return envelopeList(response.data, 'attachments')
+        .map(
+          (item) => _attachmentFromMap(item, fallbackWorkspaceId: workspaceId),
+        )
+        .toList(growable: false);
   }
 }
 
-MessageAttachment _attachmentFromMap(JsonMap map) {
+MessageAttachment _attachmentFromMap(
+  JsonMap map, {
+  required String fallbackWorkspaceId,
+}) {
   final fileMap = jsonMap(field(map, const ['file']));
-  final file = _uploadedFileFromMap(fileMap);
+  final workspaceId = stringField(map, const [
+    'workspace_id',
+    'workspaceId',
+  ], fallback: fallbackWorkspaceId);
+  final file = _uploadedFileFromMap(fileMap, fallbackWorkspaceId: workspaceId);
   final fileId = stringField(map, const [
     'file_id',
     'fileId',
@@ -67,7 +81,7 @@ MessageAttachment _attachmentFromMap(JsonMap map) {
   final messageId = stringField(map, const ['message_id', 'messageId']);
   return MessageAttachment(
     id: stringField(map, const ['id'], fallback: '$messageId:$fileId'),
-    workspaceId: stringField(map, const ['workspace_id', 'workspaceId']),
+    workspaceId: workspaceId,
     messageId: messageId,
     fileId: fileId,
     sortOrder: intField(map, const ['sort_order', 'sortOrder']),
@@ -76,8 +90,15 @@ MessageAttachment _attachmentFromMap(JsonMap map) {
   );
 }
 
-UploadedMessageFile _uploadedFileFromMap(JsonMap map) {
+UploadedMessageFile _uploadedFileFromMap(
+  JsonMap map, {
+  required String fallbackWorkspaceId,
+}) {
   final id = stringField(map, const ['id', 'file_id', 'fileId']);
+  final workspaceId = stringField(map, const [
+    'workspace_id',
+    'workspaceId',
+  ], fallback: fallbackWorkspaceId);
   return UploadedMessageFile(
     id: id,
     name: stringField(map, const [
@@ -92,10 +113,17 @@ UploadedMessageFile _uploadedFileFromMap(JsonMap map) {
       'download_url',
       'downloadUrl',
       'url',
-    ], fallback: id.isEmpty ? '' : '/files/$id/download'),
+    ], fallback: _downloadPathFallback(workspaceId, id)),
     status: stringField(map, const ['status'], fallback: 'ready'),
     createdAt: dateTimeField(map, const ['created_at', 'createdAt']),
   );
+}
+
+String _downloadPathFallback(String workspaceId, String fileId) {
+  if (workspaceId.isEmpty || fileId.isEmpty) {
+    return '';
+  }
+  return '/api/v1/workspaces/${_e(workspaceId)}/files/${_e(fileId)}/download';
 }
 
 String _e(String value) => Uri.encodeComponent(value);

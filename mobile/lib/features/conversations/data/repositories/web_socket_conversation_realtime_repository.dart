@@ -31,7 +31,11 @@ final class WebSocketConversationRealtimeRepository
     required String channelId,
   }) {
     _disposed = false;
-    _room = _roomFor(workspaceId, channelId);
+    final nextRoom = _roomFor(workspaceId, channelId);
+    if (_room != null && _room != nextRoom) {
+      _closeCurrentConnection(leaveRoom: true, closeController: true);
+    }
+    _room = nextRoom;
     _controller ??= StreamController<ConversationRealtimeEvent>.broadcast(
       onListen: () {
         unawaited(_connect(workspaceId: workspaceId, channelId: channelId));
@@ -66,15 +70,7 @@ final class WebSocketConversationRealtimeRepository
   @override
   Future<void> disconnect() async {
     _disposed = true;
-    final room = _room;
-    final socket = _socket;
-    if (socket != null && socket.readyState == WebSocket.open && room != null) {
-      socket.add(jsonEncode({'type': 'leave', 'room': room}));
-    }
-    await socket?.close();
-    _socket = null;
-    await _controller?.close();
-    _controller = null;
+    _closeCurrentConnection(leaveRoom: true, closeController: true);
   }
 
   Future<void> _connect({
@@ -91,6 +87,10 @@ final class WebSocketConversationRealtimeRepository
     final room = _roomFor(workspaceId, channelId);
     try {
       final socket = await WebSocket.connect(_webSocketUri(token).toString());
+      if (_disposed || _room != room) {
+        await socket.close();
+        return;
+      }
       _socket = socket;
       _reconnectAttempt = 0;
       socket.add(jsonEncode({'type': 'join', 'room': room}));
@@ -117,7 +117,9 @@ final class WebSocketConversationRealtimeRepository
   }
 
   void _scheduleReconnect(String workspaceId, String channelId) {
-    if (_disposed || (_controller?.isClosed ?? true)) {
+    if (_disposed ||
+        (_controller?.isClosed ?? true) ||
+        _room != _roomFor(workspaceId, channelId)) {
       return;
     }
     final delay = Duration(
@@ -125,10 +127,30 @@ final class WebSocketConversationRealtimeRepository
     );
     _reconnectAttempt += 1;
     Timer(delay, () {
-      if (!_disposed) {
+      if (!_disposed && _room == _roomFor(workspaceId, channelId)) {
         unawaited(_connect(workspaceId: workspaceId, channelId: channelId));
       }
     });
+  }
+
+  void _closeCurrentConnection({
+    required bool leaveRoom,
+    required bool closeController,
+  }) {
+    final room = _room;
+    final socket = _socket;
+    if (leaveRoom &&
+        socket != null &&
+        socket.readyState == WebSocket.open &&
+        room != null) {
+      socket.add(jsonEncode({'type': 'leave', 'room': room}));
+    }
+    unawaited(socket?.close());
+    _socket = null;
+    if (closeController) {
+      unawaited(_controller?.close());
+      _controller = null;
+    }
   }
 
   Uri _webSocketUri(String accessToken) {
@@ -265,7 +287,10 @@ MessageAttachment _messageAttachmentFromMap(
   required String messageId,
 }) {
   final fileMap = jsonMap(field(map, const ['file']));
-  final file = _uploadedMessageFileFromMap(fileMap.isEmpty ? map : fileMap);
+  final file = _uploadedMessageFileFromMap(
+    fileMap.isEmpty ? map : fileMap,
+    fallbackWorkspaceId: workspaceId,
+  );
   final resolvedMessageId = stringField(map, const [
     'message_id',
     'messageId',
@@ -292,8 +317,15 @@ MessageAttachment _messageAttachmentFromMap(
   );
 }
 
-UploadedMessageFile _uploadedMessageFileFromMap(JsonMap map) {
+UploadedMessageFile _uploadedMessageFileFromMap(
+  JsonMap map, {
+  required String fallbackWorkspaceId,
+}) {
   final id = stringField(map, const ['id', 'file_id', 'fileId']);
+  final workspaceId = stringField(map, const [
+    'workspace_id',
+    'workspaceId',
+  ], fallback: fallbackWorkspaceId);
   return UploadedMessageFile(
     id: id,
     name: stringField(map, const [
@@ -311,11 +343,20 @@ UploadedMessageFile _uploadedMessageFileFromMap(JsonMap map) {
       'download_url',
       'downloadUrl',
       'url',
-    ], fallback: id.isEmpty ? '' : '/files/$id/download'),
+    ], fallback: _downloadPathFallback(workspaceId, id)),
     status: stringField(map, const ['status'], fallback: 'ready'),
     createdAt: dateTimeField(map, const ['created_at', 'createdAt']),
   );
 }
+
+String _downloadPathFallback(String workspaceId, String fileId) {
+  if (workspaceId.isEmpty || fileId.isEmpty) {
+    return '';
+  }
+  return '/api/v1/workspaces/${_e(workspaceId)}/files/${_e(fileId)}/download';
+}
+
+String _e(String value) => Uri.encodeComponent(value);
 
 MessageReactionSummary _reactionFromMap(JsonMap map) {
   return MessageReactionSummary(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart' as stream;
@@ -52,7 +54,7 @@ class _StreamVideoCallScreenState extends ConsumerState<StreamVideoCallScreen> {
     if (credentials.apiKey.isEmpty ||
         credentials.userId.isEmpty ||
         credentials.token.isEmpty) {
-      throw Exception('Stream Video chua duoc cau hinh dung.');
+      throw Exception('Stream Video chưa được cấu hình đúng.');
     }
 
     final profileResult = await ref.read(loadProfileUseCaseProvider).execute();
@@ -80,16 +82,18 @@ class _StreamVideoCallScreenState extends ConsumerState<StreamVideoCallScreen> {
       callType: stream.StreamCallType.defaultType(),
       id: widget.callId,
     );
-    final result = await call.getOrCreate(
-      ringing: true,
-      video: widget.mode == CallMode.video,
-      memberIds: [credentials.userId, widget.targetUserId],
-      custom: {
-        'workspace_id': widget.workspaceId,
-        'channel_id': widget.channelId,
-        'webtui_call_id': widget.callId,
-        'client': 'webtui_mobile',
-      },
+    final result = await _retryStreamRequest(
+      () => call.getOrCreate(
+        ringing: true,
+        video: widget.mode == CallMode.video,
+        memberIds: [credentials.userId, widget.targetUserId],
+        custom: {
+          'workspace_id': widget.workspaceId,
+          'channel_id': widget.channelId,
+          'webtui_call_id': widget.callId,
+          'client': 'webtui_mobile',
+        },
+      ),
     );
     result.fold(
       success: (_) {},
@@ -140,23 +144,53 @@ class _StreamVideoCallScreenState extends ConsumerState<StreamVideoCallScreen> {
 
         if (snapshot.hasError) {
           return _StreamCallStateShell(
-            title: 'Khong the bat dau cuoc goi',
-            message: snapshot.error.toString(),
+            title: 'Không thể bắt đầu cuộc gọi',
+            message: _friendlyCallError(snapshot.error),
             loading: false,
-            actionLabel: 'Quay lai',
+            actionLabel: 'Quay lại',
             onAction: () => Navigator.of(context).pop(),
           );
         }
 
         return _StreamCallStateShell(
           title: widget.mode == CallMode.video
-              ? 'Dang mo video call'
-              : 'Dang mo voice call',
-          message: 'Dang ket noi Stream Video...',
+              ? 'Đang mở cuộc gọi video'
+              : 'Đang mở cuộc gọi thoại',
+          message: 'Đang kết nối Stream Video...',
           loading: true,
         );
       },
     );
+  }
+
+  Future<T> _retryStreamRequest<T>(
+    Future<T> Function() request, {
+    int attempts = 3,
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        return await request();
+      } on Object catch (error) {
+        lastError = error;
+        if (attempt == attempts) {
+          rethrow;
+        }
+        await Future<void>.delayed(Duration(milliseconds: 650 * attempt));
+      }
+    }
+    throw lastError ?? StateError('Không thể kết nối Stream Video.');
+  }
+
+  String _friendlyCallError(Object? error) {
+    final message = error?.toString() ?? '';
+    if (message.toLowerCase().contains('timeout')) {
+      return 'Kết nối Stream Video quá lâu. Vui lòng kiểm tra STREAM_VIDEO_API_KEY, STREAM_VIDEO_API_SECRET trên VPS và mạng thiết bị.';
+    }
+    final normalized = message
+        .replaceFirst(RegExp(r'^Exception:\s*'), '')
+        .trim();
+    return normalized.isEmpty ? 'Không thể kết nối Stream Video.' : normalized;
   }
 }
 

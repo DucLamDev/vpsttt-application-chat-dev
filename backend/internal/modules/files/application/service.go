@@ -79,9 +79,12 @@ type Service struct {
 type UploadInput struct {
 	ActorUserID  string
 	WorkspaceID  string
+	ChannelID    string
+	MessageID    string
 	OriginalName string
 	MimeType     string
 	Size         int64
+	SortOrder    int
 	Body         io.Reader
 	Metadata     json.RawMessage
 }
@@ -213,8 +216,15 @@ func NewService(repo Repository, store ObjectStore, checker PermissionChecker, s
 }
 
 func (s *Service) Upload(ctx context.Context, input UploadInput) (FileDTO, error) {
-	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "file.upload"); err != nil {
-		return FileDTO{}, err
+	attachedUpload := strings.TrimSpace(input.ChannelID) != "" && strings.TrimSpace(input.MessageID) != ""
+	if attachedUpload {
+		if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+			return FileDTO{}, err
+		}
+	} else {
+		if err := s.ensureAnyPermission(ctx, input.ActorUserID, input.WorkspaceID, "file.upload", "message.send"); err != nil {
+			return FileDTO{}, err
+		}
 	}
 	originalName, mimeType, metadata, err := validateUpload(input.OriginalName, input.MimeType, input.Size, input.Metadata)
 	if err != nil {
@@ -256,6 +266,19 @@ func (s *Service) Upload(ctx context.Context, input UploadInput) (FileDTO, error
 	if err != nil {
 		_ = s.store.Delete(ctx, object.Key)
 		return FileDTO{}, err
+	}
+	if attachedUpload {
+		if _, err := s.repo.AttachFile(ctx, AttachFileParams{
+			WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+			ChannelID:   strings.TrimSpace(input.ChannelID),
+			MessageID:   strings.TrimSpace(input.MessageID),
+			FileID:      file.ID,
+			ActorUserID: strings.TrimSpace(input.ActorUserID),
+			SortOrder:   input.SortOrder,
+		}); err != nil {
+			_ = s.store.Delete(ctx, object.Key)
+			return FileDTO{}, mapFileError(err)
+		}
 	}
 	_ = s.repo.RecordAudit(ctx, AuditEvent{
 		WorkspaceID: fileWorkspaceID(file),
@@ -451,6 +474,19 @@ func (s *Service) ensurePermission(ctx context.Context, userID string, workspace
 		return apperrors.Forbidden("Bạn không có quyền thực hiện thao tác này.")
 	}
 	return nil
+}
+
+func (s *Service) ensureAnyPermission(ctx context.Context, userID string, workspaceID string, permissions ...string) error {
+	for _, permission := range permissions {
+		allowed, err := s.checker.HasWorkspacePermission(ctx, strings.TrimSpace(userID), strings.TrimSpace(workspaceID), permission)
+		if err != nil {
+			return err
+		}
+		if allowed {
+			return nil
+		}
+	}
+	return apperrors.Forbidden("Bạn không có quyền thực hiện thao tác này.")
 }
 
 func (s *Service) ensureFileAccess(ctx context.Context, userID string, workspaceID string, fileID string) error {

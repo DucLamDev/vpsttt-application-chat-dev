@@ -15,30 +15,48 @@ import {
 
 type RealtimeMessagePayload = {
   call?: CallSignalPayload;
+  actor_user_id?: string;
   call_id?: string;
   candidate?: RTCIceCandidateInit;
   channel_id?: string;
+  initiator_user_id?: string;
   mode?: CallMode;
   reason?: string;
   sdp?: RTCSessionDescriptionInit;
+  status?: string;
   target_user_id?: string;
   contact_request?: unknown;
   message?: ApiMessage;
+  workspace_id?: string;
   user_id?: string;
 };
 
 export type CallMode = "audio" | "video";
 
-export type CallSignalType = "CallOffer" | "CallAnswer" | "CallIceCandidate" | "CallRejected" | "CallEnded";
+export type CallSignalType =
+  | "CallInvited"
+  | "CallRinging"
+  | "CallAccepted"
+  | "CallOffer"
+  | "CallAnswer"
+  | "CallIceCandidate"
+  | "CallRejected"
+  | "CallCancelled"
+  | "CallEnded"
+  | "CallMissed";
 
 export type CallSignalPayload = {
+  actor_user_id?: string;
   call_id: string;
   candidate?: RTCIceCandidateInit;
   channel_id?: string;
+  initiator_user_id?: string;
   mode?: CallMode;
   reason?: string;
   sdp?: RTCSessionDescriptionInit;
+  status?: string;
   target_user_id?: string;
+  workspace_id?: string;
 };
 
 export type RealtimeCallSignal = {
@@ -272,12 +290,12 @@ export function useChannelRealtime({
       }
 
       if (isCallSignalType(event.type)) {
-        const userId = event.user_id || event.payload?.user_id || "";
-        if (!userId || userId === currentUserId || !event.room) {
-          return;
-        }
         const payload = callPayload;
         if (!payload?.call_id) {
+          return;
+        }
+        const actorUserId = payload.actor_user_id || event.user_id || event.payload?.user_id || payload.initiator_user_id || "";
+        if (!actorUserId || actorUserId === currentUserId || !event.room) {
           return;
         }
         callSignalSequenceRef.current += 1;
@@ -287,7 +305,7 @@ export function useChannelRealtime({
           sequence: callSignalSequenceRef.current,
           timestamp: event.timestamp,
           type: event.type,
-          userId
+          userId: actorUserId
         });
         setConnection({
           lastEventAt: new Date().toISOString(),
@@ -433,11 +451,16 @@ function parseRealtimeEvent(raw: string): RealtimeServerEvent<RealtimeMessagePay
 
 function isCallSignalType(type: string): type is CallSignalType {
   return (
+    type === "CallInvited" ||
+    type === "CallRinging" ||
+    type === "CallAccepted" ||
     type === "CallOffer" ||
     type === "CallAnswer" ||
     type === "CallIceCandidate" ||
     type === "CallRejected" ||
-    type === "CallEnded"
+    type === "CallCancelled" ||
+    type === "CallEnded" ||
+    type === "CallMissed"
   );
 }
 
@@ -451,13 +474,17 @@ function normalizeCallSignalPayload(payload: RealtimeMessagePayload | undefined)
     return null;
   }
   return {
+    actor_user_id: source.actor_user_id,
     call_id: source.call_id,
     candidate: source.candidate,
     channel_id: source.channel_id,
+    initiator_user_id: source.initiator_user_id,
     mode: source.mode,
     reason: source.reason,
     sdp: source.sdp,
-    target_user_id: source.target_user_id
+    status: source.status,
+    target_user_id: source.target_user_id,
+    workspace_id: source.workspace_id
   };
 }
 

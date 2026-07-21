@@ -34,6 +34,7 @@ export type UploadFileInput = {
   file: File;
   channel_id?: Id;
   message_id?: Id;
+  sort_order?: number;
   metadata?: JsonObject;
 };
 

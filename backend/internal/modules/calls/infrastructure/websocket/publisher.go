@@ -24,6 +24,7 @@ func (p *Publisher) Publish(ctx context.Context, event callsapp.RealtimeEvent) e
 	if err := p.manager.Broadcast(ctx, room, platformws.Event{
 		Type:    event.Type,
 		Room:    room,
+		UserID:  event.ActorUserID,
 		Payload: event.Payload,
 	}); err != nil {
 		return err
@@ -35,7 +36,7 @@ func (p *Publisher) Publish(ctx context.Context, event callsapp.RealtimeEvent) e
 	return p.manager.Broadcast(ctx, userRoom, platformws.Event{
 		Type:    event.Type,
 		Room:    userRoom,
-		UserID:  event.TargetUserID,
+		UserID:  event.ActorUserID,
 		Payload: event.Payload,
 	})
 }

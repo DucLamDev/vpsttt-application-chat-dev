@@ -561,6 +561,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
             channel_id: selectedChannelId,
             file: upload.file,
             message_id: sentMessage.id,
+            sort_order: index,
             ...(upload.isAudio
               ? {
                   metadata: {
@@ -569,11 +570,6 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
                   }
                 }
               : {})
-          });
-
-          await api.files.attach(workspaceId, selectedChannelId, sentMessage.id, {
-            file_id: uploadedFile.id,
-            sort_order: index
           });
 
           attachedFiles.push({
@@ -605,6 +601,9 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
             ? "Không tải được tin nhắn thoại. Bản ghi tạm đã được thu hồi; hãy thử lại."
             : "Không tải được tệp đính kèm. Tin nhắn tạm đã được thu hồi; hãy thử lại."
         );
+      }
+      if (attachedFiles.length) {
+        queryClient.setQueryData(queryKeys.files.attachments(workspaceId, selectedChannelId, sentMessage.id), attachedFiles);
       }
 
       return {
@@ -666,6 +665,9 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         updateChannelAfterOwnMessage(current, selectedChannelId, result.message)
       );
       if (input.uploads.length) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.files.attachments(workspaceId, selectedChannelId, result.message.id)
+        });
         await queryClient.invalidateQueries({
           queryKey: queryKeys.files.all(workspaceId),
           refetchType: "inactive"

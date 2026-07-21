@@ -58,7 +58,7 @@ func (h *Handler) StreamToken(c *gin.Context) {
 			c,
 			nethttp.StatusServiceUnavailable,
 			"STREAM_VIDEO_NOT_CONFIGURED",
-			"Stream Video chua duoc cau hinh tren server.",
+			"Stream Video chưa được cấu hình trên server.",
 			nil,
 		)
 		return
@@ -66,7 +66,7 @@ func (h *Handler) StreamToken(c *gin.Context) {
 
 	userID := strings.TrimSpace(middleware.CurrentUserID(c))
 	if userID == "" {
-		response.Fail(c, nethttp.StatusUnauthorized, "UNAUTHORIZED", "Ban can dang nhap de tiep tuc.", nil)
+		response.Fail(c, nethttp.StatusUnauthorized, "UNAUTHORIZED", "Bạn cần đăng nhập để tiếp tục.", nil)
 		return
 	}
 

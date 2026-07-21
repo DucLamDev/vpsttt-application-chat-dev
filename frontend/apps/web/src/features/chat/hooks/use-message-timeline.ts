@@ -404,7 +404,7 @@ function mapFileAttachmentToMessageAttachment(attachment: FileAttachment): Messa
     original_name: attachment.file.original_name,
     size: attachment.file.size,
     size_bytes: attachment.file.size_bytes,
-    url: attachment.file.url
+    url: attachment.file.url ?? attachment.file.download_url
   };
 }
 

@@ -55,9 +55,12 @@ func (h *Handler) Upload(c *gin.Context) {
 	dto, err := h.service.Upload(c.Request.Context(), filesapp.UploadInput{
 		ActorUserID:  middleware.CurrentUserID(c),
 		WorkspaceID:  c.Param("workspace_id"),
+		ChannelID:    c.PostForm("channel_id"),
+		MessageID:    c.PostForm("message_id"),
 		OriginalName: fileHeader.Filename,
 		MimeType:     contentType(fileHeader.Header.Get("Content-Type")),
 		Size:         fileHeader.Size,
+		SortOrder:    formInt(c, "sort_order"),
 		Body:         file,
 		Metadata:     metadataFromForm(c),
 	})
@@ -203,6 +206,14 @@ func metadataFromForm(c *gin.Context) json.RawMessage {
 
 func queryInt(c *gin.Context, key string) int {
 	value, err := strconv.Atoi(c.Query(key))
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func formInt(c *gin.Context, key string) int {
+	value, err := strconv.Atoi(c.PostForm(key))
 	if err != nil {
 		return 0
 	}

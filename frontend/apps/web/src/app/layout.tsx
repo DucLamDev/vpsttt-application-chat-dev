@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import "@stream-io/video-react-sdk/dist/css/styles.css";
 import "@webtui/ui/styles.css";
 import "./globals.css";
 import { AppProviders } from "./providers";

@@ -10,7 +10,7 @@ export function createFilesClient(http: HttpClient) {
       });
       return collectionFrom<FileObject>(data, "files");
     },
-    upload(workspaceId: string, input: UploadFileInput) {
+    async upload(workspaceId: string, input: UploadFileInput) {
       const form = new FormData();
       form.append("file", input.file);
 
@@ -22,11 +22,20 @@ export function createFilesClient(http: HttpClient) {
         form.append("message_id", input.message_id);
       }
 
+      if (typeof input.sort_order === "number" && Number.isFinite(input.sort_order)) {
+        form.append("sort_order", String(input.sort_order));
+      }
+
       if (input.metadata) {
         form.append("metadata", JSON.stringify(input.metadata));
       }
 
-      return http.post<FileObject>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files`, form);
+      const data = await http.post<unknown>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files`, form);
+      const file = itemFrom<FileObject>(data, "file");
+      if (!file) {
+        throw new Error("Không nhận được dữ liệu tệp sau khi tải lên.");
+      }
+      return file;
     },
     async get(workspaceId: string, fileId: string) {
       const data = await http.get<unknown>(
@@ -62,11 +71,16 @@ export function createFilesClient(http: HttpClient) {
       );
       return collectionFrom<FileAttachment>(data, "attachments");
     },
-    attach(workspaceId: string, channelId: string, messageId: string, input: AttachFileInput) {
-      return http.post<FileAttachment>(
+    async attach(workspaceId: string, channelId: string, messageId: string, input: AttachFileInput) {
+      const data = await http.post<unknown>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/attachments`,
         input
       );
+      const attachment = itemFrom<FileAttachment>(data, "attachment");
+      if (!attachment) {
+        throw new Error("Không nhận được dữ liệu đính kèm sau khi gắn tệp.");
+      }
+      return attachment;
     }
   };
 }

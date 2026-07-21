@@ -1,5 +1,6 @@
 import { createAdminClient } from "./admin-client";
 import { createAuthClient } from "./auth-client";
+import { createCallsClient } from "./calls-client";
 import { createChannelsClient } from "./channels-client";
 import { createContactsClient } from "./contacts-client";
 import { createDepartmentsClient } from "./departments-client";
@@ -20,6 +21,7 @@ import { createMessagesClient } from "./messages-client";
 import { createRbacClient } from "./rbac-client";
 import { createTicketsClient } from "./tickets-client";
 import { createUsersClient } from "./users-client";
+import { createVideoClient } from "./video-client";
 import { createWorkspacesClient } from "./workspaces-client";
 
 export function createWebTuiApiClient(options: HttpClientOptions) {
@@ -31,6 +33,7 @@ export function createWebTuiApiClient(options: HttpClientOptions) {
     auth: createAuthClient(http),
     backups: createBackupsClient(http),
     bots: createBotsClient(http),
+    calls: createCallsClient(http),
     channels: createChannelsClient(http),
     contacts: createContactsClient(http),
     cronjobs: createCronjobsClient(http),
@@ -45,6 +48,7 @@ export function createWebTuiApiClient(options: HttpClientOptions) {
     rbac: createRbacClient(http),
     tickets: createTicketsClient(http),
     users: createUsersClient(http),
+    video: createVideoClient(http),
     webhooks: createWebhooksClient(http),
     workspaces: createWorkspacesClient(http)
   };

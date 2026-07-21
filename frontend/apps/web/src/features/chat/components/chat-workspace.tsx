@@ -3,6 +3,15 @@
 import { Fragment, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type FormEvent, type ReactNode, type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useSearchParams } from "next/navigation";
+import {
+  CallControls,
+  SpeakerLayout,
+  StreamCall,
+  StreamTheme,
+  StreamVideo,
+  type Call,
+  type StreamVideoClient
+} from "@stream-io/video-react-sdk";
 import { queryKeys } from "@webtui/api-client";
 import { getPlatformServices, type MediaRecorderHandle } from "@webtui/chat-core";
 import {
@@ -1072,7 +1081,8 @@ export function ChatWorkspace() {
     onCallOutcome: handleCallOutcome,
     peerName: selectedChatChannel?.name,
     peerUserId: selectedChatChannel?.peerUserId,
-    sendSignal: data.realtime.publishCallSignal
+    sendSignal: data.realtime.publishCallSignal,
+    workspaceId: data.workspaceId
   });
   useIncomingCallRingtone(callControls.callState.status === "incoming");
   function handleCallOutcome(outcome: WebRtcCallOutcome) {
@@ -2746,6 +2756,8 @@ export function ChatWorkspace() {
               onToggleCamera={callControls.toggleCamera}
               onToggleMute={callControls.toggleMute}
               remoteStream={callControls.remoteStream}
+              streamCall={callControls.streamCall}
+              streamClient={callControls.streamClient}
             />
             {isMessageSearchOpen ? (
               <div className="message-toolbar">
@@ -5997,7 +6009,9 @@ function CallPanel({
   onReject,
   onToggleCamera,
   onToggleMute,
-  remoteStream
+  remoteStream,
+  streamCall,
+  streamClient
 }: {
   callState: WebRtcCallState;
   isCameraOff: boolean;
@@ -6009,6 +6023,8 @@ function CallPanel({
   onToggleCamera: () => void;
   onToggleMute: () => void;
   remoteStream: MediaStream | null;
+  streamCall: Call | null;
+  streamClient: StreamVideoClient | null;
 }) {
   if (callState.status === "idle") {
     return null;
@@ -6016,7 +6032,9 @@ function CallPanel({
 
   const canControlCall = callState.status === "outgoing" || callState.status === "connecting" || callState.status === "active";
   const isVideo = callState.mode === "video";
+  const showStreamCall = Boolean(streamClient && streamCall && canControlCall);
   const showVideo = isVideo && canControlCall;
+  const showLegacyControls = canControlCall && !showStreamCall;
 
   return (
     <section className={`call-panel call-panel--${callState.status}`} role="status">
@@ -6029,13 +6047,24 @@ function CallPanel({
           <small>{callPanelSubtitle(callState)}</small>
         </div>
       </div>
-      {showVideo ? (
+      {showStreamCall && streamClient && streamCall ? (
+        <div className={`call-panel__stream call-panel__stream--${callState.mode}`}>
+          <StreamVideo client={streamClient}>
+            <StreamCall call={streamCall}>
+              <StreamTheme className="webtui-stream-call">
+                <SpeakerLayout participantsBarPosition="bottom" />
+                <CallControls onLeave={onEnd} />
+              </StreamTheme>
+            </StreamCall>
+          </StreamVideo>
+        </div>
+      ) : showVideo ? (
         <div className="call-panel__video-grid">
           <MediaStreamVideo label={callState.peerName || "Người gọi"} stream={remoteStream} />
           <MediaStreamVideo label="Bạn" muted stream={localStream} />
         </div>
       ) : null}
-      {!isVideo && canControlCall ? <MediaStreamAudio stream={remoteStream} /> : null}
+      {!isVideo && showLegacyControls ? <MediaStreamAudio stream={remoteStream} /> : null}
       <div className="call-panel__actions">
         {callState.status === "incoming" ? (
           <>
@@ -6049,7 +6078,7 @@ function CallPanel({
             </Button>
           </>
         ) : null}
-        {canControlCall ? (
+        {showLegacyControls ? (
           <>
             <Button className={isMuted ? "call-panel__button call-panel__button--active" : "call-panel__button"} onClick={onToggleMute} size="sm" variant="secondary">
               {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
@@ -7768,7 +7797,7 @@ function AttachmentMedia({
   onPreview: (attachment: MessageAttachmentItem, source?: string) => void;
   onResolve: (fileId: string) => Promise<Blob>;
 }) {
-  const directSource = attachment.previewUrl ?? attachment.url;
+  const directSource = directEmbeddableMediaSource(attachment.previewUrl) ?? directEmbeddableMediaSource(attachment.url);
   const [resolvedSource, setResolvedSource] = useState<string | undefined>(directSource ?? getCachedMediaUrl(attachment.fileId));
 
   useEffect(() => {
@@ -7829,6 +7858,22 @@ function AttachmentMedia({
       </span>
     </button>
   );
+}
+
+function directEmbeddableMediaSource(value?: string): string | undefined {
+  const source = value?.trim();
+  if (!source) {
+    return undefined;
+  }
+  if (source.startsWith("blob:") || source.startsWith("data:")) {
+    return source;
+  }
+  try {
+    const url = new URL(source);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const voiceWaveformHeights = [8, 14, 10, 20, 13, 24, 16, 10, 21, 14, 26, 18, 10, 20, 13, 24, 16, 9, 18, 12, 23, 16, 10, 21, 14, 25, 17, 10, 20, 13, 22, 15];
@@ -8052,11 +8097,12 @@ function MediaGalleryThumbnail({
   item: MediaItem;
   onResolve: (fileId: string) => Promise<Blob>;
 }) {
-  const [source, setSource] = useState(item.url ?? getCachedMediaUrl(item.id));
+  const directSource = directEmbeddableMediaSource(item.url);
+  const [source, setSource] = useState(directSource ?? getCachedMediaUrl(item.id));
 
   useEffect(() => {
-    if (item.url) {
-      setSource(item.url);
+    if (directSource) {
+      setSource(directSource);
       return undefined;
     }
     let disposed = false;
@@ -8070,7 +8116,7 @@ function MediaGalleryThumbnail({
     return () => {
       disposed = true;
     };
-  }, [item.id, item.url, onResolve]);
+  }, [directSource, item.id, onResolve]);
 
   return (
     <span

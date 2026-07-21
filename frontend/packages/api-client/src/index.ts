@@ -9,6 +9,8 @@ export {
 } from "./runtime";
 export { createAdminClient } from "./admin-client";
 export { createAuthClient } from "./auth-client";
+export { createCallsClient } from "./calls-client";
+export type { CallMode, CallSession, CallStatus, CreateCallInput } from "./calls-client";
 export { createChannelsClient } from "./channels-client";
 export { createContactsClient } from "./contacts-client";
 export { createDepartmentsClient } from "./departments-client";
@@ -45,4 +47,6 @@ export type {
 export { createTicketsClient } from "./tickets-client";
 export { collectionFrom, itemFrom } from "./response-utils";
 export { createUsersClient } from "./users-client";
+export { createVideoClient } from "./video-client";
+export type { StreamVideoCredentials } from "./video-client";
 export { createWorkspacesClient } from "./workspaces-client";

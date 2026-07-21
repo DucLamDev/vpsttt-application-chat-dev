@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { StreamVideoClient, type Call } from "@stream-io/video-react-sdk";
 import type {
   CallMode,
   CallSignalPayload,
   CallSignalType,
   RealtimeCallSignal
 } from "./use-channel-realtime";
-import { runtimeEnvironment } from "@/lib/api";
+import { api } from "@/lib/api";
 
 export type WebRtcCallStatus = "idle" | "incoming" | "outgoing" | "connecting" | "active" | "ended" | "error";
 
@@ -44,12 +45,10 @@ type UseWebRtcCallOptions = {
   peerName?: string;
   peerUserId?: string;
   sendSignal: (type: CallSignalType, payload: CallSignalPayload) => boolean;
+  workspaceId?: string;
 };
 
-const rtcConfig: RTCConfiguration = {
-  iceServers: runtimeEnvironment.rtcIceServers
-};
-const outgoingRingTimeoutMs = 30_000;
+const outgoingRingTimeoutMs = 45_000;
 
 export function useWebRtcCall({
   channelId,
@@ -57,53 +56,116 @@ export function useWebRtcCall({
   currentUserId,
   enabled = true,
   lastSignal,
-  onCallOutcome,
   peerName,
   peerUserId,
-  sendSignal
+  workspaceId
 }: UseWebRtcCallOptions) {
   const [callState, setCallState] = useState<WebRtcCallState>({ mode: "audio", status: "idle" });
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [streamClient, setStreamClient] = useState<StreamVideoClient | null>(null);
+  const [streamCall, setStreamCall] = useState<Call | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
-  const peerRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
-  const pendingOfferRef = useRef<RealtimeCallSignal | null>(null);
-  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
-  const lastSignalSequenceRef = useRef(0);
-  const loggedOutcomeKeyRef = useRef("");
-  const outgoingRingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clientRef = useRef<StreamVideoClient | null>(null);
+  const clientUserIdRef = useRef("");
+  const callRef = useRef<Call | null>(null);
   const callStateRef = useRef<WebRtcCallState>({ mode: "audio", status: "idle" });
+  const lastSignalSequenceRef = useRef(0);
   const previousChannelIdRef = useRef(channelId);
-  const mediaSessionTokenRef = useRef(0);
+  const operationTokenRef = useRef(0);
+  const outgoingRingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
 
-  const cleanup = useCallback((nextState?: WebRtcCallState) => {
-    mediaSessionTokenRef.current += 1;
+  const clearOutgoingTimer = useCallback(() => {
     if (outgoingRingTimerRef.current) {
       clearTimeout(outgoingRingTimerRef.current);
       outgoingRingTimerRef.current = null;
     }
-    peerRef.current?.close();
-    peerRef.current = null;
-    localStreamRef.current?.getTracks().forEach((track) => track.stop());
-    localStreamRef.current = null;
-    remoteStreamRef.current = null;
-    pendingOfferRef.current = null;
-    pendingCandidatesRef.current = [];
-    setLocalStream(null);
-    setRemoteStream(null);
-    setIsMuted(false);
-    setIsCameraOff(false);
-    setCallState(nextState ?? { mode: "audio", status: "idle" });
   }, []);
 
-  useEffect(() => () => cleanup(), [cleanup]);
+  const resetCallUi = useCallback(
+    (nextState?: WebRtcCallState) => {
+      operationTokenRef.current += 1;
+      clearOutgoingTimer();
+      callRef.current = null;
+      setStreamCall(null);
+      setIsMuted(false);
+      setIsCameraOff(false);
+      setCallState(nextState ?? { mode: "audio", status: "idle" });
+    },
+    [clearOutgoingTimer]
+  );
+
+  const leaveStreamCall = useCallback(async (options?: { reject?: boolean; reason?: string }) => {
+    const call = callRef.current;
+    if (!call) {
+      return;
+    }
+    await call.leave(options).catch(() => undefined);
+  }, []);
+
+  const ensureStreamClient = useCallback(async () => {
+    const credentials = await api.video.streamToken();
+    if (clientRef.current && clientUserIdRef.current === credentials.user_id) {
+      return clientRef.current;
+    }
+
+    await clientRef.current?.disconnectUser().catch(() => undefined);
+    const client = new StreamVideoClient({
+      apiKey: credentials.api_key,
+      token: credentials.token,
+      tokenProvider: async () => {
+        const nextCredentials = await api.video.streamToken();
+        return nextCredentials.token;
+      },
+      user: {
+        id: credentials.user_id,
+        name: credentials.user_id
+      }
+    });
+    clientRef.current = client;
+    clientUserIdRef.current = credentials.user_id;
+    setStreamClient(client);
+    return client;
+  }, []);
+
+  const prepareDevices = useCallback(async (call: Call, mode: CallMode) => {
+    await call.microphone.enable();
+    if (mode === "video") {
+      await call.camera.enable();
+      setIsCameraOff(false);
+    } else {
+      await call.camera.disable();
+      setIsCameraOff(true);
+    }
+    setIsMuted(false);
+  }, []);
+
+  const joinStreamCall = useCallback(
+    async (call: Call, mode: CallMode, options: { ring?: boolean }) => {
+      if (!workspaceId || !channelId || !peerUserId) {
+        throw new Error("Thiếu thông tin cuộc trò chuyện để bắt đầu cuộc gọi.");
+      }
+      await call.join({
+        create: true,
+        data: {
+          custom: {
+            channel_id: channelId,
+            client: "webtui_web",
+            provider: "stream_video",
+            workspace_id: workspaceId
+          },
+          members: [{ user_id: currentUserId }, { user_id: peerUserId }],
+          video: mode === "video"
+        },
+        ring: options.ring,
+        video: mode === "video"
+      });
+    },
+    [channelId, currentUserId, peerUserId, workspaceId]
+  );
 
   useEffect(() => {
     const channelChanged = previousChannelIdRef.current !== channelId;
@@ -111,16 +173,12 @@ export function useWebRtcCall({
     if (channelChanged) {
       lastSignalSequenceRef.current = 0;
     }
-    const hasLiveResources = Boolean(
-      peerRef.current ||
-        localStreamRef.current ||
-        remoteStreamRef.current ||
-        (callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error")
-    );
-    if ((!enabled || channelChanged) && hasLiveResources) {
-      cleanup();
+    const hasLiveCall = callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error";
+    if ((!enabled || channelChanged) && hasLiveCall) {
+      void leaveStreamCall({ reason: channelChanged ? "channel_changed" : "disabled" });
+      resetCallUi();
     }
-  }, [channelId, cleanup, enabled]);
+  }, [channelId, enabled, leaveStreamCall, resetCallUi]);
 
   useEffect(() => {
     if (callState.status !== "ended" && callState.status !== "error") {
@@ -132,286 +190,218 @@ export function useWebRtcCall({
     return () => window.clearTimeout(timeout);
   }, [callState.status]);
 
-  const publish = useCallback(
-    (type: CallSignalType, payload: Omit<CallSignalPayload, "channel_id">) => {
-      if (!channelId) {
-        return false;
-      }
-      const targetUserId = payload.target_user_id ?? callStateRef.current.peerUserId ?? peerUserId;
-      return sendSignal(type, {
-        ...payload,
-        channel_id: channelId,
-        target_user_id: targetUserId
-      });
+  useEffect(
+    () => () => {
+      clearOutgoingTimer();
+      void callRef.current?.leave({ reason: "component_unmounted" }).catch(() => undefined);
+      void clientRef.current?.disconnectUser().catch(() => undefined);
+      callRef.current = null;
+      clientRef.current = null;
     },
-    [channelId, peerUserId, sendSignal]
+    [clearOutgoingTimer]
   );
-
-  const emitOutcome = useCallback(
-    (outcome: WebRtcCallOutcome) => {
-      const key = `${outcome.callId}:${outcome.status}`;
-      if (loggedOutcomeKeyRef.current === key) {
-        return;
-      }
-      loggedOutcomeKeyRef.current = key;
-      onCallOutcome?.(outcome);
-    },
-    [onCallOutcome]
-  );
-
-  const createPeer = useCallback(
-    (callId: string, mode: CallMode) => {
-      const peer = new RTCPeerConnection(rtcConfig);
-      peer.onicecandidate = (event) => {
-        if (event.candidate) {
-          publish("CallIceCandidate", {
-            call_id: callId,
-            candidate: event.candidate.toJSON(),
-            mode
-          });
-        }
-      };
-      peer.ontrack = (event) => {
-        let stream = remoteStreamRef.current;
-        if (!stream) {
-          stream = new MediaStream();
-          remoteStreamRef.current = stream;
-        }
-        for (const track of event.streams[0]?.getTracks() ?? [event.track]) {
-          if (!stream.getTracks().some((current) => current.id === track.id)) {
-            stream.addTrack(track);
-          }
-        }
-        setRemoteStream(new MediaStream(stream.getTracks()));
-        setCallState((current) =>
-          current.callId === callId && current.status !== "ended" && current.status !== "error"
-            ? { ...current, startedAt: current.startedAt ?? Date.now(), status: "active" }
-            : current
-        );
-      };
-      peer.onconnectionstatechange = () => {
-        if (peer.connectionState === "connected") {
-          setCallState((current) =>
-            current.callId === callId ? { ...current, startedAt: current.startedAt ?? Date.now(), status: "active" } : current
-          );
-        }
-        if (peer.connectionState === "failed" || peer.connectionState === "disconnected") {
-          setCallState((current) =>
-            current.callId === callId ? { ...current, error: "Kết nối cuộc gọi bị gián đoạn.", status: "error" } : current
-          );
-        }
-      };
-      peerRef.current = peer;
-      return peer;
-    },
-    [publish]
-  );
-
-  const openLocalMedia = useCallback(async (mode: CallMode) => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Thiết bị hiện tại không hỗ trợ camera/micro.");
-    }
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true },
-      video: mode === "video" ? { facingMode: "user", height: { ideal: 720 }, width: { ideal: 1280 } } : false
-    }).catch((error: unknown) => {
-      throw new Error(mediaAccessMessage(error, mode));
-    });
-    localStreamRef.current = stream;
-    setLocalStream(stream);
-    setIsMuted(false);
-    setIsCameraOff(false);
-    return stream;
-  }, []);
-
-  const attachLocalTracks = useCallback((peer: RTCPeerConnection, stream: MediaStream) => {
-    stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-  }, []);
-
-  const flushPendingCandidates = useCallback(async () => {
-    const peer = peerRef.current;
-    if (!peer?.remoteDescription) {
-      return;
-    }
-    const candidates = pendingCandidatesRef.current.splice(0);
-    for (const candidate of candidates) {
-      await peer.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => undefined);
-    }
-  }, []);
 
   const startCall = useCallback(
     async (mode: CallMode) => {
-      if (!enabled || !channelId) {
+      if (!enabled || !workspaceId || !channelId) {
         setCallState({ error: "Realtime chưa sẵn sàng để bắt đầu cuộc gọi.", mode, status: "error" });
+        return;
+      }
+      if (!peerUserId) {
+        setCallState({ error: "Không tìm thấy người nhận cuộc gọi trong hội thoại này.", mode, status: "error" });
         return;
       }
       if (callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error") {
         return;
       }
-      const callId = newCallId();
-      const mediaSessionToken = ++mediaSessionTokenRef.current;
+
+      const operationToken = ++operationTokenRef.current;
+      let backendCallId = "";
       try {
-        loggedOutcomeKeyRef.current = "";
-        const ringStartedAt = Date.now();
-        setCallState({ callId, initiatorUserId: currentUserId, mode, peerName: peerName || channelName, status: "outgoing" });
-        const stream = await openLocalMedia(mode);
-        if (mediaSessionToken !== mediaSessionTokenRef.current) {
-          cleanup();
-          return;
-        }
-        const peer = createPeer(callId, mode);
-        attachLocalTracks(peer, stream);
-        const offer = await peer.createOffer();
-        await peer.setLocalDescription(offer);
-        publish("CallOffer", {
-          call_id: callId,
-          mode,
-          sdp: toSessionDescriptionInit(peer.localDescription, offer)
-        });
-        outgoingRingTimerRef.current = setTimeout(() => {
-          const current = callStateRef.current;
-          if (current.callId !== callId || current.status !== "outgoing") {
-            return;
-          }
-          publish("CallEnded", {
-            call_id: callId,
-            mode,
-            reason: "missed"
-          });
-          emitOutcome({
-            callId,
-            direction: "outgoing",
-            endedAt: Date.now(),
-            initiatorUserId: currentUserId,
-            mode,
-            reason: "no-answer",
-            startedAt: ringStartedAt,
-            status: "missed"
-          });
-          cleanup({ callId, error: "Không có phản hồi.", initiatorUserId: currentUserId, mode, status: "ended" });
-        }, outgoingRingTimeoutMs);
-      } catch (error) {
-        cleanup({
-          callId,
-          error: error instanceof Error ? error.message : "Không bắt đầu được cuộc gọi.",
+        setCallState({
           initiatorUserId: currentUserId,
           mode,
+          peerName: peerName || channelName,
+          peerUserId,
+          status: "outgoing"
+        });
+        const backendCall = await api.calls.create(workspaceId, {
+          channel_id: channelId,
+          client_call_id: newCallId(),
+          metadata: {
+            client: "web",
+            provider: "stream_video"
+          },
+          mode,
+          target_user_id: peerUserId
+        });
+        backendCallId = backendCall.id;
+        if (operationToken !== operationTokenRef.current) {
+          return;
+        }
+
+        const client = await ensureStreamClient();
+        const call = client.call("default", backendCall.id, { reuseInstance: true });
+        callRef.current = call;
+        setStreamCall(call);
+        setCallState({
+          callId: backendCall.id,
+          initiatorUserId: backendCall.initiator_user_id || currentUserId,
+          mode,
+          peerName: peerName || channelName,
+          peerUserId,
+          status: "outgoing"
+        });
+        await prepareDevices(call, mode);
+        await joinStreamCall(call, mode, { ring: true });
+
+        outgoingRingTimerRef.current = setTimeout(() => {
+          const current = callStateRef.current;
+          if (current.callId !== backendCall.id || current.status !== "outgoing") {
+            return;
+          }
+          void api.calls.cancel(workspaceId, backendCall.id, "no_answer").catch(() => undefined);
+          void leaveStreamCall({ reason: "no_answer" });
+          resetCallUi({
+            callId: backendCall.id,
+            error: "Không có phản hồi.",
+            initiatorUserId: currentUserId,
+            mode,
+            peerName: peerName || channelName,
+            peerUserId,
+            status: "ended"
+          });
+        }, outgoingRingTimeoutMs);
+      } catch (error) {
+        if (backendCallId) {
+          void api.calls.cancel(workspaceId, backendCallId, "stream_join_failed").catch(() => undefined);
+        }
+        await leaveStreamCall({ reason: "stream_join_failed" });
+        resetCallUi({
+          callId: backendCallId || undefined,
+          error: callErrorMessage(error),
+          initiatorUserId: currentUserId,
+          mode,
+          peerName: peerName || channelName,
+          peerUserId,
           status: "error"
         });
       }
     },
-    [attachLocalTracks, channelId, channelName, cleanup, createPeer, currentUserId, emitOutcome, enabled, openLocalMedia, peerName, publish]
+    [
+      channelId,
+      channelName,
+      currentUserId,
+      enabled,
+      ensureStreamClient,
+      joinStreamCall,
+      leaveStreamCall,
+      peerName,
+      peerUserId,
+      prepareDevices,
+      resetCallUi,
+      workspaceId
+    ]
   );
 
   const acceptCall = useCallback(async () => {
-    const signal = pendingOfferRef.current;
-    const offer = signal?.payload.sdp;
-    if (!signal || !offer) {
+    const current = callStateRef.current;
+    if (!workspaceId || !current.callId || current.status !== "incoming") {
       return;
     }
-    const callId = signal.payload.call_id;
-    const mode = signal.payload.mode ?? "audio";
-    const mediaSessionToken = ++mediaSessionTokenRef.current;
+    const operationToken = ++operationTokenRef.current;
     try {
-      loggedOutcomeKeyRef.current = "";
-      setCallState({ callId, initiatorUserId: signal.userId, mode, peerName: peerName || channelName, peerUserId: signal.userId, status: "connecting" });
-      const stream = await openLocalMedia(mode);
-      if (mediaSessionToken !== mediaSessionTokenRef.current) {
-        cleanup();
+      setCallState({ ...current, status: "connecting" });
+      const client = await ensureStreamClient();
+      const call = client.call("default", current.callId, { reuseInstance: true });
+      callRef.current = call;
+      setStreamCall(call);
+      await prepareDevices(call, current.mode);
+      await joinStreamCall(call, current.mode, { ring: false });
+      if (operationToken !== operationTokenRef.current) {
         return;
       }
-      const peer = createPeer(callId, mode);
-      attachLocalTracks(peer, stream);
-      await peer.setRemoteDescription(new RTCSessionDescription(offer));
-      await flushPendingCandidates();
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
-      publish("CallAnswer", {
-        call_id: callId,
-        mode,
-        sdp: toSessionDescriptionInit(peer.localDescription, answer)
+      await api.calls.accept(workspaceId, current.callId).catch(() => undefined);
+      setCallState({
+        ...current,
+        startedAt: current.startedAt ?? Date.now(),
+        status: "active"
       });
-      pendingOfferRef.current = null;
     } catch (error) {
-      publish("CallRejected", { call_id: callId, mode, reason: "media-error" });
-      cleanup({
-        callId,
-        error: error instanceof Error ? error.message : "Không tham gia được cuộc gọi.",
-        initiatorUserId: signal.userId,
-        mode,
+      await api.calls.reject(workspaceId, current.callId, "stream_join_failed").catch(() => undefined);
+      await leaveStreamCall({ reject: true, reason: "stream_join_failed" });
+      resetCallUi({
+        ...current,
+        error: callErrorMessage(error),
         status: "error"
       });
     }
-  }, [attachLocalTracks, channelName, cleanup, createPeer, flushPendingCandidates, openLocalMedia, peerName, publish]);
+  }, [ensureStreamClient, joinStreamCall, leaveStreamCall, prepareDevices, resetCallUi, workspaceId]);
 
   const rejectCall = useCallback(() => {
-    const signal = pendingOfferRef.current;
-    if (signal) {
-      publish("CallRejected", {
-        call_id: signal.payload.call_id,
-        mode: signal.payload.mode ?? "audio",
-        reason: "declined"
-      });
+    const current = callStateRef.current;
+    if (workspaceId && current.callId) {
+      void api.calls.reject(workspaceId, current.callId, "declined").catch(() => undefined);
     }
-    cleanup();
-  }, [cleanup, publish]);
+    void leaveStreamCall({ reject: true, reason: "declined" });
+    resetCallUi();
+  }, [leaveStreamCall, resetCallUi, workspaceId]);
 
   const endCall = useCallback(() => {
     const current = callStateRef.current;
-    if (current.callId && current.status !== "idle") {
-      publish("CallEnded", {
-        call_id: current.callId,
-        mode: current.mode,
-        reason: current.status === "active" ? "ended" : "missed"
-      });
-      emitOutcome({
-        callId: current.callId,
-        direction: current.initiatorUserId === currentUserId ? "outgoing" : "incoming",
-        durationSeconds: current.status === "active" ? Math.max(1, Math.round((Date.now() - (current.startedAt ?? Date.now())) / 1000)) : 0,
-        endedAt: Date.now(),
-        initiatorUserId: current.initiatorUserId || currentUserId,
-        mode: current.mode,
-        reason: current.status === "active" ? "ended" : "cancelled",
-        startedAt: current.startedAt,
-        status: current.status === "active" ? "completed" : "missed"
-      });
+    if (workspaceId && current.callId) {
+      if (current.status === "outgoing") {
+        void api.calls.cancel(workspaceId, current.callId, "cancelled").catch(() => undefined);
+      } else if (current.status === "active") {
+        void api.calls.hangup(workspaceId, current.callId, "ended").catch(() => undefined);
+      } else if (current.status === "incoming") {
+        void api.calls.reject(workspaceId, current.callId, "declined").catch(() => undefined);
+      } else {
+        void api.calls.hangup(workspaceId, current.callId, "ended").catch(() =>
+          api.calls.cancel(workspaceId, current.callId as string, "cancelled").catch(() => undefined)
+        );
+      }
     }
-    cleanup({ callId: current.callId, initiatorUserId: current.initiatorUserId, mode: current.mode, status: "ended" });
-  }, [cleanup, currentUserId, emitOutcome, publish]);
+    void leaveStreamCall({ reason: "ended" });
+    resetCallUi({
+      callId: current.callId,
+      initiatorUserId: current.initiatorUserId,
+      mode: current.mode,
+      peerName: current.peerName,
+      peerUserId: current.peerUserId,
+      status: "ended"
+    });
+  }, [leaveStreamCall, resetCallUi, workspaceId]);
 
   const toggleMute = useCallback(() => {
-    const stream = localStreamRef.current;
-    if (!stream) {
+    const call = callRef.current;
+    if (!call) {
       return;
     }
-    const nextMuted = !isMuted;
-    stream.getAudioTracks().forEach((track) => {
-      track.enabled = !nextMuted;
+    void call.microphone.toggle().then(() => {
+      setIsMuted(!call.microphone.enabled);
     });
-    setIsMuted(nextMuted);
-  }, [isMuted]);
+  }, []);
 
   const toggleCamera = useCallback(() => {
-    const stream = localStreamRef.current;
-    if (!stream) {
+    const call = callRef.current;
+    if (!call) {
       return;
     }
-    const nextOff = !isCameraOff;
-    stream.getVideoTracks().forEach((track) => {
-      track.enabled = !nextOff;
+    void call.camera.toggle().then(() => {
+      setIsCameraOff(!call.camera.enabled);
     });
-    setIsCameraOff(nextOff);
-  }, [isCameraOff]);
+  }, []);
 
   useEffect(() => {
     if (!lastSignal) {
       return;
     }
-    if (!enabled || !channelId) {
+    if (!enabled || !workspaceId || !channelId) {
       lastSignalSequenceRef.current = Math.max(lastSignalSequenceRef.current, lastSignal.sequence);
       return;
     }
-    if (lastSignal.payload.channel_id && channelId && lastSignal.payload.channel_id !== channelId) {
+    if (lastSignal.payload.channel_id && lastSignal.payload.channel_id !== channelId) {
       return;
     }
     if (lastSignal.sequence <= lastSignalSequenceRef.current) {
@@ -419,79 +409,92 @@ export function useWebRtcCall({
     }
     lastSignalSequenceRef.current = lastSignal.sequence;
 
-    const handleSignal = async () => {
-      const payload = lastSignal.payload;
-      const callId = payload.call_id;
-      const mode = payload.mode ?? callStateRef.current.mode ?? "audio";
+    const payload = lastSignal.payload;
+    const callId = payload.call_id;
+    const mode = payload.mode ?? callStateRef.current.mode ?? "audio";
+    const signalWorkspaceId = payload.workspace_id || workspaceId;
 
-      if (lastSignal.type === "CallOffer") {
-        const busy = callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error";
-        if (busy) {
-          publish("CallRejected", { call_id: callId, mode, reason: "busy" });
-          return;
-        }
-        pendingOfferRef.current = lastSignal;
-        setCallState({
-          callId,
-          initiatorUserId: lastSignal.userId,
-          mode,
-          peerName: peerName || channelName,
-          peerUserId: lastSignal.userId,
-          status: "incoming"
-        });
+    if (lastSignal.type === "CallInvited") {
+      if (payload.target_user_id && payload.target_user_id !== currentUserId) {
         return;
       }
-
-      if (callStateRef.current.callId !== callId) {
+      const busy = callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error";
+      if (busy) {
+        void api.calls.reject(signalWorkspaceId, callId, "busy").catch(() => undefined);
         return;
       }
+      setCallState({
+        callId,
+        initiatorUserId: payload.initiator_user_id || lastSignal.userId,
+        mode,
+        peerName: peerName || channelName,
+        peerUserId: payload.initiator_user_id || lastSignal.userId,
+        status: "incoming"
+      });
+      return;
+    }
 
-      if (lastSignal.type === "CallAnswer" && payload.sdp && peerRef.current) {
-        if (outgoingRingTimerRef.current) {
-          clearTimeout(outgoingRingTimerRef.current);
-          outgoingRingTimerRef.current = null;
-        }
-        await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-        await flushPendingCandidates();
-        setCallState((current) => ({ ...current, startedAt: current.startedAt ?? Date.now(), status: "active" }));
-        return;
-      }
+    if (callStateRef.current.callId !== callId) {
+      return;
+    }
 
-      if (lastSignal.type === "CallIceCandidate" && payload.candidate) {
-        if (peerRef.current?.remoteDescription) {
-          await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)).catch(() => undefined);
-        } else {
-          pendingCandidatesRef.current.push(payload.candidate);
-        }
-        return;
-      }
+    if (lastSignal.type === "CallAccepted") {
+      clearOutgoingTimer();
+      setCallState((current) => ({
+        ...current,
+        startedAt: current.startedAt ?? Date.now(),
+        status: "active"
+      }));
+      return;
+    }
 
-      if (lastSignal.type === "CallRejected") {
-        const current = callStateRef.current;
-        if (current.initiatorUserId === currentUserId) {
-          emitOutcome({
-            callId,
-            direction: "outgoing",
-            durationSeconds: 0,
-            endedAt: Date.now(),
-            initiatorUserId: currentUserId,
-            mode,
-            reason: payload.reason,
-            startedAt: current.startedAt,
-            status: "missed"
-          });
-        }
-        cleanup({ callId, error: rejectionMessage(payload.reason), mode, status: "ended" });
-        return;
-      }
+    if (lastSignal.type === "CallRejected") {
+      resetCallUi({
+        callId,
+        error: rejectionMessage(payload.reason),
+        mode,
+        peerName: callStateRef.current.peerName,
+        peerUserId: callStateRef.current.peerUserId,
+        status: "ended"
+      });
+      return;
+    }
 
-      if (lastSignal.type === "CallEnded") {
-        cleanup({ callId, mode, status: "ended" });
-      }
-    };
+    if (lastSignal.type === "CallCancelled" || lastSignal.type === "CallMissed") {
+      void leaveStreamCall({ reason: payload.reason || "cancelled" });
+      resetCallUi({
+        callId,
+        error: lastSignal.type === "CallMissed" ? "Cuộc gọi bị nhỡ." : "Cuộc gọi đã bị hủy.",
+        mode,
+        peerName: callStateRef.current.peerName,
+        peerUserId: callStateRef.current.peerUserId,
+        status: "ended"
+      });
+      return;
+    }
 
-    void handleSignal();
-  }, [channelId, channelName, cleanup, currentUserId, emitOutcome, enabled, flushPendingCandidates, lastSignal, peerName, publish]);
+    if (lastSignal.type === "CallEnded") {
+      void leaveStreamCall({ reason: payload.reason || "ended" });
+      resetCallUi({
+        callId,
+        mode,
+        peerName: callStateRef.current.peerName,
+        peerUserId: callStateRef.current.peerUserId,
+        status: "ended"
+      });
+    }
+  }, [
+    channelId,
+    channelName,
+    clearOutgoingTimer,
+    currentUserId,
+    enabled,
+    lastSignal,
+    leaveStreamCall,
+    peerName,
+    resetCallUi,
+    workspaceId
+  ]);
 
   return {
     acceptCall,
@@ -499,10 +502,12 @@ export function useWebRtcCall({
     endCall,
     isCameraOff,
     isMuted,
-    localStream,
+    localStream: null as MediaStream | null,
     rejectCall,
-    remoteStream,
+    remoteStream: null as MediaStream | null,
     startCall,
+    streamCall,
+    streamClient,
     toggleCamera,
     toggleMute
   };
@@ -522,31 +527,12 @@ function rejectionMessage(reason: string | undefined): string {
   return "Cuộc gọi đã kết thúc.";
 }
 
-function mediaAccessMessage(error: unknown, mode: CallMode): string {
-  const name = error instanceof DOMException || error instanceof Error ? error.name : "";
-  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return mode === "video"
-      ? "Không tìm thấy camera hoặc micro. Hãy kiểm tra thiết bị đầu vào rồi thử lại."
-      : "Không tìm thấy micro. Hãy kiểm tra thiết bị đầu vào rồi thử lại.";
-  }
-  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-    return "Trình duyệt đang chặn quyền micro/camera. Hãy cấp quyền rồi gọi lại.";
-  }
-  if (name === "NotReadableError" || name === "TrackStartError") {
-    return "Micro/camera đang được ứng dụng khác sử dụng hoặc chưa sẵn sàng.";
-  }
-  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
-    return "Thiết bị không đáp ứng cấu hình cuộc gọi. Hãy thử lại hoặc đổi thiết bị.";
-  }
+function callErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
+    if (/timeout/i.test(error.message)) {
+      return "Kết nối Stream Video quá lâu. Hãy kiểm tra STREAM_VIDEO_API_KEY, STREAM_VIDEO_API_SECRET trên VPS và mạng thiết bị.";
+    }
     return error.message;
   }
-  return "Không mở được micro/camera cho cuộc gọi.";
-}
-
-function toSessionDescriptionInit(
-  description: RTCSessionDescription | null,
-  fallback: RTCSessionDescriptionInit
-): RTCSessionDescriptionInit {
-  return description ? { sdp: description.sdp, type: description.type } : fallback;
+  return "Không thể bắt đầu cuộc gọi.";
 }

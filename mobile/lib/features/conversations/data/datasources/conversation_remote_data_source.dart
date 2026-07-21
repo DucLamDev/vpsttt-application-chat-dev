@@ -752,7 +752,10 @@ MessageAttachment _messageAttachmentFromMap(
   required String messageId,
 }) {
   final fileMap = jsonMap(field(map, const ['file']));
-  final file = _uploadedMessageFileFromMap(fileMap.isEmpty ? map : fileMap);
+  final file = _uploadedMessageFileFromMap(
+    fileMap.isEmpty ? map : fileMap,
+    fallbackWorkspaceId: workspaceId,
+  );
   final resolvedMessageId = stringField(map, const [
     'message_id',
     'messageId',
@@ -779,8 +782,15 @@ MessageAttachment _messageAttachmentFromMap(
   );
 }
 
-UploadedMessageFile _uploadedMessageFileFromMap(JsonMap map) {
+UploadedMessageFile _uploadedMessageFileFromMap(
+  JsonMap map, {
+  required String fallbackWorkspaceId,
+}) {
   final id = stringField(map, const ['id', 'file_id', 'fileId']);
+  final workspaceId = stringField(map, const [
+    'workspace_id',
+    'workspaceId',
+  ], fallback: fallbackWorkspaceId);
   return UploadedMessageFile(
     id: id,
     name: stringField(map, const [
@@ -798,10 +808,17 @@ UploadedMessageFile _uploadedMessageFileFromMap(JsonMap map) {
       'download_url',
       'downloadUrl',
       'url',
-    ], fallback: id.isEmpty ? '' : '/files/$id/download'),
+    ], fallback: _downloadPathFallback(workspaceId, id)),
     status: stringField(map, const ['status'], fallback: 'ready'),
     createdAt: dateTimeField(map, const ['created_at', 'createdAt']),
   );
+}
+
+String _downloadPathFallback(String workspaceId, String fileId) {
+  if (workspaceId.isEmpty || fileId.isEmpty) {
+    return '';
+  }
+  return '/api/v1/workspaces/${_e(workspaceId)}/files/${_e(fileId)}/download';
 }
 
 MessageReactionSummary _reactionFromMap(JsonMap map) {

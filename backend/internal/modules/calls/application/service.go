@@ -123,6 +123,7 @@ type RealtimeEvent struct {
 	Type         string
 	WorkspaceID  string
 	ChannelID    string
+	ActorUserID  string
 	TargetUserID string
 	Payload      map[string]any
 }
@@ -157,7 +158,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (CallDTO, error
 	if err != nil {
 		return CallDTO{}, mapCallError(err)
 	}
-	_ = s.publish(ctx, "CallInvited", call, call.TargetUserID, map[string]any{"reason": "created"})
+	_ = s.publish(ctx, "CallInvited", call, userID, call.TargetUserID, map[string]any{"reason": "created"})
 	return toCallDTO(call), nil
 }
 
@@ -198,7 +199,7 @@ func (s *Service) ChangeStatus(ctx context.Context, input StatusInput) (CallDTO,
 	if actorID == updated.TargetUserID {
 		targetUserID = updated.InitiatorUserID
 	}
-	_ = s.publish(ctx, eventType, updated, targetUserID, map[string]any{"reason": strings.TrimSpace(input.Reason)})
+	_ = s.publish(ctx, eventType, updated, actorID, targetUserID, map[string]any{"reason": strings.TrimSpace(input.Reason)})
 	return toCallDTO(updated), nil
 }
 
@@ -233,7 +234,7 @@ func (s *Service) SendSignal(ctx context.Context, input SignalInput) (SignalDTO,
 	if actorID == call.TargetUserID {
 		targetUserID = call.InitiatorUserID
 	}
-	_ = s.publish(ctx, signalEventType(signalType), call, targetUserID, map[string]any{"signal": toSignalDTO(signal).Payload})
+	_ = s.publish(ctx, signalEventType(signalType), call, actorID, targetUserID, map[string]any{"signal": toSignalDTO(signal).Payload})
 	return toSignalDTO(signal), nil
 }
 
@@ -324,11 +325,12 @@ func (s *Service) createCallMessage(ctx context.Context, call callsdomain.Call) 
 	})
 }
 
-func (s *Service) publish(ctx context.Context, eventType string, call callsdomain.Call, targetUserID string, extra map[string]any) error {
+func (s *Service) publish(ctx context.Context, eventType string, call callsdomain.Call, actorUserID string, targetUserID string, extra map[string]any) error {
 	if s.realtime == nil {
 		return nil
 	}
 	payload := callPayload(call)
+	payload["actor_user_id"] = strings.TrimSpace(actorUserID)
 	for key, value := range extra {
 		if value != nil {
 			payload[key] = value
@@ -338,6 +340,7 @@ func (s *Service) publish(ctx context.Context, eventType string, call callsdomai
 		Type:         eventType,
 		WorkspaceID:  call.WorkspaceID,
 		ChannelID:    call.ChannelID,
+		ActorUserID:  strings.TrimSpace(actorUserID),
 		TargetUserID: targetUserID,
 		Payload:      payload,
 	})
