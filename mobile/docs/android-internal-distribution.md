@@ -38,6 +38,12 @@ Nginx download host. The Let's Encrypt certificate must include
 `download.vpsttt.com`; otherwise Chrome will block the APK URL with
 `NET::ERR_CERT_COMMON_NAME_INVALID`.
 
+Deploy keeps the primary app/API TLS certificate independent from the download
+domain by default. After DNS for `download.vpsttt.com` points to the production
+VPS, set `ENABLE_DOWNLOAD_DOMAIN_TLS=true` in production `.env` and rerun deploy
+or `deploy/scripts/init-letsencrypt.sh` to add the download host to the
+certificate.
+
 Expected host layout:
 
 ```text

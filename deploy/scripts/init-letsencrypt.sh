@@ -18,6 +18,8 @@ export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(read_env_value FRONTEND_DOMAIN)}"
 export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-chat.vpsttt.com}"
 export DOWNLOAD_DOMAIN="${DOWNLOAD_DOMAIN:-$(read_env_value DOWNLOAD_DOMAIN)}"
 export DOWNLOAD_DOMAIN="${DOWNLOAD_DOMAIN:-download.vpsttt.com}"
+export ENABLE_DOWNLOAD_DOMAIN_TLS="${ENABLE_DOWNLOAD_DOMAIN_TLS:-$(read_env_value ENABLE_DOWNLOAD_DOMAIN_TLS)}"
+export ENABLE_DOWNLOAD_DOMAIN_TLS="${ENABLE_DOWNLOAD_DOMAIN_TLS:-false}"
 export LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-$(read_env_value LETSENCRYPT_EMAIL)}"
 export WEBTUI_API_IMAGE="${WEBTUI_API_IMAGE:-$(read_env_value WEBTUI_API_IMAGE)}"
 export WEBTUI_WORKER_IMAGE="${WEBTUI_WORKER_IMAGE:-$(read_env_value WEBTUI_WORKER_IMAGE)}"
@@ -89,7 +91,11 @@ append_domain_arg() {
 }
 
 append_domain_arg "$FRONTEND_DOMAIN"
-append_domain_arg "$DOWNLOAD_DOMAIN"
+if [ "$ENABLE_DOWNLOAD_DOMAIN_TLS" = "true" ]; then
+  append_domain_arg "$DOWNLOAD_DOMAIN"
+else
+  echo "Skipping TLS for $DOWNLOAD_DOMAIN. Set ENABLE_DOWNLOAD_DOMAIN_TLS=true after DNS points to this VPS."
+fi
 
 request_certificate() {
   extra_args="$1"
@@ -108,12 +114,16 @@ if compose run --rm --no-deps --entrypoint sh nginx -c "test -f /etc/letsencrypt
   echo "TLS certificate already exists for $API_DOMAIN."
   compose up -d nginx
 
-  echo "Ensuring TLS certificate covers: $requested_domains"
-  if ! request_certificate "--expand --keep-until-expiring"; then
-    echo "Let's Encrypt update failed for configured domains." >&2
-    exit 1
+  if [ "$ENABLE_DOWNLOAD_DOMAIN_TLS" = "true" ]; then
+    echo "Ensuring TLS certificate covers: $requested_domains"
+    if ! request_certificate "--expand --keep-until-expiring"; then
+      echo "Let's Encrypt update failed for configured domains." >&2
+      exit 1
+    fi
+    compose exec -T nginx nginx -s reload
+  else
+    echo "Keeping existing TLS certificate. Download domain TLS is disabled for this deploy."
   fi
-  compose exec -T nginx nginx -s reload
 
   exit 0
 fi
