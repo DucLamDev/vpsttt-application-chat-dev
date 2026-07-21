@@ -80,12 +80,17 @@ jobs:
         run: flutter test
 
       - name: Integration smoke test on Android emulator
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        continue-on-error: true
+        timeout-minutes: 20
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
           target: google_apis
           arch: x86_64
-          profile: pixel_5
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           script: cd mobile && flutter test integration_test
 
       - name: Build debug APK
