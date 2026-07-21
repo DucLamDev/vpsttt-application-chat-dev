@@ -571,21 +571,27 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
                 }
               : {})
           });
+          const attachedFile = await api.files.attach(workspaceId, selectedChannelId, sentMessage.id, {
+            file_id: uploadedFile.id,
+            sort_order: index
+          });
+          const attachmentFile = attachedFile.file ?? uploadedFile;
+          const attachmentFileId = attachedFile.file_id ?? uploadedFile.id;
 
           attachedFiles.push({
-            byte_size: uploadedFile.byte_size,
-            file: uploadedFile,
-            file_id: uploadedFile.id,
-            id: `${sentMessage.id}-${uploadedFile.id}`,
-            mime_type: uploadedFile.mime_type,
-            name: uploadedFile.name ?? uploadedFile.file_name ?? uploadedFile.original_name,
-            original_name: uploadedFile.original_name,
-            size: uploadedFile.size,
-            size_bytes: uploadedFile.size_bytes,
-            url: uploadedFile.url ?? uploadedFile.download_url
+            byte_size: attachmentFile.byte_size,
+            file: attachmentFile,
+            file_id: attachmentFileId,
+            id: `${sentMessage.id}-${attachmentFileId}`,
+            mime_type: attachmentFile.mime_type,
+            name: attachmentFile.name ?? attachmentFile.file_name ?? attachmentFile.original_name,
+            original_name: attachmentFile.original_name,
+            size: attachmentFile.size,
+            size_bytes: attachmentFile.size_bytes,
+            url: attachmentFile.url ?? attachmentFile.download_url
           });
 
-          useUploadStore.getState().markAttached(upload.id, sentMessage.id, uploadedFile.id);
+          useUploadStore.getState().markAttached(upload.id, sentMessage.id, attachmentFileId);
         } catch (error) {
           failedUploadNames.push(upload.name);
           useUploadStore
@@ -608,7 +614,16 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
 
       return {
         failedUploadNames,
-        message: attachedFiles.length ? { ...sentMessage, attachments: attachedFiles } : sentMessage
+        message: attachedFiles.length
+          ? {
+              ...sentMessage,
+              attachments: attachedFiles,
+              metadata: {
+                ...(sentMessage.metadata ?? {}),
+                has_attachments: true
+              }
+            }
+          : sentMessage
       };
     },
     onMutate: async (input) => {
@@ -665,9 +680,6 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         updateChannelAfterOwnMessage(current, selectedChannelId, result.message)
       );
       if (input.uploads.length) {
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.files.attachments(workspaceId, selectedChannelId, result.message.id)
-        });
         await queryClient.invalidateQueries({
           queryKey: queryKeys.files.all(workspaceId),
           refetchType: "inactive"

@@ -44,6 +44,9 @@ final chatRoomControllerProvider = StateNotifierProvider.autoDispose
           uploadMessageAttachmentUseCaseProvider,
         ),
         attachUploadedFileUseCase: ref.watch(attachUploadedFileUseCaseProvider),
+        listMessageAttachmentsUseCase: ref.watch(
+          listMessageAttachmentsUseCaseProvider,
+        ),
         loadMessageOutboxUseCase: ref.watch(loadMessageOutboxUseCaseProvider),
         enqueueMessageOutboxUseCase: ref.watch(
           enqueueMessageOutboxUseCaseProvider,
@@ -280,6 +283,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     cancelVoiceMessageRecordingUseCase,
     required UploadMessageAttachmentUseCase uploadMessageAttachmentUseCase,
     required AttachUploadedFileUseCase attachUploadedFileUseCase,
+    required ListMessageAttachmentsUseCase listMessageAttachmentsUseCase,
     required LoadMessageOutboxUseCase loadMessageOutboxUseCase,
     required EnqueueMessageOutboxUseCase enqueueMessageOutboxUseCase,
     required SaveMessageOutboxItemUseCase saveMessageOutboxItemUseCase,
@@ -312,6 +316,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
        _cancelVoiceMessageRecordingUseCase = cancelVoiceMessageRecordingUseCase,
        _uploadMessageAttachmentUseCase = uploadMessageAttachmentUseCase,
        _attachUploadedFileUseCase = attachUploadedFileUseCase,
+       _listMessageAttachmentsUseCase = listMessageAttachmentsUseCase,
        _loadMessageOutboxUseCase = loadMessageOutboxUseCase,
        _enqueueMessageOutboxUseCase = enqueueMessageOutboxUseCase,
        _saveMessageOutboxItemUseCase = saveMessageOutboxItemUseCase,
@@ -346,6 +351,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
   final CancelVoiceMessageRecordingUseCase _cancelVoiceMessageRecordingUseCase;
   final UploadMessageAttachmentUseCase _uploadMessageAttachmentUseCase;
   final AttachUploadedFileUseCase _attachUploadedFileUseCase;
+  final ListMessageAttachmentsUseCase _listMessageAttachmentsUseCase;
   final LoadMessageOutboxUseCase _loadMessageOutboxUseCase;
   final EnqueueMessageOutboxUseCase _enqueueMessageOutboxUseCase;
   final SaveMessageOutboxItemUseCase _saveMessageOutboxItemUseCase;
@@ -393,8 +399,9 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     final currentUserId = profileResult.valueOrNull?.id;
     switch (result) {
       case Success<MessagePage>(value: final page):
+        final messages = _chronological(page.messages, currentUserId);
         state = state.copyWith(
-          messages: _chronological(page.messages, currentUserId),
+          messages: messages,
           draft: draft,
           outboxItems: outboxItems,
           currentUserId: currentUserId,
@@ -404,6 +411,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
           clearError: true,
         );
         _subscribeRealtime();
+        unawaited(_hydrateMissingAttachments(messages));
         await _markLatestRead();
         unawaited(retryOutbox(auto: true));
       case FailureResult<MessagePage>(failure: final failure):
@@ -447,15 +455,18 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     );
     switch (result) {
       case Success<MessagePage>(value: final page):
+        final olderMessages = _chronological(
+          page.messages,
+          state.currentUserId,
+        );
+        final messages = _mergeChronological(olderMessages, state.messages);
         state = state.copyWith(
-          messages: _mergeChronological(
-            _chronological(page.messages, state.currentUserId),
-            state.messages,
-          ),
+          messages: messages,
           nextCursor: page.nextCursor,
           hasMore: page.hasMore,
           isLoadingOlder: false,
         );
+        unawaited(_hydrateMissingAttachments(olderMessages));
       case FailureResult<MessagePage>(failure: final failure):
         state = state.copyWith(
           isLoadingOlder: false,
@@ -1068,6 +1079,43 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     }
   }
 
+  Future<void> _hydrateMissingAttachments(List<ChatMessage> messages) async {
+    final targets = messages
+        .where(_shouldHydrateAttachments)
+        .toList(growable: false);
+    if (targets.isEmpty) {
+      return;
+    }
+
+    for (final message in targets) {
+      final result = await _listMessageAttachmentsUseCase.execute(
+        workspaceId: message.workspaceId,
+        channelId: message.channelId,
+        messageId: message.id,
+      );
+      if (!mounted) {
+        return;
+      }
+      switch (result) {
+        case Success<List<MessageAttachment>>(value: final attachments):
+          if (attachments.isEmpty) {
+            continue;
+          }
+          state = state.copyWith(
+            messages: state.messages
+                .map(
+                  (item) => item.id == message.id && item.attachments.isEmpty
+                      ? item.copyWith(attachments: attachments)
+                      : item,
+                )
+                .toList(growable: false),
+          );
+        case FailureResult<List<MessageAttachment>>():
+          continue;
+      }
+    }
+  }
+
   Future<void> search(String query) async {
     final normalized = query.trim();
     if (normalized.isEmpty) {
@@ -1227,6 +1275,13 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     );
     if (event.type == ConversationRealtimeEventType.messageCreated ||
         event.type == ConversationRealtimeEventType.messageUpdated) {
+      final messageId = event.messageId ?? event.message?.id;
+      if (messageId != null && messageId.isNotEmpty) {
+        final targets = state.messages
+            .where((message) => message.id == messageId)
+            .toList(growable: false);
+        unawaited(_hydrateMissingAttachments(targets));
+      }
       unawaited(_markLatestRead());
     }
   }
@@ -1290,6 +1345,36 @@ List<ChatMessage> _upsertLocal(
     ...current.where((message) => message.id != incoming.id),
     incoming,
   ]);
+}
+
+bool _shouldHydrateAttachments(ChatMessage message) {
+  if (message.id.startsWith('local-') ||
+      message.isDeleted ||
+      message.attachments.isNotEmpty) {
+    return false;
+  }
+  if (message.kind == 'file') {
+    return true;
+  }
+
+  final normalized = _compactAttachmentBody(message.body);
+  if (normalized.isEmpty) {
+    return false;
+  }
+  return normalized == 'đã gửi tệp đính kèm' ||
+      normalized == 'da gui tep dinh kem' ||
+      RegExp(
+        r'^đã gửi(?: \d+)? (?:ảnh|file|tin nhắn thoại)$',
+      ).hasMatch(normalized) ||
+      RegExp(
+        r'^da gui(?: \d+)? (?:anh|file|tin nhan thoai)$',
+      ).hasMatch(normalized) ||
+      RegExp(r'^đã gửi file .+').hasMatch(normalized) ||
+      RegExp(r'^da gui file .+').hasMatch(normalized);
+}
+
+String _compactAttachmentBody(String value) {
+  return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 }
 
 MessageAttachmentUploadItem? _attachmentItemById(

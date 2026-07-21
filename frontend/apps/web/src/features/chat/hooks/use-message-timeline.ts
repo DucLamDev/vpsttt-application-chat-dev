@@ -163,9 +163,12 @@ export function useMessageTimeline({
   const attachmentQueries = useQueries({
     queries: attachmentMessageIds.map((messageId) => {
       const message = apiMessages.find((item) => item.id === messageId);
+      const attachmentQueryKey = queryKeys.files.attachments(workspaceId, channelId, messageId);
+      const cachedAttachments = queryClient.getQueryData<MessageAttachment[]>(attachmentQueryKey);
       const expectsAttachment =
         message?.kind === "file" ||
         message?.metadata?.has_attachments === true ||
+        Boolean(cachedAttachments?.length) ||
         /đã gửi(?: \d+)? (?:ảnh|file|tin nhắn thoại)/i.test(message?.body ?? "");
       const attachmentWaitDeadline = Date.parse(message?.created_at ?? "") + 30_000;
       return {
@@ -174,12 +177,13 @@ export function useMessageTimeline({
         queryFn: async () => {
           try {
             const attachments = await api.files.attachments(workspaceId, channelId, messageId);
-            return attachments.map(mapFileAttachmentToMessageAttachment);
+            const mappedAttachments = attachments.map(mapFileAttachmentToMessageAttachment);
+            return mappedAttachments.length ? mappedAttachments : cachedAttachments ?? [];
           } catch {
-            return [] as MessageAttachment[];
+            return cachedAttachments ?? [];
           }
         },
-        queryKey: queryKeys.files.attachments(workspaceId, channelId, messageId),
+        queryKey: attachmentQueryKey,
         refetchInterval: (query: { state: { data?: MessageAttachment[] } }) =>
           expectsAttachment && !query.state.data?.length && Date.now() < attachmentWaitDeadline ? 2_000 : false,
         staleTime: expectsAttachment ? 2_000 : Infinity
