@@ -48,6 +48,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free runner disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}/CodeQL"
+          docker system prune --all --force --volumes || true
+          echo "Disk space after cleanup:"
+          df -h /
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -60,6 +69,14 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - name: Keep only the Flutter Android NDK
+        run: |
+          NDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/ndk"
+          if [ -d "$NDK_ROOT" ]; then
+            find "$NDK_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '28.2.13676358' -print -exec sudo rm -rf {} +
+          fi
+          df -h /
 
       - name: Pub get
         run: flutter pub get
@@ -127,6 +144,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free runner disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}/CodeQL"
+          docker system prune --all --force --volumes || true
+          echo "Disk space after cleanup:"
+          df -h /
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -139,6 +165,14 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - name: Keep only the Flutter Android NDK
+        run: |
+          NDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/ndk"
+          if [ -d "$NDK_ROOT" ]; then
+            find "$NDK_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '28.2.13676358' -print -exec sudo rm -rf {} +
+          fi
+          df -h /
 
       - name: Pub get
         run: flutter pub get
