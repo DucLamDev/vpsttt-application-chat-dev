@@ -44,8 +44,9 @@ class _ZegoCallScreenState extends ConsumerState<ZegoCallScreen> {
   }
 
   Future<_PreparedZegoCall> _prepareCall() async {
-    final credentials =
-        await ref.read(zegoCallRemoteDataSourceProvider).loadCredentials();
+    final credentials = await ref
+        .read(zegoCallRemoteDataSourceProvider)
+        .loadCredentials();
     if (credentials.appId <= 0 ||
         credentials.appSign.isEmpty ||
         credentials.userId.isEmpty ||
@@ -62,7 +63,9 @@ class _ZegoCallScreenState extends ConsumerState<ZegoCallScreen> {
     final profile = profileResult.valueOrNull;
     final displayName = profile?.displayName.trim();
     final userName = displayName == null || displayName.isEmpty
-        ? (credentials.userName.isEmpty ? credentials.userId : credentials.userName)
+        ? (credentials.userName.isEmpty
+              ? credentials.userId
+              : credentials.userName)
         : displayName;
 
     return _PreparedZegoCall(
@@ -146,7 +149,9 @@ class _ZegoCallScreenState extends ConsumerState<ZegoCallScreen> {
     if (message.toLowerCase().contains('timeout')) {
       return 'Kết nối ZEGOCLOUD quá lâu. Vui lòng kiểm tra ZEGO_APP_ID, ZEGO_APP_SIGN, ZEGO_SERVER_SECRET trên VPS và mạng thiết bị.';
     }
-    final normalized = message.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+    final normalized = message
+        .replaceFirst(RegExp(r'^Exception:\s*'), '')
+        .trim();
     return normalized.isEmpty ? 'Không thể kết nối ZEGOCLOUD.' : normalized;
   }
 }
