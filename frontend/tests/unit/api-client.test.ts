@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiClientError, HttpClient } from "@webtui/api-client";
+import { ApiClientError, createFilesClient, HttpClient } from "@webtui/api-client";
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -145,6 +145,33 @@ describe("HttpClient", () => {
     const blob = await client.blob("/api/v1/files/file-1/download");
 
     await expect(blob.text()).resolves.toBe("file-content");
+  });
+
+  it("loads conversation media from the channel media endpoint", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        data: {
+          attachments: [
+            {
+              file: { id: "file-1", mime_type: "image/png", original_name: "anh.png" },
+              file_id: "file-1",
+              message_id: "message-1",
+              workspace_id: "workspace-1"
+            }
+          ]
+        },
+        success: true
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const files = createFilesClient(new HttpClient({ baseUrl: "https://chat.vpsttt.com" }));
+
+    const media = await files.channelMedia("workspace-1", "channel-1", { limit: 500 });
+
+    expect(media).toHaveLength(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://chat.vpsttt.com/api/v1/workspaces/workspace-1/channels/channel-1/media?limit=500"
+    );
   });
 });
 

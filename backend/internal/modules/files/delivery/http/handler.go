@@ -37,6 +37,7 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.POST("/files/:file_id/versions", h.CreateVersion)
 	private.GET("/channels/:channel_id/messages/:message_id/attachments", h.ListAttachments)
 	private.POST("/channels/:channel_id/messages/:message_id/attachments", h.AttachFile)
+	private.GET("/channels/:channel_id/media", h.ListChannelMedia)
 }
 
 func (h *Handler) Upload(c *gin.Context) {
@@ -181,6 +182,20 @@ func (h *Handler) ListAttachments(c *gin.Context) {
 		WorkspaceID: c.Param("workspace_id"),
 		ChannelID:   c.Param("channel_id"),
 		MessageID:   c.Param("message_id"),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, gin.H{"attachments": attachments})
+}
+
+func (h *Handler) ListChannelMedia(c *gin.Context) {
+	attachments, err := h.service.ListChannelMedia(c.Request.Context(), filesapp.ListChannelMediaInput{
+		ActorUserID: middleware.CurrentUserID(c),
+		WorkspaceID: c.Param("workspace_id"),
+		ChannelID:   c.Param("channel_id"),
+		Limit:       queryInt(c, "limit"),
 	})
 	if err != nil {
 		response.Error(c, err)

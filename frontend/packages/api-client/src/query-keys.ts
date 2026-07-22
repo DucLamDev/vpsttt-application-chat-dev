@@ -26,6 +26,8 @@ export const queryKeys = {
   },
   files: {
     all: (workspaceId: string) => ["files", workspaceId] as const,
+    channelMedia: (workspaceId: string, channelId: string) =>
+      ["files", workspaceId, channelId, "media"] as const,
     attachments: (workspaceId: string, channelId: string, messageId: string) =>
       ["files", workspaceId, channelId, messageId, "attachments"] as const,
     detail: (workspaceId: string, fileId: string) => ["files", workspaceId, fileId] as const,

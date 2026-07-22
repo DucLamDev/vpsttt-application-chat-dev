@@ -26,6 +26,7 @@ type RealtimeMessagePayload = {
   status?: string;
   target_user_id?: string;
   contact_request?: unknown;
+  message_id?: string;
   message?: ApiMessage;
   workspace_id?: string;
   user_id?: string;
@@ -335,6 +336,25 @@ export function useChannelRealtime({
 
       if (isUserEvent || event.type === "NotificationCreated" || event.type === "NotificationUpdated") {
         void queryClient.invalidateQueries({ queryKey: queryKeys.notifications.list(workspaceId) });
+      }
+
+      if (event.type === "AttachmentCreated") {
+        const eventChannelId = event.payload?.channel_id || channelIdFromRoom(event.room) || channelId;
+        const messageId = event.payload?.message_id;
+        if (eventChannelId && messageId) {
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.files.attachments(workspaceId, eventChannelId, messageId)
+          });
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.files.channelMedia(workspaceId, eventChannelId)
+          });
+        }
+        setConnection({
+          lastEventAt: new Date().toISOString(),
+          room: room || null,
+          status: "connected"
+        });
+        return;
       }
 
       const message = event.payload?.message;

@@ -10,6 +10,7 @@ import type {
   CreateDepartmentInput,
   CreateChannelInput,
   DirectConversation as ApiDirectConversation,
+  FileAttachment,
   FileObject,
   Message as ApiMessage,
   Notification as ApiNotification,
@@ -45,6 +46,7 @@ import type {
   DirectConversation,
   FileItem,
   MediaItem,
+  MessageAttachmentItem,
   MessageReplyPreview,
   NotificationItem,
   PresenceStatus
@@ -375,6 +377,12 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     queryKey: queryKeys.files.all(workspaceId)
   });
   const files = useMemo(() => (filesQuery.data ?? []).map(mapFile), [filesQuery.data]);
+  const channelMediaQuery = useQuery({
+    enabled: Boolean(workspaceId && selectedChannelId && canAccessSelectedChannel),
+    queryFn: () => api.files.channelMedia(workspaceId, selectedChannelId, { limit: 500 }),
+    queryKey: queryKeys.files.channelMedia(workspaceId, selectedChannelId),
+    staleTime: 10_000
+  });
   const canManageDepartments = workspaceContext.can("workspace.manage");
   const departmentsQuery = useQuery({
     enabled: Boolean(workspaceId && canManageDepartments),
@@ -384,22 +392,8 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
   });
   const departments = departmentsQuery.data ?? [];
   const mediaItems = useMemo(
-    () => {
-      if (!canAccessSelectedChannel) {
-        return [];
-      }
-      return messageTimeline.messages.flatMap((message) =>
-        (message.attachments ?? [])
-          .filter((attachment) => attachment.isImage)
-          .map<MediaItem>((attachment) => ({
-            id: attachment.fileId,
-            label: attachment.name,
-            name: attachment.name,
-            url: attachment.previewUrl ?? attachment.url
-          }))
-      );
-    },
-    [canAccessSelectedChannel, messageTimeline.messages]
+    () => (channelMediaQuery.data ?? []).map(mapChannelMediaAttachment),
+    [channelMediaQuery.data]
   );
   const offlineReadMode = Boolean(
     workspaceContext.offlineReadMode ||
@@ -571,12 +565,11 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
                 }
               : {})
           });
-          const attachedFile = await api.files.attach(workspaceId, selectedChannelId, sentMessage.id, {
-            file_id: uploadedFile.id,
-            sort_order: index
-          });
-          const attachmentFile = attachedFile.file ?? uploadedFile;
-          const attachmentFileId = attachedFile.file_id ?? uploadedFile.id;
+          // Uploading with channel_id/message_id attaches the file atomically on
+          // the backend. Calling /attachments again here duplicated the attach
+          // operation and could incorrectly mark a successful image as failed.
+          const attachmentFile = uploadedFile;
+          const attachmentFileId = uploadedFile.id;
 
           attachedFiles.push({
             byte_size: attachmentFile.byte_size,
@@ -680,10 +673,15 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
         updateChannelAfterOwnMessage(current, selectedChannelId, result.message)
       );
       if (input.uploads.length) {
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.files.all(workspaceId),
-          refetchType: "inactive"
-        });
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.files.all(workspaceId),
+            refetchType: "inactive"
+          }),
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.files.channelMedia(workspaceId, selectedChannelId)
+          })
+        ]);
       }
     }
   });
@@ -956,6 +954,7 @@ export function useChatWorkspaceData(currentUser: ChatUser, options: ChatWorkspa
     contactRequests,
     contactRequestsQuery,
     files,
+    channelMediaQuery,
     filesQuery,
     inviteChannelMemberMutation,
     joinRequestsByChannelId,
@@ -1293,6 +1292,31 @@ function mapFile(file: FileObject): FileItem {
     status: file.status,
     tone: mimeType?.includes("pdf") ? "red" : mimeType?.startsWith("image/") ? "green" : "slate",
     updatedAt: formatRelative(file.updated_at ?? file.created_at)
+  };
+}
+
+function mapChannelMediaAttachment(item: FileAttachment): MediaItem {
+  const file = item.file;
+  const name = file.name ?? file.file_name ?? file.original_name ?? "Ảnh";
+  const attachment: MessageAttachmentItem = {
+    checksumSha256: file.checksum_sha256,
+    fileId: item.file_id || file.id,
+    id: `${item.message_id}-${item.file_id || file.id}`,
+    isImage: true,
+    mimeType: file.mime_type,
+    name,
+    size: formatFileSize(file.byte_size ?? file.size_bytes ?? file.size),
+    status: file.status,
+    tone: "green",
+    url: file.url ?? file.download_url
+  };
+
+  return {
+    attachment,
+    id: attachment.fileId,
+    label: name,
+    name,
+    url: attachment.url
   };
 }
 

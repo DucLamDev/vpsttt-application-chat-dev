@@ -1,12 +1,10 @@
 package http
 
 import (
-	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	nethttp "net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,49 +14,53 @@ import (
 )
 
 type Handler struct {
-	apiKey    string
-	apiSecret string
-	tokenTTL  time.Duration
-	now       func() time.Time
+	appID         uint32
+	appSign       string
+	serverSecret  string
+	tokenTTL      time.Duration
+	now           func() time.Time
+	generateToken zegoTokenGenerator
 }
 
-type streamTokenResponse struct {
-	APIKey    string `json:"api_key"`
+type zegoTokenGenerator func(appID uint32, userID string, serverSecret string, effectiveTimeInSeconds int64, payload string) (string, error)
+
+type zegoCallCredentialsResponse struct {
+	AppID     uint32 `json:"app_id"`
+	AppSign   string `json:"app_sign"`
 	UserID    string `json:"user_id"`
+	UserName  string `json:"user_name"`
 	Token     string `json:"token"`
 	ExpiresAt string `json:"expires_at"`
 }
 
-type streamTokenClaims struct {
-	UserID    string `json:"user_id"`
-	IssuedAt  int64  `json:"iat"`
-	ExpiresAt int64  `json:"exp"`
-}
+var zegoIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
 
-func NewHandler(apiKey string, apiSecret string, tokenTTL time.Duration) *Handler {
+func NewHandler(appID uint32, appSign string, serverSecret string, tokenTTL time.Duration) *Handler {
 	if tokenTTL <= 0 {
 		tokenTTL = 24 * time.Hour
 	}
 	return &Handler{
-		apiKey:    strings.TrimSpace(apiKey),
-		apiSecret: strings.TrimSpace(apiSecret),
-		tokenTTL:  tokenTTL,
-		now:       time.Now,
+		appID:         appID,
+		appSign:       strings.TrimSpace(appSign),
+		serverSecret:  strings.TrimSpace(serverSecret),
+		tokenTTL:      tokenTTL,
+		now:           time.Now,
+		generateToken: generateZegoToken04,
 	}
 }
 
 func (h *Handler) RegisterRoutes(router *gin.RouterGroup, auth gin.HandlerFunc) {
 	private := router.Group("/video", auth)
-	private.GET("/stream-token", h.StreamToken)
+	private.GET("/zego-token", h.ZegoToken)
 }
 
-func (h *Handler) StreamToken(c *gin.Context) {
-	if h.apiKey == "" || h.apiSecret == "" {
+func (h *Handler) ZegoToken(c *gin.Context) {
+	if h.appID == 0 || h.appSign == "" || h.serverSecret == "" {
 		response.Fail(
 			c,
 			nethttp.StatusServiceUnavailable,
-			"STREAM_VIDEO_NOT_CONFIGURED",
-			"Stream Video chưa được cấu hình trên server.",
+			"ZEGO_NOT_CONFIGURED",
+			"ZEGOCLOUD chưa được cấu hình trên server.",
 			nil,
 		)
 		return
@@ -70,57 +72,61 @@ func (h *Handler) StreamToken(c *gin.Context) {
 		return
 	}
 
-	token, expiresAt, err := h.createUserToken(userID)
+	token, zegoUserID, expiresAt, err := h.createUserToken(userID)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
 
 	response.OK(c, nethttp.StatusOK, gin.H{
-		"stream_video": streamTokenResponse{
-			APIKey:    h.apiKey,
-			UserID:    userID,
+		"zego_call": zegoCallCredentialsResponse{
+			AppID:     h.appID,
+			AppSign:   h.appSign,
+			UserID:    zegoUserID,
+			UserName:  zegoUserID,
 			Token:     token,
 			ExpiresAt: expiresAt.UTC().Format(time.RFC3339),
 		},
 	})
 }
 
-func (h *Handler) createUserToken(userID string) (string, time.Time, error) {
+func (h *Handler) createUserToken(rawUserID string) (string, string, time.Time, error) {
 	now := h.now().UTC()
 	expiresAt := now.Add(h.tokenTTL)
-	claims := streamTokenClaims{
-		UserID:    userID,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: expiresAt.Unix(),
+	zegoUserID := zegoUserIDFromAppUserID(rawUserID)
+	if zegoUserID == "" {
+		return "", "", time.Time{}, fmt.Errorf("build zego user id: empty user id")
 	}
 
-	token, err := signStreamToken(claims, []byte(h.apiSecret))
+	token, err := h.generateToken(h.appID, zegoUserID, h.serverSecret, int64(h.tokenTTL.Seconds()), "")
 	if err != nil {
-		return "", time.Time{}, err
+		return "", "", time.Time{}, fmt.Errorf("generate zego token: %w", err)
 	}
-	return token, expiresAt, nil
+	return token, zegoUserID, expiresAt, nil
 }
 
-func signStreamToken(claims streamTokenClaims, secret []byte) (string, error) {
-	headerBytes, err := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
-	if err != nil {
-		return "", fmt.Errorf("encode stream token header: %w", err)
-	}
-	payloadBytes, err := json.Marshal(claims)
-	if err != nil {
-		return "", fmt.Errorf("encode stream token payload: %w", err)
+func zegoUserIDFromAppUserID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
 	}
 
-	header := base64.RawURLEncoding.EncodeToString(headerBytes)
-	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
-	message := header + "." + payload
-	signature := base64.RawURLEncoding.EncodeToString(signHMAC([]byte(message), secret))
-	return message + "." + signature, nil
-}
+	compactUUID := strings.ReplaceAll(raw, "-", "")
+	if len(compactUUID) == 32 && zegoIdentifierPattern.MatchString(compactUUID) {
+		return compactUUID
+	}
 
-func signHMAC(message []byte, secret []byte) []byte {
-	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write(message)
-	return mac.Sum(nil)
+	var cleaned strings.Builder
+	for _, r := range raw {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' {
+			cleaned.WriteRune(r)
+		}
+	}
+	candidate := cleaned.String()
+	if zegoIdentifierPattern.MatchString(candidate) {
+		return candidate
+	}
+
+	sum := sha256.Sum256([]byte(raw))
+	return fmt.Sprintf("%x", sum)[:32]
 }

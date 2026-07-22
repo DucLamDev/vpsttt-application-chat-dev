@@ -122,6 +122,7 @@ export type PinnedMessage = {
 };
 
 export type MediaItem = {
+  attachment: MessageAttachmentItem;
   id: string;
   label: string;
   name: string;

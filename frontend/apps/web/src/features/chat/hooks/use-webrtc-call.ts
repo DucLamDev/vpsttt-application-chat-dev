@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StreamVideoClient, type Call } from "@stream-io/video-react-sdk";
 import type {
   CallMode,
   CallSignalPayload,
@@ -48,7 +47,26 @@ type UseWebRtcCallOptions = {
   workspaceId?: string;
 };
 
+type ZegoUIKitPrebuiltStatic = {
+  OneONoneCall: unknown;
+  create: (kitToken: string) => ZegoPrebuiltInstance;
+  generateKitTokenForProduction: (
+    appID: number,
+    token: string,
+    roomID: string,
+    userID: string,
+    userName: string
+  ) => string;
+};
+
+type ZegoPrebuiltInstance = {
+  destroy?: () => void;
+  joinRoom: (config: Record<string, unknown>) => void;
+  leaveRoom?: () => void;
+};
+
 const outgoingRingTimeoutMs = 45_000;
+const zegoContainerWaitTimeoutMs = 4_000;
 
 export function useWebRtcCall({
   channelId,
@@ -61,13 +79,12 @@ export function useWebRtcCall({
   workspaceId
 }: UseWebRtcCallOptions) {
   const [callState, setCallState] = useState<WebRtcCallState>({ mode: "audio", status: "idle" });
-  const [streamClient, setStreamClient] = useState<StreamVideoClient | null>(null);
-  const [streamCall, setStreamCall] = useState<Call | null>(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isCameraOff, setIsCameraOff] = useState(false);
-  const clientRef = useRef<StreamVideoClient | null>(null);
-  const clientUserIdRef = useRef("");
-  const callRef = useRef<Call | null>(null);
+  const [hasZegoCall, setHasZegoCall] = useState(false);
+  const zegoContainerRef = useRef<HTMLDivElement | null>(null);
+  const zegoInstanceRef = useRef<ZegoPrebuiltInstance | null>(null);
+  const zegoUIKitRef = useRef<ZegoUIKitPrebuiltStatic | null>(null);
+  const suppressZegoLeaveRef = useRef(false);
+  const activeZegoCallIdRef = useRef("");
   const callStateRef = useRef<WebRtcCallState>({ mode: "audio", status: "idle" });
   const lastSignalSequenceRef = useRef(0);
   const previousChannelIdRef = useRef(channelId);
@@ -85,86 +102,129 @@ export function useWebRtcCall({
     }
   }, []);
 
+  const leaveZegoRoom = useCallback(() => {
+    const instance = zegoInstanceRef.current;
+    zegoInstanceRef.current = null;
+    activeZegoCallIdRef.current = "";
+    suppressZegoLeaveRef.current = true;
+    try {
+      instance?.leaveRoom?.();
+      instance?.destroy?.();
+      zegoContainerRef.current?.replaceChildren();
+      setHasZegoCall(false);
+    } finally {
+      window.setTimeout(() => {
+        suppressZegoLeaveRef.current = false;
+      }, 0);
+    }
+  }, []);
+
   const resetCallUi = useCallback(
     (nextState?: WebRtcCallState) => {
       operationTokenRef.current += 1;
       clearOutgoingTimer();
-      callRef.current = null;
-      setStreamCall(null);
-      setIsMuted(false);
-      setIsCameraOff(false);
+      leaveZegoRoom();
       setCallState(nextState ?? { mode: "audio", status: "idle" });
     },
-    [clearOutgoingTimer]
+    [clearOutgoingTimer, leaveZegoRoom]
   );
 
-  const leaveStreamCall = useCallback(async (options?: { reject?: boolean; reason?: string }) => {
-    const call = callRef.current;
-    if (!call) {
-      return;
+  const loadZegoUIKit = useCallback(async () => {
+    if (zegoUIKitRef.current) {
+      return zegoUIKitRef.current;
     }
-    await call.leave(options).catch(() => undefined);
+    const module = (await import("@zegocloud/zego-uikit-prebuilt")) as {
+      ZegoUIKitPrebuilt?: ZegoUIKitPrebuiltStatic;
+    };
+    if (!module.ZegoUIKitPrebuilt) {
+      throw new Error("Không tải được ZEGOCLOUD Call Kit.");
+    }
+    zegoUIKitRef.current = module.ZegoUIKitPrebuilt;
+    return module.ZegoUIKitPrebuilt;
   }, []);
 
-  const ensureStreamClient = useCallback(async () => {
-    const credentials = await api.video.streamToken();
-    if (clientRef.current && clientUserIdRef.current === credentials.user_id) {
-      return clientRef.current;
-    }
-
-    await clientRef.current?.disconnectUser().catch(() => undefined);
-    const client = new StreamVideoClient({
-      apiKey: credentials.api_key,
-      token: credentials.token,
-      tokenProvider: async () => {
-        const nextCredentials = await api.video.streamToken();
-        return nextCredentials.token;
-      },
-      user: {
-        id: credentials.user_id,
-        name: credentials.user_id
+  const waitForZegoContainer = useCallback(async () => {
+    const startedAt = Date.now();
+    while (!zegoContainerRef.current) {
+      if (Date.now() - startedAt > zegoContainerWaitTimeoutMs) {
+        throw new Error("Không tìm thấy khung hiển thị ZEGOCLOUD.");
       }
-    });
-    clientRef.current = client;
-    clientUserIdRef.current = credentials.user_id;
-    setStreamClient(client);
-    return client;
-  }, []);
-
-  const prepareDevices = useCallback(async (call: Call, mode: CallMode) => {
-    await call.microphone.enable();
-    if (mode === "video") {
-      await call.camera.enable();
-      setIsCameraOff(false);
-    } else {
-      await call.camera.disable();
-      setIsCameraOff(true);
+      await delay(50);
     }
-    setIsMuted(false);
+    return zegoContainerRef.current;
   }, []);
 
-  const joinStreamCall = useCallback(
-    async (call: Call, mode: CallMode, options: { ring?: boolean }) => {
-      if (!workspaceId || !channelId || !peerUserId) {
-        throw new Error("Thiếu thông tin cuộc trò chuyện để bắt đầu cuộc gọi.");
+  const joinZegoRoom = useCallback(
+    async (callId: string, mode: CallMode) => {
+      if (activeZegoCallIdRef.current === callId && zegoInstanceRef.current) {
+        return;
       }
-      await call.join({
-        create: true,
-        data: {
-          custom: {
-            channel_id: channelId,
-            client: "webtui_web",
-            provider: "stream_video",
-            workspace_id: workspaceId
-          },
-          members: [{ user_id: currentUserId }, { user_id: peerUserId }],
-          video: mode === "video"
+
+      leaveZegoRoom();
+      setHasZegoCall(true);
+      const [credentials, zegoUIKit, container] = await Promise.all([
+        api.video.zegoToken(),
+        loadZegoUIKit(),
+        waitForZegoContainer()
+      ]);
+      const roomID = zegoCallIDFromBackendCallID(callId);
+      const userName = credentials.user_name?.trim() || credentials.user_id;
+      const kitToken = zegoUIKit.generateKitTokenForProduction(
+        credentials.app_id,
+        credentials.token,
+        roomID,
+        credentials.user_id,
+        userName
+      );
+      const instance = zegoUIKit.create(kitToken);
+      zegoInstanceRef.current = instance;
+      activeZegoCallIdRef.current = callId;
+      container.replaceChildren();
+      instance.joinRoom({
+        container,
+        layout: "Auto",
+        maxUsers: 2,
+        scenario: {
+          mode: zegoUIKit.OneONoneCall
         },
-        ring: options.ring,
-        video: mode === "video"
+        sharedLinks: [],
+        showAudioVideoSettingsButton: true,
+        showLeavingView: false,
+        showMyCameraToggleButton: mode === "video",
+        showMyMicrophoneToggleButton: true,
+        showPreJoinView: false,
+        showRoomDetailsButton: false,
+        showScreenSharingButton: false,
+        showTextChat: false,
+        showUserList: false,
+        turnOnCameraWhenJoining: mode === "video",
+        turnOnMicrophoneWhenJoining: true,
+        onLeaveRoom: () => {
+          if (suppressZegoLeaveRef.current) {
+            return;
+          }
+          const current = callStateRef.current;
+          if (current.callId && workspaceId && current.status !== "idle" && current.status !== "ended" && current.status !== "error") {
+            if (current.status === "outgoing") {
+              void api.calls.cancel(workspaceId, current.callId, "zego_left").catch(() => undefined);
+            } else if (current.status === "incoming") {
+              void api.calls.reject(workspaceId, current.callId, "declined").catch(() => undefined);
+            } else {
+              void api.calls.hangup(workspaceId, current.callId, "zego_left").catch(() => undefined);
+            }
+          }
+          resetCallUi({
+            callId: current.callId,
+            initiatorUserId: current.initiatorUserId,
+            mode: current.mode,
+            peerName: current.peerName,
+            peerUserId: current.peerUserId,
+            status: "ended"
+          });
+        }
       });
     },
-    [channelId, currentUserId, peerUserId, workspaceId]
+    [leaveZegoRoom, loadZegoUIKit, resetCallUi, waitForZegoContainer, workspaceId]
   );
 
   useEffect(() => {
@@ -175,10 +235,9 @@ export function useWebRtcCall({
     }
     const hasLiveCall = callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error";
     if ((!enabled || channelChanged) && hasLiveCall) {
-      void leaveStreamCall({ reason: channelChanged ? "channel_changed" : "disabled" });
       resetCallUi();
     }
-  }, [channelId, enabled, leaveStreamCall, resetCallUi]);
+  }, [channelId, enabled, resetCallUi]);
 
   useEffect(() => {
     if (callState.status !== "ended" && callState.status !== "error") {
@@ -193,12 +252,9 @@ export function useWebRtcCall({
   useEffect(
     () => () => {
       clearOutgoingTimer();
-      void callRef.current?.leave({ reason: "component_unmounted" }).catch(() => undefined);
-      void clientRef.current?.disconnectUser().catch(() => undefined);
-      callRef.current = null;
-      clientRef.current = null;
+      leaveZegoRoom();
     },
-    [clearOutgoingTimer]
+    [clearOutgoingTimer, leaveZegoRoom]
   );
 
   const startCall = useCallback(
@@ -230,7 +286,7 @@ export function useWebRtcCall({
           client_call_id: newCallId(),
           metadata: {
             client: "web",
-            provider: "stream_video"
+            provider: "zegocloud"
           },
           mode,
           target_user_id: peerUserId
@@ -240,10 +296,6 @@ export function useWebRtcCall({
           return;
         }
 
-        const client = await ensureStreamClient();
-        const call = client.call("default", backendCall.id, { reuseInstance: true });
-        callRef.current = call;
-        setStreamCall(call);
         setCallState({
           callId: backendCall.id,
           initiatorUserId: backendCall.initiator_user_id || currentUserId,
@@ -252,8 +304,7 @@ export function useWebRtcCall({
           peerUserId,
           status: "outgoing"
         });
-        await prepareDevices(call, mode);
-        await joinStreamCall(call, mode, { ring: true });
+        await joinZegoRoom(backendCall.id, mode);
 
         outgoingRingTimerRef.current = setTimeout(() => {
           const current = callStateRef.current;
@@ -261,7 +312,6 @@ export function useWebRtcCall({
             return;
           }
           void api.calls.cancel(workspaceId, backendCall.id, "no_answer").catch(() => undefined);
-          void leaveStreamCall({ reason: "no_answer" });
           resetCallUi({
             callId: backendCall.id,
             error: "Không có phản hồi.",
@@ -274,9 +324,8 @@ export function useWebRtcCall({
         }, outgoingRingTimeoutMs);
       } catch (error) {
         if (backendCallId) {
-          void api.calls.cancel(workspaceId, backendCallId, "stream_join_failed").catch(() => undefined);
+          void api.calls.cancel(workspaceId, backendCallId, "zego_join_failed").catch(() => undefined);
         }
-        await leaveStreamCall({ reason: "stream_join_failed" });
         resetCallUi({
           callId: backendCallId || undefined,
           error: callErrorMessage(error),
@@ -293,12 +342,9 @@ export function useWebRtcCall({
       channelName,
       currentUserId,
       enabled,
-      ensureStreamClient,
-      joinStreamCall,
-      leaveStreamCall,
+      joinZegoRoom,
       peerName,
       peerUserId,
-      prepareDevices,
       resetCallUi,
       workspaceId
     ]
@@ -312,12 +358,7 @@ export function useWebRtcCall({
     const operationToken = ++operationTokenRef.current;
     try {
       setCallState({ ...current, status: "connecting" });
-      const client = await ensureStreamClient();
-      const call = client.call("default", current.callId, { reuseInstance: true });
-      callRef.current = call;
-      setStreamCall(call);
-      await prepareDevices(call, current.mode);
-      await joinStreamCall(call, current.mode, { ring: false });
+      await joinZegoRoom(current.callId, current.mode);
       if (operationToken !== operationTokenRef.current) {
         return;
       }
@@ -328,24 +369,22 @@ export function useWebRtcCall({
         status: "active"
       });
     } catch (error) {
-      await api.calls.reject(workspaceId, current.callId, "stream_join_failed").catch(() => undefined);
-      await leaveStreamCall({ reject: true, reason: "stream_join_failed" });
+      await api.calls.reject(workspaceId, current.callId, "zego_join_failed").catch(() => undefined);
       resetCallUi({
         ...current,
         error: callErrorMessage(error),
         status: "error"
       });
     }
-  }, [ensureStreamClient, joinStreamCall, leaveStreamCall, prepareDevices, resetCallUi, workspaceId]);
+  }, [joinZegoRoom, resetCallUi, workspaceId]);
 
   const rejectCall = useCallback(() => {
     const current = callStateRef.current;
     if (workspaceId && current.callId) {
       void api.calls.reject(workspaceId, current.callId, "declined").catch(() => undefined);
     }
-    void leaveStreamCall({ reject: true, reason: "declined" });
     resetCallUi();
-  }, [leaveStreamCall, resetCallUi, workspaceId]);
+  }, [resetCallUi, workspaceId]);
 
   const endCall = useCallback(() => {
     const current = callStateRef.current;
@@ -362,7 +401,6 @@ export function useWebRtcCall({
         );
       }
     }
-    void leaveStreamCall({ reason: "ended" });
     resetCallUi({
       callId: current.callId,
       initiatorUserId: current.initiatorUserId,
@@ -371,27 +409,7 @@ export function useWebRtcCall({
       peerUserId: current.peerUserId,
       status: "ended"
     });
-  }, [leaveStreamCall, resetCallUi, workspaceId]);
-
-  const toggleMute = useCallback(() => {
-    const call = callRef.current;
-    if (!call) {
-      return;
-    }
-    void call.microphone.toggle().then(() => {
-      setIsMuted(!call.microphone.enabled);
-    });
-  }, []);
-
-  const toggleCamera = useCallback(() => {
-    const call = callRef.current;
-    if (!call) {
-      return;
-    }
-    void call.camera.toggle().then(() => {
-      setIsCameraOff(!call.camera.enabled);
-    });
-  }, []);
+  }, [resetCallUi, workspaceId]);
 
   useEffect(() => {
     if (!lastSignal) {
@@ -461,7 +479,6 @@ export function useWebRtcCall({
     }
 
     if (lastSignal.type === "CallCancelled" || lastSignal.type === "CallMissed") {
-      void leaveStreamCall({ reason: payload.reason || "cancelled" });
       resetCallUi({
         callId,
         error: lastSignal.type === "CallMissed" ? "Cuộc gọi bị nhỡ." : "Cuộc gọi đã bị hủy.",
@@ -474,7 +491,6 @@ export function useWebRtcCall({
     }
 
     if (lastSignal.type === "CallEnded") {
-      void leaveStreamCall({ reason: payload.reason || "ended" });
       resetCallUi({
         callId,
         mode,
@@ -490,7 +506,6 @@ export function useWebRtcCall({
     currentUserId,
     enabled,
     lastSignal,
-    leaveStreamCall,
     peerName,
     resetCallUi,
     workspaceId
@@ -500,21 +515,26 @@ export function useWebRtcCall({
     acceptCall,
     callState,
     endCall,
-    isCameraOff,
-    isMuted,
-    localStream: null as MediaStream | null,
+    hasZegoCall,
     rejectCall,
-    remoteStream: null as MediaStream | null,
     startCall,
-    streamCall,
-    streamClient,
-    toggleCamera,
-    toggleMute
+    zegoContainerRef
   };
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
 }
 
 function newCallId(): string {
   return `call-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function zegoCallIDFromBackendCallID(callId: string): string {
+  const normalized = callId.trim().replace(/[^A-Za-z0-9_]/g, "_");
+  return normalized || newCallId().replace(/[^A-Za-z0-9_]/g, "_");
 }
 
 function rejectionMessage(reason: string | undefined): string {
@@ -530,7 +550,7 @@ function rejectionMessage(reason: string | undefined): string {
 function callErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     if (/timeout/i.test(error.message)) {
-      return "Kết nối Stream Video quá lâu. Hãy kiểm tra STREAM_VIDEO_API_KEY, STREAM_VIDEO_API_SECRET trên VPS và mạng thiết bị.";
+      return "Kết nối ZEGOCLOUD quá lâu. Hãy kiểm tra ZEGO_APP_ID, ZEGO_APP_SIGN, ZEGO_SERVER_SECRET trên VPS và mạng thiết bị.";
     }
     return error.message;
   }

@@ -2237,14 +2237,7 @@
   color: #ffffff;
 }
 
-.call-panel__video-grid {
-  display: grid;
-  gap: 10px;
-  grid-area: video;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
-}
-
-.call-panel__stream {
+.call-panel__zego {
   background: #07111f;
   border: 1px solid rgb(148 163 184 / 28%);
   border-radius: 14px;
@@ -2254,64 +2247,31 @@
   overflow: hidden;
 }
 
-.call-panel__stream--audio {
+.call-panel__zego--audio {
   min-height: 184px;
 }
 
-.webtui-stream-call {
+.webtui-zego-call {
   background: #07111f;
   color: #f8fafc;
   height: 100%;
   min-height: inherit;
-}
-
-.webtui-stream-call .str-video__speaker-layout,
-.webtui-stream-call .str-video__speaker-layout__wrapper {
-  min-height: inherit;
-}
-
-.webtui-stream-call .str-video__call-controls {
-  border-top: 1px solid rgb(148 163 184 / 18%);
-}
-
-.call-panel__video {
-  aspect-ratio: 16 / 9;
-  background: #0f172a;
-  border-radius: 10px;
-  min-height: 126px;
-  overflow: hidden;
   position: relative;
 }
 
-.call-panel__video video {
-  display: block;
+.webtui-zego-call > div {
   height: 100%;
-  object-fit: cover;
-  width: 100%;
+  min-height: inherit;
 }
 
-.call-panel__video > span {
+.webtui-zego-call--loading::before {
   align-items: center;
   color: #dbeafe;
+  content: "Đang mở ZEGOCLOUD...";
   display: flex;
   font-weight: 700;
   height: 100%;
   justify-content: center;
-}
-
-.call-panel__video small {
-  background: rgb(15 23 42 / 72%);
-  border-radius: 999px;
-  bottom: 8px;
-  color: #ffffff;
-  font-size: 11px;
-  left: 8px;
-  max-width: calc(100% - 16px);
-  overflow: hidden;
-  padding: 4px 8px;
-  position: absolute;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .member-count {
@@ -4285,8 +4245,8 @@
     justify-content: flex-start;
   }
 
-  .call-panel__video-grid {
-    grid-template-columns: 1fr;
+  .call-panel__zego {
+    min-height: 220px;
   }
 
   .message-toolbar {
@@ -11820,6 +11780,67 @@ textarea {
 [data-theme="dark"] .chat-app-shell--zalo .message-row--media-only .message-actions {
   background: transparent;
   border-color: transparent;
+}
+
+/* Conversation media behaves like a photo message, not a generic file card. */
+.chat-app-shell--zalo .attachment-list--images {
+  display: grid;
+  gap: 3px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: min(560px, 70vw);
+  overflow: hidden;
+}
+
+.chat-app-shell--zalo .attachment-list--images-1 {
+  display: block;
+  max-width: min(520px, 70vw);
+  overflow: visible;
+}
+
+.chat-app-shell--zalo .attachment-list--images:not(.attachment-list--images-1) .attachment-image {
+  max-width: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.chat-app-shell--zalo .attachment-list--images:not(.attachment-list--images-1) .attachment-media-card__preview {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  height: 100%;
+}
+
+.chat-app-shell--zalo .attachment-list--images:not(.attachment-list--images-1) .attachment-media-card__preview img {
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+  width: 100%;
+}
+
+.chat-app-shell--zalo .attachment-list--images-3 .attachment-image:first-child {
+  grid-row: span 2;
+}
+
+.chat-app-shell--zalo .media-file-thumb {
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  transition: filter 160ms ease, transform 160ms ease;
+}
+
+.chat-app-shell--zalo .media-file-thumb:hover {
+  filter: brightness(.94);
+  transform: translateY(-1px);
+}
+
+.chat-app-shell--zalo .media-file-thumb:focus-visible {
+  box-shadow: 0 0 0 3px rgb(0 104 255 / 24%);
+  outline: 2px solid var(--zalo-blue);
+  outline-offset: 2px;
+}
+
+.chat-app-shell--zalo .media-file-thumb:disabled {
+  cursor: wait;
+  opacity: .72;
 }
 
 [data-theme="dark"] .chat-app-shell--zalo .message-actions .message-actions__trigger,

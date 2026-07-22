@@ -314,6 +314,43 @@ ORDER BY ma.sort_order ASC, ma.created_at ASC
 	return attachments, rows.Err()
 }
 
+func (r *Repository) ListChannelMedia(ctx context.Context, params filesapp.ListChannelMediaParams) ([]filesdomain.Attachment, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT ma.workspace_id::text, ma.message_id::text, ma.file_id::text, ma.sort_order, ma.created_at,
+       f.id::text, f.workspace_id::text, f.owner_id::text, f.storage_provider, f.bucket, f.object_key,
+       f.original_name, f.mime_type, f.byte_size, f.checksum_sha256, f.status, f.metadata::text, f.created_at, f.updated_at
+FROM message_attachments ma
+JOIN messages m
+  ON m.workspace_id = ma.workspace_id
+ AND m.id = ma.message_id
+ AND m.channel_id = $2::uuid
+ AND m.deleted_at IS NULL
+JOIN channel_members cm
+  ON cm.channel_id = m.channel_id
+ AND cm.user_id = $3::uuid
+ AND cm.status IN ('active', 'muted')
+JOIN files f ON f.id = ma.file_id AND f.deleted_at IS NULL
+WHERE ma.workspace_id = $1::uuid
+  AND f.mime_type LIKE 'image/%'
+ORDER BY ma.created_at DESC, ma.sort_order ASC
+LIMIT $4
+`, params.WorkspaceID, params.ChannelID, params.ActorUserID, params.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	attachments := make([]filesdomain.Attachment, 0)
+	for rows.Next() {
+		attachment, err := scanAttachment(rows)
+		if err != nil {
+			return nil, err
+		}
+		attachments = append(attachments, attachment)
+	}
+	return attachments, rows.Err()
+}
+
 func (r *Repository) attachment(ctx context.Context, workspaceID string, messageID string, fileID string) (filesdomain.Attachment, error) {
 	row := r.pool.QueryRow(ctx, `
 SELECT ma.workspace_id::text, ma.message_id::text, ma.file_id::text, ma.sort_order, ma.created_at,

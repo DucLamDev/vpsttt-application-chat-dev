@@ -171,6 +171,30 @@ paths:
       responses:
         "101":
           description: Nâng cấp kết nối WebSocket thành công
+  /api/v1/video/zego-token:
+    get:
+      summary: Lấy credential ZEGOCLOUD cho cuộc gọi
+      description: >-
+        Trả token04 do backend sinh bằng ZEGO_SERVER_SECRET. Client dùng
+        `user_id` và `token` này để join ZEGOCLOUD room/call; không bao giờ
+        trả `ZEGO_SERVER_SECRET` về client.
+      responses:
+        "200":
+          description: Credential ZEGOCLOUD của user hiện tại
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          zego_call:
+                            $ref: "#/components/schemas/ZegoCallCredentials"
+        "503":
+          description: ZEGOCLOUD chưa được cấu hình trên server
   /api/v1/auth/register:
     post:
       security: []
@@ -1198,6 +1222,22 @@ paths:
       responses:
         "201":
           description: File đã được gắn vào tin nhắn
+  /api/v1/workspaces/{workspace_id}/channels/{channel_id}/media:
+    get:
+      summary: Danh sách ảnh đã gửi trong cuộc trò chuyện
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceID"
+        - $ref: "#/components/parameters/ChannelID"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+      responses:
+        "200":
+          description: Danh sách ảnh trong cuộc trò chuyện, mới nhất trước
   /api/v1/workspaces/{workspace_id}/direct-conversations:
     get:
       summary: Danh sách direct conversation của user hiện tại
@@ -2558,6 +2598,29 @@ components:
           type: string
           format: date-time
         acked_at:
+          type: string
+          format: date-time
+    ZegoCallCredentials:
+      type: object
+      required: [app_id, app_sign, user_id, user_name, token]
+      properties:
+        app_id:
+          type: integer
+          format: uint32
+        app_sign:
+          type: string
+          description: AppSign từ ZEGOCLOUD Console, dùng cho SDK/UIKit khi cần.
+        user_id:
+          type: string
+          maxLength: 32
+          pattern: "^[A-Za-z0-9_]+$"
+          description: UserID đã chuẩn hóa để hợp lệ với ZEGOCLOUD.
+        user_name:
+          type: string
+        token:
+          type: string
+          description: Token04 do backend sinh từ ZEGO_SERVER_SECRET.
+        expires_at:
           type: string
           format: date-time
     CreateCallRequest:

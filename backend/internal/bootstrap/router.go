@@ -44,6 +44,7 @@ import (
 	fileshttp "github.com/duclamdev/application-chat/backend/internal/modules/files/delivery/http"
 	filespostgres "github.com/duclamdev/application-chat/backend/internal/modules/files/infrastructure/postgres"
 	filesstorage "github.com/duclamdev/application-chat/backend/internal/modules/files/infrastructure/storage"
+	filesws "github.com/duclamdev/application-chat/backend/internal/modules/files/infrastructure/websocket"
 	healthhttp "github.com/duclamdev/application-chat/backend/internal/modules/health/delivery/http"
 	messagesapp "github.com/duclamdev/application-chat/backend/internal/modules/messages/application"
 	messageshttp "github.com/duclamdev/application-chat/backend/internal/modules/messages/delivery/http"
@@ -243,9 +244,10 @@ func (a *API) registerAPIV1() {
 	callsHandler.RegisterRoutes(v1, authMiddleware)
 
 	videoHandler := videohttp.NewHandler(
-		a.cfg.StreamVideo.APIKey,
-		a.cfg.StreamVideo.APISecret,
-		a.cfg.StreamVideo.TokenTTL,
+		a.cfg.ZegoCloud.AppID,
+		a.cfg.ZegoCloud.AppSign,
+		a.cfg.ZegoCloud.ServerSecret,
+		a.cfg.ZegoCloud.TokenTTL,
 	)
 	videoHandler.RegisterRoutes(v1, authMiddleware)
 
@@ -274,6 +276,9 @@ func (a *API) registerAPIV1() {
 		filesRepo := filespostgres.NewRepository(pool)
 		filesStore := filesstorage.NewStore(a.resources.Storage)
 		filesService := filesapp.NewService(filesRepo, filesStore, rbacService, a.cfg.Storage.Provider, a.cfg.Storage.Bucket)
+		if a.resources.WebSocket != nil {
+			filesService.SetRealtimePublisher(filesws.NewPublisher(a.resources.WebSocket))
+		}
 		filesHandler := fileshttp.NewHandler(filesService)
 		filesHandler.RegisterRoutes(v1, authMiddleware)
 	}

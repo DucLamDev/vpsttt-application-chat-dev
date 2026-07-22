@@ -48,5 +48,5 @@ export { createTicketsClient } from "./tickets-client";
 export { collectionFrom, itemFrom } from "./response-utils";
 export { createUsersClient } from "./users-client";
 export { createVideoClient } from "./video-client";
-export type { StreamVideoCredentials } from "./video-client";
+export type { ZegoCallCredentials } from "./video-client";
 export { createWorkspacesClient } from "./workspaces-client";

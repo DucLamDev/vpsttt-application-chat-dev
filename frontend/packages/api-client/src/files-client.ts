@@ -71,6 +71,13 @@ export function createFilesClient(http: HttpClient) {
       );
       return collectionFrom<FileAttachment>(data, "attachments");
     },
+    async channelMedia(workspaceId: string, channelId: string, params: QueryParams = {}) {
+      const data = await http.get<unknown>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/media`,
+        { query: params }
+      );
+      return collectionFrom<FileAttachment>(data, "attachments");
+    },
     async attach(workspaceId: string, channelId: string, messageId: string, input: AttachFileInput) {
       const data = await http.post<unknown>(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/attachments`,

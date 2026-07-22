@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://chat.vpsttt.com wss://chat.vpsttt.com http://localhost:* ws://localhost:* stun: turn:; img-src 'self' data: blob: https: asset: http://asset.localhost; media-src 'self' data: blob: mediastream: asset: http://asset.localhost; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' https://accounts.google.com;"
+      "csp": "default-src 'self'; connect-src 'self' https://chat.vpsttt.com wss://chat.vpsttt.com https://*.zegocloud.com wss://*.zegocloud.com https://*.zego.im wss://*.zego.im https://*.zegocloudapi.com wss://*.zegocloudapi.com http://localhost:* ws://localhost:* stun: turn:; img-src 'self' data: blob: https: asset: http://asset.localhost; media-src 'self' data: blob: mediastream: asset: http://asset.localhost; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self' https://accounts.google.com;"
     }
   },
   "plugins": {

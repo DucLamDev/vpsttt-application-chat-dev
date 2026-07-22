@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -32,7 +33,20 @@ type Repository interface {
 	ListVersions(ctx context.Context, workspaceID string, fileID string) ([]filesdomain.Version, error)
 	AttachFile(ctx context.Context, params AttachFileParams) (filesdomain.Attachment, error)
 	ListAttachments(ctx context.Context, params ListAttachmentsParams) ([]filesdomain.Attachment, error)
+	ListChannelMedia(ctx context.Context, params ListChannelMediaParams) ([]filesdomain.Attachment, error)
 	RecordAudit(ctx context.Context, event AuditEvent) error
+}
+
+type RealtimePublisher interface {
+	Publish(ctx context.Context, event RealtimeEvent) error
+}
+
+type RealtimeEvent struct {
+	Type        string
+	WorkspaceID string
+	ChannelID   string
+	ActorUserID string
+	Payload     map[string]any
 }
 
 type AuditEvent struct {
@@ -74,6 +88,7 @@ type Service struct {
 	storageProvider string
 	bucket          string
 	now             func() time.Time
+	realtime        RealtimePublisher
 }
 
 type UploadInput struct {
@@ -169,6 +184,20 @@ type ListAttachmentsParams struct {
 	ActorUserID string
 }
 
+type ListChannelMediaInput struct {
+	ActorUserID string
+	WorkspaceID string
+	ChannelID   string
+	Limit       int
+}
+
+type ListChannelMediaParams struct {
+	WorkspaceID string
+	ChannelID   string
+	ActorUserID string
+	Limit       int
+}
+
 type FileDTO struct {
 	ID             string          `json:"id"`
 	WorkspaceID    *string         `json:"workspace_id,omitempty"`
@@ -213,6 +242,10 @@ func NewService(repo Repository, store ObjectStore, checker PermissionChecker, s
 		bucket = strings.TrimSpace(storageOptions[1])
 	}
 	return &Service{repo: repo, store: store, checker: checker, storageProvider: provider, bucket: bucket, now: time.Now}
+}
+
+func (s *Service) SetRealtimePublisher(publisher RealtimePublisher) {
+	s.realtime = publisher
 }
 
 func (s *Service) Upload(ctx context.Context, input UploadInput) (FileDTO, error) {
@@ -268,17 +301,19 @@ func (s *Service) Upload(ctx context.Context, input UploadInput) (FileDTO, error
 		return FileDTO{}, err
 	}
 	if attachedUpload {
-		if _, err := s.repo.AttachFile(ctx, AttachFileParams{
+		attachment, err := s.repo.AttachFile(ctx, AttachFileParams{
 			WorkspaceID: strings.TrimSpace(input.WorkspaceID),
 			ChannelID:   strings.TrimSpace(input.ChannelID),
 			MessageID:   strings.TrimSpace(input.MessageID),
 			FileID:      file.ID,
 			ActorUserID: strings.TrimSpace(input.ActorUserID),
 			SortOrder:   input.SortOrder,
-		}); err != nil {
+		})
+		if err != nil {
 			_ = s.store.Delete(ctx, object.Key)
 			return FileDTO{}, mapFileError(err)
 		}
+		s.publishAttachmentCreated(ctx, strings.TrimSpace(input.ActorUserID), strings.TrimSpace(input.ChannelID), attachment)
 	}
 	_ = s.repo.RecordAudit(ctx, AuditEvent{
 		WorkspaceID: fileWorkspaceID(file),
@@ -442,6 +477,7 @@ func (s *Service) AttachFile(ctx context.Context, input AttachFileInput) (Attach
 	if err != nil {
 		return AttachmentDTO{}, mapFileError(err)
 	}
+	s.publishAttachmentCreated(ctx, strings.TrimSpace(input.ActorUserID), strings.TrimSpace(input.ChannelID), attachment)
 	return toAttachmentDTO(attachment), nil
 }
 
@@ -463,6 +499,56 @@ func (s *Service) ListAttachments(ctx context.Context, input ListAttachmentsInpu
 		dtos = append(dtos, toAttachmentDTO(attachment))
 	}
 	return dtos, nil
+}
+
+func (s *Service) ListChannelMedia(ctx context.Context, input ListChannelMediaInput) ([]AttachmentDTO, error) {
+	if err := s.ensurePermission(ctx, input.ActorUserID, input.WorkspaceID, "message.send"); err != nil {
+		return nil, err
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	attachments, err := s.repo.ListChannelMedia(ctx, ListChannelMediaParams{
+		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		ChannelID:   strings.TrimSpace(input.ChannelID),
+		ActorUserID: strings.TrimSpace(input.ActorUserID),
+		Limit:       limit,
+	})
+	if err != nil {
+		return nil, mapFileError(err)
+	}
+	dtos := make([]AttachmentDTO, 0, len(attachments))
+	for _, attachment := range attachments {
+		dtos = append(dtos, toAttachmentDTO(attachment))
+	}
+	return dtos, nil
+}
+
+func (s *Service) publishAttachmentCreated(ctx context.Context, actorUserID string, channelID string, attachment filesdomain.Attachment) {
+	if s.realtime == nil {
+		return
+	}
+	dto := toAttachmentDTO(attachment)
+	if err := s.realtime.Publish(ctx, RealtimeEvent{
+		Type:        "AttachmentCreated",
+		WorkspaceID: attachment.WorkspaceID,
+		ChannelID:   channelID,
+		ActorUserID: actorUserID,
+		Payload: map[string]any{
+			"attachment": dto,
+			"channel_id": channelID,
+			"message_id": attachment.MessageID,
+		},
+	}); err != nil {
+		slog.Warn("Khong publish duoc su kien attachment realtime",
+			"workspace_id", attachment.WorkspaceID,
+			"channel_id", channelID,
+			"message_id", attachment.MessageID,
+			"file_id", attachment.FileID,
+			"error", err,
+		)
+	}
 }
 
 func (s *Service) ensurePermission(ctx context.Context, userID string, workspaceID string, permission string) error {

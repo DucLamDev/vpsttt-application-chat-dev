@@ -37,7 +37,7 @@ type Config struct {
 	RabbitMQ     RabbitMQConfig
 	Storage      StorageConfig
 	Security     SecurityConfig
-	StreamVideo  StreamVideoConfig
+	ZegoCloud    ZegoCloudConfig
 	Registration RegistrationConfig
 	Order        OrderConfig
 }
@@ -132,10 +132,11 @@ type SecurityConfig struct {
 	GoogleClientID       string
 }
 
-type StreamVideoConfig struct {
-	APIKey    string
-	APISecret string
-	TokenTTL  time.Duration
+type ZegoCloudConfig struct {
+	AppID        uint32
+	AppSign      string
+	ServerSecret string
+	TokenTTL     time.Duration
 }
 
 type RegistrationConfig struct {
@@ -229,10 +230,11 @@ func Load() (*Config, error) {
 			WebhookSigningSecret: getEnv("WEBHOOK_SIGNING_SECRET", ""),
 			GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
 		},
-		StreamVideo: StreamVideoConfig{
-			APIKey:    getEnv("STREAM_VIDEO_API_KEY", ""),
-			APISecret: getEnv("STREAM_VIDEO_API_SECRET", ""),
-			TokenTTL:  getEnvDuration("STREAM_VIDEO_TOKEN_TTL", 24*time.Hour),
+		ZegoCloud: ZegoCloudConfig{
+			AppID:        getEnvUint32("ZEGO_APP_ID", 0),
+			AppSign:      getEnv("ZEGO_APP_SIGN", ""),
+			ServerSecret: getEnv("ZEGO_SERVER_SECRET", ""),
+			TokenTTL:     getEnvDuration("ZEGO_TOKEN_TTL", 24*time.Hour),
 		},
 		Registration: RegistrationConfig{
 			DefaultWorkspaceID: getEnv("REGISTRATION_DEFAULT_WORKSPACE_ID", ""),
@@ -308,11 +310,22 @@ func (c *Config) Validate() error {
 	if c.Order.Timeout <= 0 {
 		problems = append(problems, "ORDER_API_TIMEOUT must be greater than 0")
 	}
-	if (strings.TrimSpace(c.StreamVideo.APIKey) == "") != (strings.TrimSpace(c.StreamVideo.APISecret) == "") {
-		problems = append(problems, "STREAM_VIDEO_API_KEY and STREAM_VIDEO_API_SECRET must be configured together")
+	zegoConfigured := c.ZegoCloud.AppID != 0 || strings.TrimSpace(c.ZegoCloud.AppSign) != "" || strings.TrimSpace(c.ZegoCloud.ServerSecret) != ""
+	if zegoConfigured {
+		if c.ZegoCloud.AppID == 0 {
+			problems = append(problems, "ZEGO_APP_ID must be configured when ZEGOCLOUD is enabled")
+		}
+		if strings.TrimSpace(c.ZegoCloud.AppSign) == "" {
+			problems = append(problems, "ZEGO_APP_SIGN must be configured when ZEGOCLOUD is enabled")
+		}
+		if strings.TrimSpace(c.ZegoCloud.ServerSecret) == "" {
+			problems = append(problems, "ZEGO_SERVER_SECRET must be configured when ZEGOCLOUD is enabled")
+		} else if len(c.ZegoCloud.ServerSecret) != 32 {
+			problems = append(problems, "ZEGO_SERVER_SECRET must be a 32 byte string")
+		}
 	}
-	if c.StreamVideo.TokenTTL <= 0 {
-		problems = append(problems, "STREAM_VIDEO_TOKEN_TTL must be greater than 0")
+	if c.ZegoCloud.TokenTTL <= 0 {
+		problems = append(problems, "ZEGO_TOKEN_TTL must be greater than 0")
 	}
 	if c.Registration.DefaultWorkspaceID != "" && !uuidPattern.MatchString(c.Registration.DefaultWorkspaceID) {
 		problems = append(problems, "REGISTRATION_DEFAULT_WORKSPACE_ID must be a valid UUID")
@@ -384,6 +397,19 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func getEnvUint32(key string, fallback uint32) uint32 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	value, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil {
+		return fallback
+	}
+	return uint32(value)
 }
 
 func getEnvBool(key string, fallback bool) bool {

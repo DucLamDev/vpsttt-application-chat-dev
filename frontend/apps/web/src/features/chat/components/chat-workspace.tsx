@@ -1,17 +1,8 @@
 "use client";
 
-import { Fragment, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type FormEvent, type ReactNode, type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type FormEvent, type ReactNode, type RefObject, type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useSearchParams } from "next/navigation";
-import {
-  CallControls,
-  SpeakerLayout,
-  StreamCall,
-  StreamTheme,
-  StreamVideo,
-  type Call,
-  type StreamVideoClient
-} from "@stream-io/video-react-sdk";
 import { queryKeys } from "@webtui/api-client";
 import { getPlatformServices, type MediaRecorderHandle } from "@webtui/chat-core";
 import {
@@ -48,7 +39,6 @@ import {
   LogOut,
   MessageCircle,
   Mic,
-  MicOff,
   Monitor,
   MoreVertical,
   Moon,
@@ -80,7 +70,6 @@ import {
   Trash2,
   Users,
   Video,
-  VideoOff,
   Workflow,
   X,
   Zap
@@ -1578,24 +1567,24 @@ export function ChatWorkspace() {
   }
 
   function handleComposerPaste(event: ClipboardEvent<HTMLInputElement>) {
-    const imageFiles = Array.from(event.clipboardData.items)
+    const itemFiles = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-      .map((item, index) => {
-        const file = item.getAsFile();
-        if (!file) {
-          return null;
-        }
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    const clipboardFiles = itemFiles.length
+      ? itemFiles
+      : Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
 
-        if (file.name) {
-          return file;
-        }
+    const imageFiles = clipboardFiles.map((file, index) => {
+      if (file.name) {
+        return file;
+      }
 
-        const extension = file.type.includes("jpeg") ? "jpg" : file.type.includes("webp") ? "webp" : "png";
-        return new File([file], `anh-dan-${Date.now()}-${index}.${extension}`, {
-          type: file.type || "image/png"
-        });
-      })
-      .filter(Boolean) as File[];
+      const extension = file.type.includes("jpeg") ? "jpg" : file.type.includes("webp") ? "webp" : "png";
+      return new File([file], `anh-dan-${Date.now()}-${index}.${extension}`, {
+        type: file.type || "image/png"
+      });
+    });
 
     if (!imageFiles.length) {
       return;
@@ -1993,6 +1982,10 @@ export function ChatWorkspace() {
       return;
     }
     setPreviewedImage({ attachment, source: resolvedSource });
+  }
+
+  function handlePreviewMediaItem(item: MediaItem, source?: string) {
+    handlePreviewAttachment(item.attachment, source);
   }
 
   function handleOpenNotification(notification: NotificationItem) {
@@ -2747,17 +2740,11 @@ export function ChatWorkspace() {
             />
             <CallPanel
               callState={callControls.callState}
-              isCameraOff={callControls.isCameraOff}
-              isMuted={callControls.isMuted}
-              localStream={callControls.localStream}
+              hasZegoCall={callControls.hasZegoCall}
               onAccept={() => void callControls.acceptCall()}
               onEnd={callControls.endCall}
               onReject={callControls.rejectCall}
-              onToggleCamera={callControls.toggleCamera}
-              onToggleMute={callControls.toggleMute}
-              remoteStream={callControls.remoteStream}
-              streamCall={callControls.streamCall}
-              streamClient={callControls.streamClient}
+              zegoContainerRef={callControls.zegoContainerRef}
             />
             {isMessageSearchOpen ? (
               <div className="message-toolbar">
@@ -3071,13 +3058,14 @@ export function ChatWorkspace() {
           channelMembers={displayChannelMembers}
           files={selectedChatFiles}
           isDirectChat={selectedChatChannel?.type === "direct"}
-          isLoading={data.messagesQuery.isLoading || data.pinnedMessagesQuery.isLoading}
+          isLoading={data.messagesQuery.isLoading || data.pinnedMessagesQuery.isLoading || data.channelMediaQuery.isLoading}
           isSendingThread={data.sendThreadMessageMutation.isPending}
           isThreadLoading={data.threadQuery.isLoading}
           mediaItems={data.mediaItems}
           onClose={() => setIsDetailPanelOpen(false)}
           onCloseThread={() => setThreadMessageId(null)}
           onFileSelect={handleDownload}
+          onMediaSelect={handlePreviewMediaItem}
           onResolveMedia={data.downloadAttachment}
           onSendThread={async (body) => {
             try {
@@ -6001,30 +5989,18 @@ function useIncomingCallRingtone(active: boolean) {
 
 function CallPanel({
   callState,
-  isCameraOff,
-  isMuted,
-  localStream,
+  hasZegoCall,
   onAccept,
   onEnd,
   onReject,
-  onToggleCamera,
-  onToggleMute,
-  remoteStream,
-  streamCall,
-  streamClient
+  zegoContainerRef
 }: {
   callState: WebRtcCallState;
-  isCameraOff: boolean;
-  isMuted: boolean;
-  localStream: MediaStream | null;
+  hasZegoCall: boolean;
   onAccept: () => void;
   onEnd: () => void;
   onReject: () => void;
-  onToggleCamera: () => void;
-  onToggleMute: () => void;
-  remoteStream: MediaStream | null;
-  streamCall: Call | null;
-  streamClient: StreamVideoClient | null;
+  zegoContainerRef: RefObject<HTMLDivElement | null>;
 }) {
   if (callState.status === "idle") {
     return null;
@@ -6032,9 +6008,7 @@ function CallPanel({
 
   const canControlCall = callState.status === "outgoing" || callState.status === "connecting" || callState.status === "active";
   const isVideo = callState.mode === "video";
-  const showStreamCall = Boolean(streamClient && streamCall && canControlCall);
-  const showVideo = isVideo && canControlCall;
-  const showLegacyControls = canControlCall && !showStreamCall;
+  const showZegoCall = canControlCall;
 
   return (
     <section className={`call-panel call-panel--${callState.status}`} role="status">
@@ -6047,24 +6021,11 @@ function CallPanel({
           <small>{callPanelSubtitle(callState)}</small>
         </div>
       </div>
-      {showStreamCall && streamClient && streamCall ? (
-        <div className={`call-panel__stream call-panel__stream--${callState.mode}`}>
-          <StreamVideo client={streamClient}>
-            <StreamCall call={streamCall}>
-              <StreamTheme className="webtui-stream-call">
-                <SpeakerLayout participantsBarPosition="bottom" />
-                <CallControls onLeave={onEnd} />
-              </StreamTheme>
-            </StreamCall>
-          </StreamVideo>
-        </div>
-      ) : showVideo ? (
-        <div className="call-panel__video-grid">
-          <MediaStreamVideo label={callState.peerName || "Người gọi"} stream={remoteStream} />
-          <MediaStreamVideo label="Bạn" muted stream={localStream} />
+      {showZegoCall ? (
+        <div className={`call-panel__zego call-panel__zego--${callState.mode}`}>
+          <div className={hasZegoCall ? "webtui-zego-call" : "webtui-zego-call webtui-zego-call--loading"} ref={zegoContainerRef} />
         </div>
       ) : null}
-      {!isVideo && showLegacyControls ? <MediaStreamAudio stream={remoteStream} /> : null}
       <div className="call-panel__actions">
         {callState.status === "incoming" ? (
           <>
@@ -6078,68 +6039,14 @@ function CallPanel({
             </Button>
           </>
         ) : null}
-        {showLegacyControls ? (
-          <>
-            <Button className={isMuted ? "call-panel__button call-panel__button--active" : "call-panel__button"} onClick={onToggleMute} size="sm" variant="secondary">
-              {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
-              {isMuted ? "Bật mic" : "Tắt mic"}
-            </Button>
-            {isVideo ? (
-              <Button className={isCameraOff ? "call-panel__button call-panel__button--active" : "call-panel__button"} onClick={onToggleCamera} size="sm" variant="secondary">
-                {isCameraOff ? <VideoOff size={16} /> : <Video size={16} />}
-                {isCameraOff ? "Bật camera" : "Tắt camera"}
-              </Button>
-            ) : null}
-            <Button className="call-panel__button call-panel__button--end" onClick={onEnd} size="sm" variant="secondary">
-              <PhoneOff size={16} />
-              Kết thúc
-            </Button>
-          </>
+        {showZegoCall ? (
+          <Button className="call-panel__button call-panel__button--end" onClick={onEnd} size="sm" variant="secondary">
+            <PhoneOff size={16} />
+            Kết thúc
+          </Button>
         ) : null}
       </div>
     </section>
-  );
-}
-
-function MediaStreamAudio({ stream }: { stream: MediaStream | null }) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || audio.srcObject === stream) {
-      return;
-    }
-    audio.srcObject = stream;
-    if (stream) {
-      void audio.play().catch(() => undefined);
-    }
-  }, [stream]);
-
-  return <audio autoPlay playsInline ref={audioRef} />;
-}
-
-function MediaStreamVideo({
-  label,
-  muted = false,
-  stream
-}: {
-  label: string;
-  muted?: boolean;
-  stream: MediaStream | null;
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  useEffect(() => {
-    if (videoRef.current && videoRef.current.srcObject !== stream) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream]);
-
-  return (
-    <div className={stream ? "call-panel__video" : "call-panel__video call-panel__video--empty"}>
-      {stream ? <video autoPlay muted={muted} playsInline ref={videoRef} /> : <span>{label}</span>}
-      <small>{label}</small>
-    </div>
   );
 }
 
@@ -7026,7 +6933,7 @@ function MessageTimeline({
               </a>
             ) : null}
             {message.attachments?.length ? (
-              <div className="attachment-list">
+              <div className={attachmentListClassName(message.attachments)}>
                 {message.attachments.map((attachment) =>
                   attachment.isAudio || attachment.isImage || attachment.isVideo ? (
                     <AttachmentMedia
@@ -8061,6 +7968,13 @@ function isImageOnlyMessage(message: ChatMessage): boolean {
   return attachments.length > 0 && attachments.every((attachment) => attachment.isImage) && !shouldRenderMessageBody(message);
 }
 
+function attachmentListClassName(attachments: MessageAttachmentItem[]): string {
+  if (!attachments.length || !attachments.every((attachment) => attachment.isImage)) {
+    return "attachment-list";
+  }
+  return `attachment-list attachment-list--images attachment-list--images-${Math.min(attachments.length, 4)}`;
+}
+
 function isFileOnlyMessage(message: ChatMessage): boolean {
   const attachments = message.attachments ?? [];
   return attachments.length > 0 && attachments.every((attachment) => !attachment.isAudio && !attachment.isImage && !attachment.isVideo) && !shouldRenderMessageBody(message);
@@ -8092,9 +8006,11 @@ function voiceFileExtension(mimeType: string) {
 
 function MediaGalleryThumbnail({
   item,
+  onOpen,
   onResolve
 }: {
   item: MediaItem;
+  onOpen: (item: MediaItem, source?: string) => void;
   onResolve: (fileId: string) => Promise<Blob>;
 }) {
   const directSource = directEmbeddableMediaSource(item.url);
@@ -8119,14 +8035,16 @@ function MediaGalleryThumbnail({
   }, [directSource, item.id, onResolve]);
 
   return (
-    <span
+    <button
       aria-label={item.label}
       className={source ? "media-file-thumb media-file-thumb--loaded" : "media-file-thumb"}
-      role="img"
+      disabled={!source}
+      onClick={() => onOpen(item, source)}
       style={source ? { backgroundImage: `url(${source})` } : undefined}
+      type="button"
     >
       {!source ? <ImageIcon size={18} /> : null}
-    </span>
+    </button>
   );
 }
 
@@ -8142,6 +8060,7 @@ function RightDetailPanel({
   onClose,
   onCloseThread,
   onFileSelect,
+  onMediaSelect,
   onResolveMedia,
   onSendThread,
   onTabChange,
@@ -8161,6 +8080,7 @@ function RightDetailPanel({
   onClose: () => void;
   onCloseThread: () => void;
   onFileSelect: (file: FileItem) => void;
+  onMediaSelect: (item: MediaItem, source?: string) => void;
   onResolveMedia: (fileId: string) => Promise<Blob>;
   onSendThread: (body: string) => Promise<boolean>;
   onTabChange: (tab: DetailTab) => void;
@@ -8281,7 +8201,7 @@ function RightDetailPanel({
           ) : mediaItems.length ? (
             <div className="media-grid">
               {mediaItems.map((item) => (
-                <MediaGalleryThumbnail item={item} key={item.id} onResolve={onResolveMedia} />
+                <MediaGalleryThumbnail item={item} key={item.id} onOpen={onMediaSelect} onResolve={onResolveMedia} />
               ))}
             </div>
           ) : (

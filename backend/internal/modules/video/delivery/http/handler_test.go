@@ -1,49 +1,64 @@
 package http
 
 import (
-	"crypto/hmac"
-	"encoding/base64"
-	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 )
 
-func TestCreateUserTokenSignsStreamClaims(t *testing.T) {
-	handler := NewHandler("api-key", "stream-secret-that-is-long-enough", time.Hour)
+func TestCreateUserTokenBuildsZegoCredentials(t *testing.T) {
+	handler := NewHandler(87181369, "zego-app-sign", "zego-server-secret", time.Hour)
 	handler.now = func() time.Time {
 		return time.Unix(1700000000, 0).UTC()
 	}
+	handler.generateToken = func(appID uint32, userID string, serverSecret string, effectiveTimeInSeconds int64, payload string) (string, error) {
+		if appID != 87181369 {
+			t.Fatalf("appID = %d, want 87181369", appID)
+		}
+		if userID != "11111111222233334444555555555555" {
+			t.Fatalf("userID = %q, want normalized UUID", userID)
+		}
+		if serverSecret != "zego-server-secret" {
+			t.Fatalf("serverSecret = %q, want configured secret", serverSecret)
+		}
+		if effectiveTimeInSeconds != 3600 {
+			t.Fatalf("effectiveTimeInSeconds = %d, want 3600", effectiveTimeInSeconds)
+		}
+		if payload != "" {
+			t.Fatalf("payload = %q, want empty identity-token payload", payload)
+		}
+		return "zego-token", nil
+	}
 
-	token, expiresAt, err := handler.createUserToken("user-1")
+	token, zegoUserID, expiresAt, err := handler.createUserToken("11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("createUserToken() error = %v", err)
+	}
+	if token != "zego-token" {
+		t.Fatalf("token = %q, want zego-token", token)
+	}
+	if zegoUserID != "11111111222233334444555555555555" {
+		t.Fatalf("zegoUserID = %q, want normalized UUID", zegoUserID)
 	}
 	if got, want := expiresAt.Unix(), int64(1700003600); got != want {
 		t.Fatalf("expiresAt = %d, want %d", got, want)
 	}
+}
 
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		t.Fatalf("token parts = %d, want 3", len(parts))
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-	var claims streamTokenClaims
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
-	}
-	if claims.UserID != "user-1" || claims.IssuedAt != 1700000000 || claims.ExpiresAt != 1700003600 {
-		t.Fatalf("unexpected claims: %#v", claims)
+func TestZegoUserIDFromAppUserID(t *testing.T) {
+	tests := map[string]string{
+		"11111111-2222-3333-4444-555555555555": "11111111222233334444555555555555",
+		"simple_user":                          "simple_user",
+		"duclam@example.com":                   "duclamexamplecom",
 	}
 
-	expected := base64.RawURLEncoding.EncodeToString(
-		signHMAC([]byte(parts[0]+"."+parts[1]), []byte("stream-secret-that-is-long-enough")),
-	)
-	if !hmac.Equal([]byte(parts[2]), []byte(expected)) {
-		t.Fatal("token signature is invalid")
+	for input, want := range tests {
+		if got := zegoUserIDFromAppUserID(input); got != want {
+			t.Fatalf("zegoUserIDFromAppUserID(%q) = %q, want %q", input, got, want)
+		}
+	}
+
+	got := zegoUserIDFromAppUserID("this-user-id-is-far-too-long-for-zego-and-needs-hashing")
+	if len(got) != 32 || !zegoIdentifierPattern.MatchString(got) {
+		t.Fatalf("hashed zego id = %q, want 32-character Zego-safe id", got)
 	}
 }
