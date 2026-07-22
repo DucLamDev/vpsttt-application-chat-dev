@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../../core/result/result.dart';
 import '../../../../core/result/result_guard.dart';
 import '../../domain/entities/chat_message.dart';
@@ -51,6 +53,34 @@ final class MessageAttachmentRepositoryImpl
         workspaceId: workspaceId,
         channelId: channelId,
         messageId: messageId,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<List<MessageAttachment>>> listChannelMedia({
+    required String workspaceId,
+    required String channelId,
+    int limit = 500,
+  }) {
+    return guardResult(
+      () => _remote.listChannelMedia(
+        workspaceId: workspaceId,
+        channelId: channelId,
+        limit: limit,
+      ),
+    );
+  }
+
+  @override
+  Future<Result<Uint8List>> downloadFileBytes({
+    required String downloadPath,
+    String? mimeType,
+  }) {
+    return guardResult(
+      () => _remote.downloadFileBytes(
+        downloadPath: downloadPath,
+        mimeType: mimeType,
       ),
     );
   }

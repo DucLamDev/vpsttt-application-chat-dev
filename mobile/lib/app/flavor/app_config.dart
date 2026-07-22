@@ -10,6 +10,7 @@ final class AppConfig {
   const AppConfig({
     required this.flavor,
     required this.apiBaseUri,
+    required this.wsBaseUri,
     this.appVersion = '1.0.0',
     this.releaseChannel = 'internal',
   });
@@ -17,6 +18,10 @@ final class AppConfig {
   factory AppConfig.fromFlavor(AppFlavor flavor) {
     const configuredBaseUrl = String.fromEnvironment(
       'WEBTUI_API_BASE_URL',
+      defaultValue: '',
+    );
+    const configuredWsUrl = String.fromEnvironment(
+      'WEBTUI_WS_BASE_URL',
       defaultValue: '',
     );
     const configuredAppVersion = String.fromEnvironment(
@@ -28,11 +33,16 @@ final class AppConfig {
       defaultValue: '',
     );
 
+    final apiBaseUri = configuredBaseUrl.isEmpty
+        ? flavor.defaultApiBaseUri
+        : Uri.parse(configuredBaseUrl);
+
     return AppConfig(
       flavor: flavor,
-      apiBaseUri: configuredBaseUrl.isEmpty
-          ? flavor.defaultApiBaseUri
-          : Uri.parse(configuredBaseUrl),
+      apiBaseUri: apiBaseUri,
+      wsBaseUri: configuredWsUrl.isEmpty
+          ? _defaultRealtimeWsUri(apiBaseUri)
+          : Uri.parse(configuredWsUrl),
       appVersion: configuredAppVersion,
       releaseChannel: configuredReleaseChannel.isEmpty
           ? _defaultReleaseChannel(flavor)
@@ -42,6 +52,7 @@ final class AppConfig {
 
   final AppFlavor flavor;
   final Uri apiBaseUri;
+  final Uri wsBaseUri;
   final String appVersion;
   final String releaseChannel;
 
@@ -50,6 +61,17 @@ final class AppConfig {
   }
 
   bool get showDebugBanner => flavor != AppFlavor.prod;
+}
+
+Uri _defaultRealtimeWsUri(Uri apiBaseUri) {
+  final scheme = apiBaseUri.scheme == 'https' ? 'wss' : 'ws';
+  return Uri(
+    scheme: scheme,
+    userInfo: apiBaseUri.userInfo,
+    host: apiBaseUri.host,
+    port: apiBaseUri.hasPort ? apiBaseUri.port : null,
+    path: '/ws',
+  );
 }
 
 String _defaultReleaseChannel(AppFlavor flavor) {

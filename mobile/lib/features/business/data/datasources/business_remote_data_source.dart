@@ -260,7 +260,7 @@ final class BusinessRemoteDataSource {
 DepartmentSummary _departmentFromMap(JsonMap map) {
   return DepartmentSummary(
     id: stringField(map, const ['id']),
-    name: stringField(map, const ['name'], fallback: 'Phong ban'),
+    name: stringField(map, const ['name'], fallback: 'Phòng ban'),
     slug: stringField(map, const ['slug']),
     description: nullableStringField(map, const ['description']),
     parentId: nullableStringField(map, const ['parent_id', 'parentId']),

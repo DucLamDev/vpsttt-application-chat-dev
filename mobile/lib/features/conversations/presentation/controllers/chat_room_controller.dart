@@ -533,6 +533,9 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     if ((body.isEmpty && !attachmentsReady) || state.isSending) {
       return;
     }
+    final attachmentFallback = _attachmentMessageFallback(
+      state.pendingAttachments,
+    );
     final clientMessageId = _newClientMessageIdUseCase.execute();
     state = state.copyWith(isSending: true, clearError: true);
     final editing = state.editingMessage;
@@ -540,7 +543,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
         ? await _sendMessageUseCase.execute(
             workspaceId: state.scope.workspaceId,
             channelId: state.scope.channelId,
-            body: body.isEmpty ? 'Đã gửi tệp đính kèm' : body,
+            body: body.isEmpty ? attachmentFallback : body,
             clientMessageId: clientMessageId,
             parentId: state.replyToMessage?.id,
           )
@@ -572,7 +575,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
       case FailureResult<ChatMessage>(failure: final failure):
         if (editing == null) {
           await _enqueueFailedSend(
-            body: body.isEmpty ? 'Da gui tep dinh kem' : body,
+            body: body.isEmpty ? attachmentFallback : body,
             clientMessageId: clientMessageId,
             parentId: state.replyToMessage?.id,
             errorMessage: failure.message,
@@ -1284,6 +1287,39 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
       }
       unawaited(_markLatestRead());
     }
+    if (event.type == ConversationRealtimeEventType.attachmentCreated) {
+      final messageId = event.messageId;
+      if (messageId != null && messageId.isNotEmpty) {
+        unawaited(_hydrateMessageAttachments(messageId));
+      }
+    }
+  }
+
+  Future<void> _hydrateMessageAttachments(String messageId) async {
+    final result = await _listMessageAttachmentsUseCase.execute(
+      workspaceId: state.scope.workspaceId,
+      channelId: state.scope.channelId,
+      messageId: messageId,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (result case Success<List<MessageAttachment>>(
+      value: final attachments,
+    )) {
+      if (attachments.isEmpty) {
+        return;
+      }
+      state = state.copyWith(
+        messages: state.messages
+            .map(
+              (message) => message.id == messageId
+                  ? message.copyWith(attachments: attachments)
+                  : message,
+            )
+            .toList(growable: false),
+      );
+    }
   }
 
   Future<void> _markLatestRead() async {
@@ -1362,19 +1398,74 @@ bool _shouldHydrateAttachments(ChatMessage message) {
     return false;
   }
   return normalized == 'đã gửi tệp đính kèm' ||
-      normalized == 'da gui tep dinh kem' ||
+      _sameAttachmentTextWithoutVietnameseDiacritics(
+        normalized,
+        'đã gửi tệp đính kèm',
+      ) ||
       RegExp(
         r'^đã gửi(?: \d+)? (?:ảnh|file|tin nhắn thoại)$',
       ).hasMatch(normalized) ||
-      RegExp(
-        r'^da gui(?: \d+)? (?:anh|file|tin nhan thoai)$',
-      ).hasMatch(normalized) ||
+      _matchesGeneratedAttachmentBody(normalized, noun: 'ảnh') ||
+      _matchesGeneratedAttachmentBody(normalized, noun: 'file') ||
+      _matchesGeneratedAttachmentBody(normalized, noun: 'tin nhắn thoại') ||
       RegExp(r'^đã gửi file .+').hasMatch(normalized) ||
-      RegExp(r'^da gui file .+').hasMatch(normalized);
+      _matchesGeneratedFileAttachmentBody(normalized);
 }
 
 String _compactAttachmentBody(String value) {
   return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+}
+
+bool _matchesGeneratedAttachmentBody(String value, {required String noun}) {
+  final normalized = _removeVietnameseDiacritics(value);
+  final sent = _removeVietnameseDiacritics('đã gửi');
+  final normalizedNoun = _removeVietnameseDiacritics(noun);
+  return RegExp(
+    '^${RegExp.escape(sent)}(?: \\d+)? ${RegExp.escape(normalizedNoun)}\$',
+  ).hasMatch(normalized);
+}
+
+bool _matchesGeneratedFileAttachmentBody(String value) {
+  final normalized = _removeVietnameseDiacritics(value);
+  final prefix = _removeVietnameseDiacritics('đã gửi file ');
+  return normalized.startsWith(prefix) && normalized.length > prefix.length;
+}
+
+bool _sameAttachmentTextWithoutVietnameseDiacritics(String left, String right) {
+  return _removeVietnameseDiacritics(left) ==
+      _removeVietnameseDiacritics(right);
+}
+
+String _removeVietnameseDiacritics(String value) {
+  const groups = {
+    'a': 'àáạảãâầấậẩẫăằắặẳẵ',
+    'A': 'ÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴ',
+    'e': 'èéẹẻẽêềếệểễ',
+    'E': 'ÈÉẸẺẼÊỀẾỆỂỄ',
+    'i': 'ìíịỉĩ',
+    'I': 'ÌÍỊỈĨ',
+    'o': 'òóọỏõôồốộổỗơờớợởỡ',
+    'O': 'ÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ',
+    'u': 'ùúụủũưừứựửữ',
+    'U': 'ÙÚỤỦŨƯỪỨỰỬỮ',
+    'y': 'ỳýỵỷỹ',
+    'Y': 'ỲÝỴỶỸ',
+    'd': 'đ',
+    'D': 'Đ',
+  };
+  final buffer = StringBuffer();
+  for (final rune in value.runes) {
+    final char = String.fromCharCode(rune);
+    var replacement = char;
+    for (final entry in groups.entries) {
+      if (entry.value.contains(char)) {
+        replacement = entry.key;
+        break;
+      }
+    }
+    buffer.write(replacement);
+  }
+  return buffer.toString();
 }
 
 MessageAttachmentUploadItem? _attachmentItemById(
@@ -1400,4 +1491,28 @@ List<MessageAttachmentUploadItem> _replaceAttachmentItem(
             : item,
       )
       .toList(growable: false);
+}
+
+String _attachmentMessageFallback(
+  List<MessageAttachmentUploadItem> attachments,
+) {
+  final ready = attachments
+      .where((item) => item.status == MessageAttachmentUploadStatus.uploaded)
+      .toList(growable: false);
+  if (ready.isEmpty) return 'Đã gửi tệp đính kèm';
+  final kinds = ready
+      .map((item) => item.picked?.kind)
+      .whereType<MessageAttachmentKind>()
+      .toSet();
+  if (kinds.length == 1 && kinds.first == MessageAttachmentKind.image) {
+    return ready.length == 1 ? 'Đã gửi ảnh' : 'Đã gửi ${ready.length} ảnh';
+  }
+  if (kinds.length == 1 && kinds.first == MessageAttachmentKind.audio) {
+    return ready.length == 1
+        ? 'Đã gửi tin nhắn thoại'
+        : 'Đã gửi ${ready.length} tin nhắn thoại';
+  }
+  return ready.length == 1
+      ? 'Đã gửi tệp đính kèm'
+      : 'Đã gửi ${ready.length} file';
 }

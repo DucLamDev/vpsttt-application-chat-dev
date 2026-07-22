@@ -347,7 +347,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
     }
   }
 
-  static const _titles = ['Tin nhắn', 'Bạn bè', 'Kênh', 'Nghiep vu', 'Cài đặt'];
+  static const _titles = ['Tin nhắn', 'Bạn bè', 'Kênh', 'Nghiệp vụ', 'Cài đặt'];
 }
 
 String? _locationForNotificationTarget(NotificationTarget target) {
@@ -444,7 +444,7 @@ class _NetworkQualityBanner extends StatelessWidget {
             const SizedBox(width: WebTuiSpacing.sm),
             Expanded(
               child: Text(
-                'Mang yeu, dang dung du lieu gan nhat',
+                'Mạng yếu, đang dùng dữ liệu gần nhất',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: WebTuiTypography.labelSmall.copyWith(
@@ -456,7 +456,7 @@ class _NetworkQualityBanner extends StatelessWidget {
             TextButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text('Thu lai'),
+              label: const Text('Thử lại'),
             ),
           ],
         ),

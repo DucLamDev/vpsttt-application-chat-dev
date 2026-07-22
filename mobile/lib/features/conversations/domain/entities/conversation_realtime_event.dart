@@ -7,6 +7,7 @@ enum ConversationRealtimeEventType {
   messagePinned,
   messageUnpinned,
   reactionChanged,
+  attachmentCreated,
   typingStarted,
   typingStopped,
   unknown,

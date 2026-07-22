@@ -73,7 +73,7 @@ class WebTuiMobileScaffold extends StatelessWidget {
           NavigationDestination(
             icon: Icon(CupertinoIcons.briefcase),
             selectedIcon: Icon(CupertinoIcons.briefcase_fill),
-            label: 'Nghiep vu',
+            label: 'Nghiệp vụ',
           ),
           NavigationDestination(
             icon: Icon(CupertinoIcons.gear),

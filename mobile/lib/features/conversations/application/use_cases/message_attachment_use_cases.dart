@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/error/failure.dart';
@@ -124,6 +126,51 @@ final class ListMessageAttachmentsUseCase {
       workspaceId: workspaceId,
       channelId: channelId,
       messageId: messageId,
+    );
+  }
+}
+
+final class ListChannelMediaUseCase {
+  const ListChannelMediaUseCase(this._repository);
+
+  final MessageAttachmentRepository _repository;
+
+  Future<Result<List<MessageAttachment>>> execute({
+    required String workspaceId,
+    required String channelId,
+    int limit = 500,
+  }) {
+    return _repository.listChannelMedia(
+      workspaceId: workspaceId,
+      channelId: channelId,
+      limit: limit,
+    );
+  }
+}
+
+final class DownloadMessageAttachmentBytesUseCase {
+  const DownloadMessageAttachmentBytesUseCase(this._repository);
+
+  final MessageAttachmentRepository _repository;
+
+  Future<Result<Uint8List>> execute({
+    required Uri downloadUri,
+    String? mimeType,
+  }) {
+    if (downloadUri.toString().trim().isEmpty) {
+      return Future.value(
+        const FailureResult(
+          Failure(
+            kind: FailureKind.validation,
+            message: 'Đường dẫn ảnh không hợp lệ.',
+            code: 'ATTACHMENT_DOWNLOAD_URL_INVALID',
+          ),
+        ),
+      );
+    }
+    return _repository.downloadFileBytes(
+      downloadPath: downloadUri.toString(),
+      mimeType: mimeType,
     );
   }
 }

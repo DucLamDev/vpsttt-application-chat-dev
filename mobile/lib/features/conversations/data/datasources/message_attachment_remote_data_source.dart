@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import '../../../../core/network/api_response.dart';
@@ -62,6 +64,48 @@ final class MessageAttachmentRemoteDataSource {
         )
         .toList(growable: false);
   }
+
+  Future<List<MessageAttachment>> listChannelMedia({
+    required String workspaceId,
+    required String channelId,
+    int limit = 500,
+  }) async {
+    final response = await _api.get<Object>(
+      '/api/v1/workspaces/${_e(workspaceId)}/channels/${_e(channelId)}/media',
+      queryParameters: {'limit': limit},
+    );
+    return envelopeList(response.data, 'attachments')
+        .map(
+          (item) => _attachmentFromMap(item, fallbackWorkspaceId: workspaceId),
+        )
+        .toList(growable: false);
+  }
+
+  Future<Uint8List> downloadFileBytes({
+    required String downloadPath,
+    String? mimeType,
+  }) async {
+    final response = await _api.get<List<int>>(
+      downloadPath,
+      options: Options(
+        responseType: ResponseType.bytes,
+        headers: {'Accept': _acceptHeader(mimeType)},
+      ),
+    );
+    final bytes = response.data;
+    if (bytes == null || bytes.isEmpty) {
+      return Uint8List(0);
+    }
+    return Uint8List.fromList(bytes);
+  }
+}
+
+String _acceptHeader(String? mimeType) {
+  final normalized = mimeType?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return 'application/octet-stream';
+  }
+  return normalized;
 }
 
 MessageAttachment _attachmentFromMap(

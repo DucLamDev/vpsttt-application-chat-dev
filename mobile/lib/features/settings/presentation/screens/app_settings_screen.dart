@@ -125,23 +125,23 @@ class AppSettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            const WebTuiSectionLabel('Du lieu offline'),
+            const WebTuiSectionLabel('Dữ liệu offline'),
             WebTuiListSurface(
               children: [
                 WebTuiSettingRow(
-                  title: 'Xoa cache workspace',
-                  subtitle: 'Chi xoa du lieu doc gan nhat, giu draft va outbox',
+                  title: 'Xóa cache workspace',
+                  subtitle: 'Chỉ xóa dữ liệu đọc gần nhất, giữ draft và outbox',
                   icon: Icons.cleaning_services_outlined,
                   trailing: TextButton(
                     onPressed: workspaceId == null
                         ? null
                         : () => controller.clearWorkspaceCache(workspaceId),
-                    child: const Text('Xoa'),
+                    child: const Text('Xóa'),
                   ),
                 ),
               ],
             ),
-            const WebTuiSectionLabel('Phien ban'),
+            const WebTuiSectionLabel('Phiên bản'),
             WebTuiListSurface(
               children: [
                 _ReleasePolicyRow(
@@ -157,14 +157,14 @@ class AppSettingsScreen extends ConsumerWidget {
                     }
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Khong mo duoc link cap nhat.'),
+                        content: Text('Không mở được link cập nhật.'),
                       ),
                     );
                   },
                 ),
                 if (state.releaseErrorMessage != null)
                   WebTuiSettingRow(
-                    title: 'Khong kiem tra duoc',
+                    title: 'Không kiểm tra được',
                     subtitle: state.releaseErrorMessage!,
                     icon: Icons.warning_amber_rounded,
                   ),
@@ -202,12 +202,12 @@ class _ReleasePolicyRow extends StatelessWidget {
     final updateUrl = _updateUrl(policy);
     return WebTuiSettingRow(
       title: updateRequired
-          ? 'Can cap nhat ung dung'
+          ? 'Cần cập nhật ứng dụng'
           : updateRecommended
-          ? 'Co ban cap nhat moi'
-          : 'Ung dung hien tai',
+          ? 'Có bản cập nhật mới'
+          : 'Ứng dụng hiện tại',
       subtitle: policy == null
-          ? 'Kiem tra version gate tu backend'
+          ? 'Kiểm tra version gate từ backend'
           : _releaseSubtitle(policy!),
       icon: updateRequired
           ? Icons.system_update_alt_rounded
@@ -218,12 +218,12 @@ class _ReleasePolicyRow extends StatelessWidget {
           if (updateRecommended && updateUrl != null)
             TextButton(
               onPressed: () => onOpenUpdate(updateUrl),
-              child: Text(updateRequired ? 'Bat buoc' : 'Cap nhat'),
+              child: Text(updateRequired ? 'Bắt buộc' : 'Cập nhật'),
             )
           else
             TextButton(
               onPressed: isChecking ? null : onCheck,
-              child: Text(isChecking ? 'Dang kiem tra' : 'Kiem tra'),
+              child: Text(isChecking ? 'Đang kiểm tra' : 'Kiểm tra'),
             ),
         ],
       ),

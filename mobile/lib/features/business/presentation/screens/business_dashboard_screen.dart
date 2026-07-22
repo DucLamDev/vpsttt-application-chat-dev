@@ -21,14 +21,14 @@ class BusinessDashboardScreen extends ConsumerWidget {
     final controller = ref.read(provider.notifier);
 
     if (state.isLoading && state.data == null) {
-      return const WebTuiLoadingState(message: 'Dang tai module nghiep vu...');
+      return const WebTuiLoadingState(message: 'Đang tải module nghiệp vụ...');
     }
 
     final data = state.data;
     if (data == null) {
       return WebTuiErrorState(
-        title: 'Khong tai duoc module nghiep vu',
-        message: state.errorMessage ?? 'Hay thu lai sau.',
+        title: 'Không tải được module nghiệp vụ',
+        message: state.errorMessage ?? 'Hãy thử lại sau.',
         onRetry: controller.load,
       );
     }
@@ -40,7 +40,7 @@ class BusinessDashboardScreen extends ConsumerWidget {
         children: [
           if (state.errorMessage != null)
             WebTuiErrorState(
-              title: 'Co module chua tai duoc',
+              title: 'Có module chưa tải được',
               message: state.errorMessage!,
               onRetry: controller.refresh,
             ),
@@ -48,9 +48,9 @@ class BusinessDashboardScreen extends ConsumerWidget {
             _NoticeTile(message: state.noticeMessage!),
           if (data.errors.isNotEmpty) _ModuleErrors(errors: data.errors),
           if (data.adminStats != null) _StatsStrip(stats: data.adminStats!),
-          const WebTuiSectionLabel('Phong ban'),
+          const WebTuiSectionLabel('Phòng ban'),
           _DepartmentsSection(items: data.departments),
-          const WebTuiSectionLabel('Bot va AI'),
+          const WebTuiSectionLabel('Bot và AI'),
           _BotsSection(
             data: data,
             testing: state.isTestingFlow,
@@ -70,7 +70,7 @@ class BusinessDashboardScreen extends ConsumerWidget {
             onRun: controller.runCronJob,
             onSetStatus: controller.updateCronJobStatus,
           ),
-          const WebTuiSectionLabel('Webhook va API'),
+          const WebTuiSectionLabel('Webhook và API'),
           _WebhooksSection(
             items: data.webhooks,
             apiTokens: data.apiTokens,
@@ -164,9 +164,9 @@ class _DepartmentsSection extends StatelessWidget {
       children: items.isEmpty
           ? const [
               WebTuiSettingRow(
-                title: 'Chua co phong ban',
+                title: 'Chưa có phòng ban',
                 subtitle:
-                    'Backend tra ve danh sach rong hoac ban chua co quyen',
+                    'Backend trả về danh sách rỗng hoặc bạn chưa có quyền',
                 icon: Icons.account_tree_outlined,
               ),
             ]
@@ -175,7 +175,7 @@ class _DepartmentsSection extends StatelessWidget {
                 WebTuiSettingRow(
                   title: item.name,
                   subtitle:
-                      '${item.memberCount} thanh vien, ${item.channelCount} kenh',
+                      '${item.memberCount} thành viên, ${item.channelCount} kênh',
                   icon: Icons.account_tree_outlined,
                   trailing: _StatusPill(label: item.leadCount.toString()),
                 ),
@@ -206,8 +206,8 @@ class _BotsSection extends StatelessWidget {
       children: [
         if (data.bots.isEmpty)
           const WebTuiSettingRow(
-            title: 'Chua co bot',
-            subtitle: 'Bot catalog se hien tai day khi backend co du lieu',
+            title: 'Chưa có bot',
+            subtitle: 'Bot catalog sẽ hiện tại đây khi backend có dữ liệu',
             icon: Icons.smart_toy_outlined,
           )
         else
@@ -222,7 +222,7 @@ class _BotsSection extends StatelessWidget {
           WebTuiSettingRow(
             title: 'AI config',
             subtitle: detail.aiConfig == null
-                ? 'Chua cau hinh provider/model'
+                ? 'Chưa cấu hình provider/model'
                 : '${detail.aiConfig!.provider} / ${detail.aiConfig!.model}',
             icon: Icons.memory_rounded,
             trailing: detail.aiConfig?.secretRef == null
@@ -256,7 +256,7 @@ class _BotsSection extends StatelessWidget {
         if (detail != null)
           WebTuiSettingRow(
             title: 'Installations',
-            subtitle: '${detail.installations.length} noi cai dat',
+            subtitle: '${detail.installations.length} nơi cài đặt',
             icon: Icons.extension_outlined,
           ),
       ],
@@ -280,26 +280,26 @@ class _TicketsSection extends StatelessWidget {
     return WebTuiListSurface(
       children: [
         WebTuiSettingRow(
-          title: 'Tao ticket',
-          subtitle: 'Tao ticket moi bang endpoint backend',
+          title: 'Tạo ticket',
+          subtitle: 'Tạo ticket mới bằng endpoint backend',
           icon: Icons.add_task_outlined,
           onTap: onCreate,
           trailing: const Icon(Icons.add_rounded, color: WebTuiColors.primary),
         ),
         if (items.isEmpty)
           const WebTuiSettingRow(
-            title: 'Chua co ticket',
-            subtitle: 'Ticket lifecycle se hien o day',
+            title: 'Chưa có ticket',
+            subtitle: 'Ticket lifecycle sẽ hiện ở đây',
             icon: Icons.confirmation_number_outlined,
           )
         else
           for (final item in items.take(8))
             WebTuiSettingRow(
               title: item.title,
-              subtitle: '${item.priority} - cap nhat ${_date(item.updatedAt)}',
+              subtitle: '${item.priority} - cập nhật ${_date(item.updatedAt)}',
               icon: Icons.confirmation_number_outlined,
               trailing: PopupMenuButton<String>(
-                tooltip: 'Doi trang thai',
+                tooltip: 'Đổi trạng thái',
                 onSelected: (status) => onSetStatus(item, status),
                 itemBuilder: (context) => const [
                   PopupMenuItem(value: 'open', child: Text('Open')),
@@ -332,8 +332,8 @@ class _CronJobsSection extends StatelessWidget {
       children: items.isEmpty
           ? const [
               WebTuiSettingRow(
-                title: 'Chua co cronjob',
-                subtitle: 'Automation CRUD/run/pause dung endpoint cronjobs',
+                title: 'Chưa có cronjob',
+                subtitle: 'Automation CRUD/run/pause dùng endpoint cronjobs',
                 icon: Icons.schedule_outlined,
               ),
             ]
@@ -347,12 +347,12 @@ class _CronJobsSection extends StatelessWidget {
                     spacing: 4,
                     children: [
                       IconButton(
-                        tooltip: 'Run now',
+                        tooltip: 'Chạy ngay',
                         onPressed: () => onRun(item),
                         icon: const Icon(Icons.play_arrow_rounded, size: 18),
                       ),
                       PopupMenuButton<String>(
-                        tooltip: 'Doi trang thai',
+                        tooltip: 'Đổi trạng thái',
                         onSelected: (status) => onSetStatus(item, status),
                         itemBuilder: (context) => const [
                           PopupMenuItem(value: 'active', child: Text('Active')),
@@ -389,8 +389,8 @@ class _WebhooksSection extends StatelessWidget {
       children: [
         if (items.isEmpty)
           const WebTuiSettingRow(
-            title: 'Chua co webhook',
-            subtitle: 'Secret chi hien mot lan khi tao tren backend',
+            title: 'Chưa có webhook',
+            subtitle: 'Secret chỉ hiện một lần khi tạo trên backend',
             icon: Icons.webhook_outlined,
           )
         else
@@ -403,8 +403,8 @@ class _WebhooksSection extends StatelessWidget {
             ),
         if (apiTokens.isEmpty)
           const WebTuiSettingRow(
-            title: 'Chua co API token',
-            subtitle: 'Token secret khong duoc luu cache trong mobile',
+            title: 'Chưa có API token',
+            subtitle: 'Token secret không được lưu cache trong mobile',
             icon: Icons.key_outlined,
           )
         else
@@ -416,7 +416,7 @@ class _WebhooksSection extends StatelessWidget {
                   : '${token.status} - ${token.scopes.take(2).join(', ')}',
               icon: Icons.key_outlined,
               trailing: IconButton(
-                tooltip: 'Thu hoi token',
+                tooltip: 'Thu hồi token',
                 onPressed: () => onRevokeToken(token),
                 icon: const Icon(Icons.block_rounded, size: 18),
               ),
@@ -438,7 +438,7 @@ class _AdminMobileSection extends StatelessWidget {
       children: [
         WebTuiSettingRow(
           title: 'Workspace admin',
-          subtitle: 'Thanh vien, role, kenh, bot va automation co ban',
+          subtitle: 'Thành viên, role, kênh, bot và automation cơ bản',
           icon: Icons.admin_panel_settings_outlined,
           trailing: health == null
               ? null
@@ -447,7 +447,7 @@ class _AdminMobileSection extends StatelessWidget {
         WebTuiSettingRow(
           title: 'System health',
           subtitle: health == null
-              ? 'Can quyen admin.view'
+              ? 'Cần quyền admin.view'
               : health!.checks.entries
                     .take(2)
                     .map((entry) => '${entry.key}: ${entry.value}')
@@ -456,8 +456,8 @@ class _AdminMobileSection extends StatelessWidget {
         ),
         if (auditLogs.isEmpty)
           const WebTuiSettingRow(
-            title: 'Chua co audit log',
-            subtitle: 'Can quyen audit.view de xem thay doi gan nhat',
+            title: 'Chưa có audit log',
+            subtitle: 'Cần quyền audit.view để xem thay đổi gần nhất',
             icon: Icons.manage_search_outlined,
           )
         else
@@ -473,7 +473,7 @@ class _AdminMobileSection extends StatelessWidget {
             ),
         const WebTuiSettingRow(
           title: 'Admin panel web',
-          subtitle: 'Mo tren browser khi can thao tac nang',
+          subtitle: 'Mở trên browser khi cần thao tác nặng',
           icon: Icons.open_in_browser_rounded,
         ),
       ],
@@ -495,7 +495,7 @@ Future<void> _showCreateTicketDialog(
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('Tao ticket'),
+              title: const Text('Tạo ticket'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -504,8 +504,8 @@ Future<void> _showCreateTicketDialog(
                       controller: titleController,
                       autofocus: true,
                       decoration: const InputDecoration(
-                        labelText: 'Tieu de',
-                        hintText: 'Nhap van de can xu ly',
+                        labelText: 'Tiêu đề',
+                        hintText: 'Nhập vấn đề cần xử lý',
                       ),
                     ),
                     const SizedBox(height: WebTuiSpacing.md),
@@ -514,14 +514,14 @@ Future<void> _showCreateTicketDialog(
                       minLines: 2,
                       maxLines: 4,
                       decoration: const InputDecoration(
-                        labelText: 'Mo ta',
-                        hintText: 'Bo sung ngu canh neu co',
+                        labelText: 'Mô tả',
+                        hintText: 'Bổ sung ngữ cảnh nếu có',
                       ),
                     ),
                     const SizedBox(height: WebTuiSpacing.md),
                     DropdownButtonFormField<String>(
                       initialValue: priority,
-                      decoration: const InputDecoration(labelText: 'Uu tien'),
+                      decoration: const InputDecoration(labelText: 'Ưu tiên'),
                       items: const [
                         DropdownMenuItem(value: 'low', child: Text('Low')),
                         DropdownMenuItem(
@@ -546,7 +546,7 @@ Future<void> _showCreateTicketDialog(
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Huy'),
+                  child: const Text('Hủy'),
                 ),
                 FilledButton(
                   onPressed: () {
@@ -563,7 +563,7 @@ Future<void> _showCreateTicketDialog(
                       ),
                     );
                   },
-                  child: const Text('Tao'),
+                  child: const Text('Tạo'),
                 ),
               ],
             );

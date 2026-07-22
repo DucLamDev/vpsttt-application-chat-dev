@@ -12,6 +12,7 @@ import '../../domain/entities/channel_file.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/conversation_summary.dart';
 import '../controllers/channel_detail_controller.dart';
+import '../widgets/message_media_widgets.dart';
 
 class ChannelDetailScreen extends ConsumerStatefulWidget {
   const ChannelDetailScreen({
@@ -145,10 +146,8 @@ class _ChannelDetailScreenState extends ConsumerState<ChannelDetailScreen> {
                       errorMessage: state.pinsErrorMessage,
                     ),
                     2 => _MediaTab(
-                      files: state.files
-                          .where(_isMedia)
-                          .toList(growable: false),
-                      errorMessage: state.filesErrorMessage,
+                      attachments: state.mediaAttachments,
+                      errorMessage: state.mediaErrorMessage,
                     ),
                     3 => _FilesTab(
                       files: state.files
@@ -491,9 +490,9 @@ class _FilesTab extends StatelessWidget {
 }
 
 class _MediaTab extends StatelessWidget {
-  const _MediaTab({required this.files, this.errorMessage});
+  const _MediaTab({required this.attachments, this.errorMessage});
 
-  final List<ChannelFile> files;
+  final List<MessageAttachment> attachments;
   final String? errorMessage;
 
   @override
@@ -504,27 +503,46 @@ class _MediaTab extends StatelessWidget {
         message: errorMessage!,
       );
     }
-    if (files.isEmpty) {
+    if (attachments.isEmpty) {
       return const WebTuiEmptyState(
         title: 'Chưa có media',
-        message: 'Ảnh và video đã chia sẻ sẽ xuất hiện tại đây.',
+        message: 'Ảnh đã gửi trong cuộc trò chuyện sẽ xuất hiện tại đây.',
         icon: Icons.photo_library_outlined,
       );
     }
-    return WebTuiListSurface(
-      children: [
-        for (final file in files)
-          WebTuiChannelBotListItem(
-            title: file.name,
-            subtitle: _fileSubtitle(file),
-            icon: file.mimeType.startsWith('video/')
-                ? Icons.play_circle_outline_rounded
-                : Icons.image_outlined,
-            color: file.mimeType.startsWith('video/')
-                ? WebTuiColors.danger
-                : WebTuiColors.accentGreen,
-          ),
-      ],
+    final apiBaseUri = WebTuiAvatarNetworkScope.maybeOf(context)?.apiBaseUri;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.lg),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 4,
+          mainAxisSpacing: 4,
+        ),
+        itemCount: attachments.length,
+        itemBuilder: (context, index) {
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              return MessageImageAttachmentView(
+                attachment: attachments[index],
+                apiBaseUri: apiBaseUri,
+                height: constraints.maxHeight,
+                maxHeight: constraints.maxHeight,
+                maxWidth: constraints.maxWidth,
+                onPressed: () => openMessageImageGallery(
+                  context,
+                  attachments: attachments,
+                  initialIndex: index,
+                  apiBaseUri: apiBaseUri,
+                  title: 'Ảnh trong cuộc trò chuyện',
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

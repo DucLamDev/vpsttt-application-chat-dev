@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../app/providers/foundation_providers.dart';
 import '../../../../core/result/result.dart';
 import '../../application/use_cases/channel_use_cases.dart';
+import '../../application/use_cases/message_attachment_use_cases.dart';
 import '../../domain/entities/channel_file.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/conversation_summary.dart';
@@ -28,6 +29,7 @@ final channelDetailControllerProvider = StateNotifierProvider.autoDispose
         rejectChannelJoinRequestUseCase: ref.watch(
           rejectChannelJoinRequestUseCaseProvider,
         ),
+        listChannelMediaUseCase: ref.watch(listChannelMediaUseCaseProvider),
       )..load();
     });
 
@@ -61,6 +63,7 @@ final class ChannelDetailState {
     this.members = const [],
     this.pinnedMessages = const [],
     this.files = const [],
+    this.mediaAttachments = const [],
     this.joinRequests = const [],
     this.isLoading = false,
     this.isSubmitting = false,
@@ -69,6 +72,7 @@ final class ChannelDetailState {
     this.membersErrorMessage,
     this.pinsErrorMessage,
     this.filesErrorMessage,
+    this.mediaErrorMessage,
   });
 
   final ChannelDetailScope scope;
@@ -76,6 +80,7 @@ final class ChannelDetailState {
   final List<ChannelMember> members;
   final List<ChatMessage> pinnedMessages;
   final List<ChannelFile> files;
+  final List<MessageAttachment> mediaAttachments;
   final List<ChannelMember> joinRequests;
   final bool isLoading;
   final bool isSubmitting;
@@ -84,6 +89,7 @@ final class ChannelDetailState {
   final String? membersErrorMessage;
   final String? pinsErrorMessage;
   final String? filesErrorMessage;
+  final String? mediaErrorMessage;
 
   String get title => channel?.title ?? scope.initialTitle;
 
@@ -92,6 +98,7 @@ final class ChannelDetailState {
     List<ChannelMember>? members,
     List<ChatMessage>? pinnedMessages,
     List<ChannelFile>? files,
+    List<MessageAttachment>? mediaAttachments,
     List<ChannelMember>? joinRequests,
     bool? isLoading,
     bool? isSubmitting,
@@ -100,6 +107,7 @@ final class ChannelDetailState {
     String? membersErrorMessage,
     String? pinsErrorMessage,
     String? filesErrorMessage,
+    String? mediaErrorMessage,
     bool clearError = false,
     bool clearNotice = false,
   }) {
@@ -109,6 +117,7 @@ final class ChannelDetailState {
       members: members ?? this.members,
       pinnedMessages: pinnedMessages ?? this.pinnedMessages,
       files: files ?? this.files,
+      mediaAttachments: mediaAttachments ?? this.mediaAttachments,
       joinRequests: joinRequests ?? this.joinRequests,
       isLoading: isLoading ?? this.isLoading,
       isSubmitting: isSubmitting ?? this.isSubmitting,
@@ -117,6 +126,7 @@ final class ChannelDetailState {
       membersErrorMessage: membersErrorMessage ?? this.membersErrorMessage,
       pinsErrorMessage: pinsErrorMessage ?? this.pinsErrorMessage,
       filesErrorMessage: filesErrorMessage ?? this.filesErrorMessage,
+      mediaErrorMessage: mediaErrorMessage ?? this.mediaErrorMessage,
     );
   }
 }
@@ -130,12 +140,14 @@ final class ChannelDetailController extends StateNotifier<ChannelDetailState> {
     required LoadChannelJoinRequestsUseCase loadChannelJoinRequestsUseCase,
     required ApproveChannelJoinRequestUseCase approveChannelJoinRequestUseCase,
     required RejectChannelJoinRequestUseCase rejectChannelJoinRequestUseCase,
+    required ListChannelMediaUseCase listChannelMediaUseCase,
   }) : _loadChannelDetailUseCase = loadChannelDetailUseCase,
        _requestJoinChannelUseCase = requestJoinChannelUseCase,
        _inviteChannelMemberUseCase = inviteChannelMemberUseCase,
        _loadChannelJoinRequestsUseCase = loadChannelJoinRequestsUseCase,
        _approveChannelJoinRequestUseCase = approveChannelJoinRequestUseCase,
        _rejectChannelJoinRequestUseCase = rejectChannelJoinRequestUseCase,
+       _listChannelMediaUseCase = listChannelMediaUseCase,
        super(ChannelDetailState(scope: scope));
 
   final LoadChannelDetailUseCase _loadChannelDetailUseCase;
@@ -144,6 +156,7 @@ final class ChannelDetailController extends StateNotifier<ChannelDetailState> {
   final LoadChannelJoinRequestsUseCase _loadChannelJoinRequestsUseCase;
   final ApproveChannelJoinRequestUseCase _approveChannelJoinRequestUseCase;
   final RejectChannelJoinRequestUseCase _rejectChannelJoinRequestUseCase;
+  final ListChannelMediaUseCase _listChannelMediaUseCase;
 
   Future<void> load() async {
     state = state.copyWith(
@@ -157,6 +170,10 @@ final class ChannelDetailController extends StateNotifier<ChannelDetailState> {
     );
     switch (result) {
       case Success<ChannelDetailData>(value: final data):
+        final mediaResult = await _listChannelMediaUseCase.execute(
+          workspaceId: state.scope.workspaceId,
+          channelId: state.scope.channelId,
+        );
         state = state.copyWith(
           channel: data.channel,
           members: data.members,
@@ -165,6 +182,8 @@ final class ChannelDetailController extends StateNotifier<ChannelDetailState> {
           membersErrorMessage: data.membersErrorMessage,
           pinsErrorMessage: data.pinsErrorMessage,
           filesErrorMessage: data.filesErrorMessage,
+          mediaAttachments: mediaResult.valueOrNull ?? const [],
+          mediaErrorMessage: mediaResult.failureOrNull?.message,
           isLoading: false,
           clearError: true,
         );

@@ -549,6 +549,12 @@ ConversationSummary _directConversationFromMap(JsonMap map) {
   final lastMessage = jsonMap(
     field(map, const ['last_message', 'lastMessage']),
   );
+  final lastMessageCreatedAt = nullableDateTimeField(lastMessage, const [
+    'created_at',
+    'createdAt',
+    'sent_at',
+    'sentAt',
+  ]);
   final channelId = stringField(map, const ['channel_id', 'channelId', 'id']);
   final workspaceId = stringField(map, const ['workspace_id', 'workspaceId']);
   final participantIds = <String>{
@@ -567,7 +573,7 @@ ConversationSummary _directConversationFromMap(JsonMap map) {
       'displayName',
       'username',
       'email',
-    ], fallback: 'Tin nhan rieng'),
+    ], fallback: 'Tin nhắn riêng'),
     preview: stringField(lastMessage, const ['body']),
     avatarLabel: _avatarLabel(
       stringField(displaySource, const [
@@ -586,10 +592,9 @@ ConversationSummary _directConversationFromMap(JsonMap map) {
       'userId',
       'id',
     ]),
-    updatedAt: dateTimeField(map, const [
-      'updated_at',
-      'updatedAt',
-    ], fallback: nullableDateTimeField(lastMessage, const ['created_at'])),
+    updatedAt:
+        lastMessageCreatedAt ??
+        dateTimeField(map, const ['updated_at', 'updatedAt']),
     unreadCount: intField(map, const ['unread_count', 'unreadCount']),
     participantIds: participantIds.toList(growable: false),
     channelVisibility: ChannelVisibility.direct,

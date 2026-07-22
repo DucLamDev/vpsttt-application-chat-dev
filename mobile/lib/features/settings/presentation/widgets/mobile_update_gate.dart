@@ -63,15 +63,15 @@ class _MobileUpdateGateState extends ConsumerState<MobileUpdateGate> {
         return AlertDialog(
           title: Text(
             policy.requiresUpdate
-                ? 'Can cap nhat ung dung'
-                : 'Co ban cap nhat moi',
+                ? 'Cần cập nhật ứng dụng'
+                : 'Có bản cập nhật mới',
           ),
           content: Text(_message(policy)),
           actions: [
             if (!policy.requiresUpdate)
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('De sau'),
+                child: const Text('Để sau'),
               ),
             FilledButton.icon(
               onPressed: updateUrl == null
@@ -89,12 +89,12 @@ class _MobileUpdateGateState extends ConsumerState<MobileUpdateGate> {
                       }
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Khong mo duoc link cap nhat.'),
+                          content: Text('Không mở được link cập nhật.'),
                         ),
                       );
                     },
               icon: const Icon(Icons.system_update_alt_rounded, size: 18),
-              label: const Text('Cap nhat'),
+              label: const Text('Cập nhật'),
             ),
           ],
         );
@@ -110,11 +110,11 @@ class _MobileUpdateGateState extends ConsumerState<MobileUpdateGate> {
 
 String _message(MobileReleasePolicy policy) {
   final target = policy.minimumVersion ?? policy.recommendedVersion;
-  final versionText = target == null ? '' : ' len phien ban $target';
+  final versionText = target == null ? '' : ' lên phiên bản $target';
   final notes = policy.releaseNotes?.trim();
   final prefix = policy.requiresUpdate
-      ? 'Ban hien tai khong con duoc ho tro. Hay cap nhat$versionText de tiep tuc su dung.'
-      : 'Da co ban moi$versionText.';
+      ? 'Bản hiện tại không còn được hỗ trợ. Hãy cập nhật$versionText để tiếp tục sử dụng.'
+      : 'Đã có bản mới$versionText.';
   if (notes == null || notes.isEmpty) {
     return prefix;
   }

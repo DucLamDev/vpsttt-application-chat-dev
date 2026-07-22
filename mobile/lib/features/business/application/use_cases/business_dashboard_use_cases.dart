@@ -135,7 +135,7 @@ final class CreateTicketUseCase {
         const FailureResult(
           Failure(
             kind: FailureKind.validation,
-            message: 'Can nhap tieu de ticket.',
+            message: 'Cần nhập tiêu đề ticket.',
             code: 'VALIDATION_ERROR',
           ),
         ),

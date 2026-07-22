@@ -51,7 +51,7 @@ import '../../features/conversations/data/datasources/conversation_cache_data_so
 import '../../features/conversations/data/datasources/conversation_remote_data_source.dart';
 import '../../features/conversations/data/datasources/message_attachment_remote_data_source.dart';
 import '../../features/conversations/data/datasources/message_outbox_data_source.dart';
-import '../../features/conversations/data/datasources/stream_video_remote_data_source.dart';
+import '../../features/conversations/data/datasources/zego_call_remote_data_source.dart';
 import '../../features/conversations/data/repositories/audio_message_attachment_repository.dart';
 import '../../features/conversations/data/repositories/caching_conversation_repository.dart';
 import '../../features/conversations/data/repositories/call_repository_impl.dart';
@@ -519,10 +519,11 @@ final callRemoteDataSourceProvider = Provider<CallRemoteDataSource>((ref) {
   return CallRemoteDataSource(ref.watch(apiTransportProvider));
 });
 
-final streamVideoRemoteDataSourceProvider =
-    Provider<StreamVideoRemoteDataSource>((ref) {
-      return StreamVideoRemoteDataSource(ref.watch(apiTransportProvider));
-    });
+final zegoCallRemoteDataSourceProvider = Provider<ZegoCallRemoteDataSource>((
+  ref,
+) {
+  return ZegoCallRemoteDataSource(ref.watch(apiTransportProvider));
+});
 
 final callRepositoryProvider = Provider<CallRepository>((ref) {
   return CallRepositoryImpl(ref.watch(callRemoteDataSourceProvider));
@@ -568,8 +569,10 @@ final catchUpWorkspaceSyncUseCaseProvider =
 
 final conversationRealtimeRepositoryProvider =
     Provider<ConversationRealtimeRepository>((ref) {
+      final config = ref.watch(appConfigProvider);
       final repository = WebSocketConversationRealtimeRepository(
-        apiBaseUri: ref.watch(appConfigProvider).apiBaseUri,
+        apiBaseUri: config.apiBaseUri,
+        wsBaseUri: config.wsBaseUri,
         tokenRepository: ref.watch(authTokenRepositoryProvider),
       );
       ref.onDispose(() {
@@ -790,6 +793,21 @@ final attachUploadedFileUseCaseProvider = Provider<AttachUploadedFileUseCase>((
 final listMessageAttachmentsUseCaseProvider =
     Provider<ListMessageAttachmentsUseCase>((ref) {
       return ListMessageAttachmentsUseCase(
+        ref.watch(messageAttachmentRepositoryProvider),
+      );
+    });
+
+final listChannelMediaUseCaseProvider = Provider<ListChannelMediaUseCase>((
+  ref,
+) {
+  return ListChannelMediaUseCase(
+    ref.watch(messageAttachmentRepositoryProvider),
+  );
+});
+
+final downloadMessageAttachmentBytesUseCaseProvider =
+    Provider<DownloadMessageAttachmentBytesUseCase>((ref) {
+      return DownloadMessageAttachmentBytesUseCase(
         ref.watch(messageAttachmentRepositoryProvider),
       );
     });

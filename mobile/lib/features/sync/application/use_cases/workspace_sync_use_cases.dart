@@ -105,7 +105,7 @@ final class CatchUpWorkspaceSyncUseCase {
       return FailureResult(
         Failure(
           kind: FailureKind.storage,
-          message: 'Khong the doc dinh danh thiet bi de dong bo.',
+          message: 'Không thể đọc định danh thiết bị để đồng bộ.',
           code: 'SYNC_DEVICE_ID_FAILURE',
           cause: error,
         ),

@@ -120,6 +120,46 @@ void main() {
     expect(event?.message?.reactions.single.count, 2);
     expect(event?.message?.reactions.single.reactedByMe, isTrue);
   });
+
+  test('maps attachment created event with message id', () {
+    final event = ConversationRealtimeEventMapper.fromSocketData(
+      jsonEncode({
+        'type': 'AttachmentCreated',
+        'room': 'workspace:w1:channel:c1',
+        'payload': {'channel_id': 'c1', 'message_id': 'm-image'},
+      }),
+      fallbackWorkspaceId: 'w1',
+      fallbackChannelId: 'c1',
+    );
+
+    expect(event?.type, ConversationRealtimeEventType.attachmentCreated);
+    expect(event?.messageId, 'm-image');
+  });
+
+  test('builds websocket URL from public realtime endpoint', () {
+    final base = defaultConversationRealtimeWsUri(
+      Uri.parse('https://chat.vpsttt.com'),
+    );
+    final uri = conversationRealtimeWebSocketUri(base, 'access-token');
+
+    expect(base.toString(), 'wss://chat.vpsttt.com/ws');
+    expect(
+      uri.toString(),
+      'wss://chat.vpsttt.com/ws?access_token=access-token',
+    );
+  });
+
+  test('preserves configured websocket endpoint query params', () {
+    final uri = conversationRealtimeWebSocketUri(
+      Uri.parse('wss://example.com/custom/ws?workspace_id=w1'),
+      'access-token',
+    );
+
+    expect(
+      uri.toString(),
+      'wss://example.com/custom/ws?workspace_id=w1&access_token=access-token',
+    );
+  });
 }
 
 ChatMessage _message({

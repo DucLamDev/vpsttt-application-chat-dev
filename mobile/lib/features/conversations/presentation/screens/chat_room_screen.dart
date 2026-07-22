@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,7 +19,8 @@ import '../../domain/entities/call_session.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/conversation_summary.dart';
 import '../controllers/chat_room_controller.dart';
-import 'stream_video_call_screen.dart';
+import '../widgets/message_media_widgets.dart';
+import 'zego_call_screen.dart';
 
 final _forwardChannelsProvider = FutureProvider.autoDispose
     .family<List<ConversationSummary>, String>((ref, workspaceId) async {
@@ -390,14 +393,13 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen>
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
-        builder: (_) => StreamVideoCallScreen(
+        builder: (_) => ZegoCallScreen(
           workspaceId: call.workspaceId,
           channelId: call.channelId,
           callId: call.id,
-          targetUserId: targetUserId,
           title: widget.title,
           mode: mode,
-          onLeave: () => controller.endActiveCall(reason: 'stream_call_left'),
+          onLeave: () => controller.endActiveCall(reason: 'zego_call_left'),
         ),
       ),
     );
@@ -586,7 +588,7 @@ class _ChatRoomBodyState extends State<_ChatRoomBody> {
                 ? const _ChatEmptyState()
                 : ListView.builder(
                     controller: _scrollController,
-                    cacheExtent: 900,
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(900),
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: true,
                     keyboardDismissBehavior:
@@ -914,10 +916,10 @@ class _OutboxStatusBar extends StatelessWidget {
     final total = state.outboxItems.length;
     final color = failed > 0 ? WebTuiColors.accentAmber : WebTuiColors.primary;
     final text = failed > 0
-        ? '$failed tin dang cho gui lai'
+        ? '$failed tin đang chờ gửi lại'
         : sending > 0
-        ? '$sending tin dang gui lai'
-        : '$total tin dang nam trong hang cho';
+        ? '$sending tin đang gửi lại'
+        : '$total tin đang nằm trong hàng chờ';
     return Material(
       color: WebTuiColors.surface,
       child: Container(
@@ -948,7 +950,7 @@ class _OutboxStatusBar extends StatelessWidget {
             TextButton.icon(
               onPressed: sending > 0 ? null : onRetry,
               icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text('Gui lai'),
+              label: const Text('Gửi lại'),
             ),
           ],
         ),
@@ -1560,7 +1562,7 @@ class _PermissionRationaleTile extends StatelessWidget {
               const SizedBox(width: WebTuiSpacing.sm),
               Expanded(
                 child: Text(
-                  'Ung dung chi dung camera/anh de gui file vao cuoc tro chuyen. Co the cap lai quyen trong Settings neu da tu choi.',
+                  'Ứng dụng chỉ dùng camera/ảnh để gửi file vào cuộc trò chuyện. Có thể cấp lại quyền trong Settings nếu đã từ chối.',
                   style: WebTuiTypography.bodySmall.copyWith(
                     color: WebTuiColors.textPrimary,
                     fontWeight: FontWeight.w600,
@@ -1722,10 +1724,7 @@ class _AttachmentQueuePreview extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(
-                    _attachmentUploadIcon(item),
-                    color: failed ? WebTuiColors.danger : WebTuiColors.primary,
-                  ),
+                  _PendingAttachmentPreview(item: item, failed: failed),
                   const SizedBox(width: WebTuiSpacing.sm),
                   Expanded(
                     child: Column(
@@ -1781,6 +1780,50 @@ class _AttachmentQueuePreview extends StatelessWidget {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingAttachmentPreview extends StatelessWidget {
+  const _PendingAttachmentPreview({required this.item, required this.failed});
+
+  final MessageAttachmentUploadItem item;
+  final bool failed;
+
+  @override
+  Widget build(BuildContext context) {
+    final picked = item.picked;
+    if (picked?.kind == MessageAttachmentKind.image &&
+        picked!.path.trim().isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(WebTuiRadii.md),
+        child: Image.file(
+          File(picked.path),
+          width: 54,
+          height: 54,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => _fallback(),
+        ),
+      );
+    }
+    return _fallback();
+  }
+
+  Widget _fallback() {
+    return SizedBox.square(
+      dimension: 44,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: failed
+              ? WebTuiColors.danger.withValues(alpha: 0.1)
+              : WebTuiColors.primarySoft,
+          borderRadius: BorderRadius.circular(WebTuiRadii.md),
+        ),
+        child: Icon(
+          _attachmentUploadIcon(item),
+          color: failed ? WebTuiColors.danger : WebTuiColors.primary,
         ),
       ),
     );
@@ -2442,6 +2485,12 @@ class _MessageAttachmentList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final networkScope = WebTuiAvatarNetworkScope.maybeOf(context);
+    final images = attachments
+        .where((attachment) => attachment.isImage)
+        .toList(growable: false);
+    final otherAttachments = attachments
+        .where((attachment) => !attachment.isImage)
+        .toList(growable: false);
     return Padding(
       padding: const EdgeInsets.only(top: WebTuiSpacing.xs),
       child: Column(
@@ -2449,14 +2498,55 @@ class _MessageAttachmentList extends StatelessWidget {
             ? CrossAxisAlignment.end
             : CrossAxisAlignment.start,
         children: [
-          for (final attachment in attachments)
+          if (images.length == 1)
             Padding(
               padding: const EdgeInsets.only(top: WebTuiSpacing.xs),
-              child: attachment.isImage
-                  ? _MessageImageAttachmentTile(
+              child: MessageImageAttachmentView(
+                attachment: images.first,
+                apiBaseUri: networkScope?.apiBaseUri,
+                fit: BoxFit.contain,
+                onPressed: () => openMessageImageGallery(
+                  context,
+                  attachments: images,
+                  initialIndex: 0,
+                  apiBaseUri: networkScope?.apiBaseUri,
+                ),
+              ),
+            ),
+          if (images.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(top: WebTuiSpacing.xs),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 246),
+                child: Wrap(
+                  spacing: 3,
+                  runSpacing: 3,
+                  children: [
+                    for (var index = 0; index < images.length; index++)
+                      MessageImageAttachmentView(
+                        attachment: images[index],
+                        apiBaseUri: networkScope?.apiBaseUri,
+                        height: 120,
+                        maxHeight: 120,
+                        maxWidth: 120,
+                        onPressed: () => openMessageImageGallery(
+                          context,
+                          attachments: images,
+                          initialIndex: index,
+                          apiBaseUri: networkScope?.apiBaseUri,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          for (final attachment in otherAttachments)
+            Padding(
+              padding: const EdgeInsets.only(top: WebTuiSpacing.xs),
+              child: attachment.isAudio
+                  ? MessageVoiceAttachmentView(
                       attachment: attachment,
                       apiBaseUri: networkScope?.apiBaseUri,
-                      headers: networkScope?.headers,
                     )
                   : _MessageFileAttachmentTile(
                       attachment: attachment,
@@ -2464,71 +2554,6 @@ class _MessageAttachmentList extends StatelessWidget {
                     ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _MessageImageAttachmentTile extends StatelessWidget {
-  const _MessageImageAttachmentTile({
-    required this.attachment,
-    this.apiBaseUri,
-    this.headers,
-  });
-
-  final MessageAttachment attachment;
-  final Uri? apiBaseUri;
-  final Map<String, String>? headers;
-
-  @override
-  Widget build(BuildContext context) {
-    final imageUri = _attachmentDownloadUri(attachment, apiBaseUri);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 240),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(WebTuiRadii.lg),
-        child: AspectRatio(
-          aspectRatio: 4 / 3,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: WebTuiColors.surface,
-              border: Border.all(color: WebTuiColors.border),
-            ),
-            child: imageUri == null
-                ? const _MessageImagePlaceholder()
-                : Image.network(
-                    imageUri.toString(),
-                    fit: BoxFit.cover,
-                    headers: headers,
-                    errorBuilder: (_, _, _) => const _MessageImagePlaceholder(),
-                    frameBuilder:
-                        (context, child, frame, wasSynchronouslyLoaded) {
-                          if (wasSynchronouslyLoaded || frame != null) {
-                            return child;
-                          }
-                          return const _MessageImagePlaceholder();
-                        },
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MessageImagePlaceholder extends StatelessWidget {
-  const _MessageImagePlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: WebTuiColors.primarySoft,
-      child: Center(
-        child: Icon(
-          CupertinoIcons.photo,
-          color: WebTuiColors.primary,
-          size: 28,
-        ),
       ),
     );
   }
@@ -2845,49 +2870,84 @@ bool _isGeneratedAttachmentBody(
     return false;
   }
   if (normalized == 'đã gửi tệp đính kèm' ||
-      normalized == 'da gui tep dinh kem') {
+      _sameTextWithoutVietnameseDiacritics(normalized, 'đã gửi tệp đính kèm')) {
     return true;
   }
 
   final hasOnlyImages = attachments.every((attachment) => attachment.isImage);
   final hasOnlyAudio = attachments.every((attachment) => attachment.isAudio);
   if (hasOnlyImages &&
-      (RegExp(r'^đã gửi(?: \d+)? ảnh$').hasMatch(normalized) ||
-          RegExp(r'^da gui(?: \d+)? anh$').hasMatch(normalized))) {
+      _matchesGeneratedAttachmentText(normalized, noun: 'ảnh')) {
     return true;
   }
   if (hasOnlyAudio &&
-      (RegExp(r'^đã gửi(?: \d+)? tin nhắn thoại$').hasMatch(normalized) ||
-          RegExp(r'^da gui(?: \d+)? tin nhan thoai$').hasMatch(normalized))) {
+      _matchesGeneratedAttachmentText(normalized, noun: 'tin nhắn thoại')) {
     return true;
   }
   if (attachments.length == 1) {
     final fileName = _compactMessageText(attachments.first.file.name);
     return normalized == 'đã gửi file $fileName' ||
-        normalized == 'da gui file $fileName' ||
+        _sameTextWithoutVietnameseDiacritics(
+          normalized,
+          'đã gửi file $fileName',
+        ) ||
         (hasOnlyImages && normalized == fileName);
   }
   return normalized == 'đã gửi ${attachments.length} file' ||
-      normalized == 'da gui ${attachments.length} file';
+      _sameTextWithoutVietnameseDiacritics(
+        normalized,
+        'đã gửi ${attachments.length} file',
+      );
 }
 
 String _compactMessageText(String value) {
   return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 }
 
-Uri? _attachmentDownloadUri(MessageAttachment attachment, Uri? apiBaseUri) {
-  final rawPath = attachment.file.downloadPath.trim();
-  if (rawPath.isEmpty) {
-    return null;
+bool _matchesGeneratedAttachmentText(String value, {required String noun}) {
+  final normalized = _removeVietnameseDiacritics(value);
+  final sent = _removeVietnameseDiacritics('đã gửi');
+  final normalizedNoun = _removeVietnameseDiacritics(noun);
+  return RegExp(
+    '^${RegExp.escape(sent)}(?: \\d+)? ${RegExp.escape(normalizedNoun)}\$',
+  ).hasMatch(normalized);
+}
+
+bool _sameTextWithoutVietnameseDiacritics(String left, String right) {
+  return _removeVietnameseDiacritics(left) ==
+      _removeVietnameseDiacritics(right);
+}
+
+String _removeVietnameseDiacritics(String value) {
+  const groups = {
+    'a': 'àáạảãâầấậẩẫăằắặẳẵ',
+    'A': 'ÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴ',
+    'e': 'èéẹẻẽêềếệểễ',
+    'E': 'ÈÉẸẺẼÊỀẾỆỂỄ',
+    'i': 'ìíịỉĩ',
+    'I': 'ÌÍỊỈĨ',
+    'o': 'òóọỏõôồốộổỗơờớợởỡ',
+    'O': 'ÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ',
+    'u': 'ùúụủũưừứựửữ',
+    'U': 'ÙÚỤỦŨƯỪỨỰỬỮ',
+    'y': 'ỳýỵỷỹ',
+    'Y': 'ỲÝỴỶỸ',
+    'd': 'đ',
+    'D': 'Đ',
+  };
+  final buffer = StringBuffer();
+  for (final rune in value.runes) {
+    final char = String.fromCharCode(rune);
+    var replacement = char;
+    for (final entry in groups.entries) {
+      if (entry.value.contains(char)) {
+        replacement = entry.key;
+        break;
+      }
+    }
+    buffer.write(replacement);
   }
-  final uri = Uri.tryParse(rawPath);
-  if (uri == null) {
-    return null;
-  }
-  if (uri.hasScheme) {
-    return uri;
-  }
-  return apiBaseUri?.resolve(rawPath);
+  return buffer.toString();
 }
 
 String _messageSemanticLabel(
@@ -2895,9 +2955,9 @@ String _messageSemanticLabel(
   String text,
   String timeLabel,
 ) {
-  final sender = message.isMine ? 'Ban' : 'Nguoi gui';
+  final sender = message.isMine ? 'Bạn' : 'Người gửi';
   final body = text.trim().isEmpty
-      ? '${message.attachments.length} tep dinh kem'
+      ? '${message.attachments.length} tệp đính kèm'
       : text.trim();
   return '$sender, $timeLabel, $body';
 }

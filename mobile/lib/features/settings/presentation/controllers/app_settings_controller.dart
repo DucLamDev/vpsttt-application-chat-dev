@@ -152,7 +152,7 @@ final class AppSettingsController extends StateNotifier<AppSettingsState> {
       await clearWorkspaceCacheUseCase.execute(workspaceId: workspaceId);
       state = state.copyWith(clearError: true);
     } on Object {
-      state = state.copyWith(errorMessage: 'Khong the xoa cache luc nay.');
+      state = state.copyWith(errorMessage: 'Không thể xóa cache lúc này.');
     }
   }
 

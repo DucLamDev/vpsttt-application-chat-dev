@@ -13,6 +13,7 @@ void main() {
             AppConfig(
               flavor: AppFlavor.dev,
               apiBaseUri: Uri.parse('http://localhost:8080'),
+              wsBaseUri: Uri.parse('ws://localhost:8080/ws'),
             ),
           ),
         ],

@@ -12,11 +12,12 @@ final class WebSocketConversationRealtimeRepository
     implements ConversationRealtimeRepository {
   WebSocketConversationRealtimeRepository({
     required Uri apiBaseUri,
+    Uri? wsBaseUri,
     required AuthTokenRepository tokenRepository,
-  }) : _apiBaseUri = apiBaseUri,
+  }) : _wsBaseUri = wsBaseUri ?? defaultConversationRealtimeWsUri(apiBaseUri),
        _tokenRepository = tokenRepository;
 
-  final Uri _apiBaseUri;
+  final Uri _wsBaseUri;
   final AuthTokenRepository _tokenRepository;
 
   WebSocket? _socket;
@@ -154,13 +155,28 @@ final class WebSocketConversationRealtimeRepository
   }
 
   Uri _webSocketUri(String accessToken) {
-    final scheme = _apiBaseUri.scheme == 'https' ? 'wss' : 'ws';
-    return _apiBaseUri.replace(
-      scheme: scheme,
-      path: '/api/v1/ws',
-      queryParameters: {'access_token': accessToken},
-    );
+    return conversationRealtimeWebSocketUri(_wsBaseUri, accessToken);
   }
+}
+
+Uri defaultConversationRealtimeWsUri(Uri apiBaseUri) {
+  final scheme = apiBaseUri.scheme == 'https' ? 'wss' : 'ws';
+  return Uri(
+    scheme: scheme,
+    userInfo: apiBaseUri.userInfo,
+    host: apiBaseUri.host,
+    port: apiBaseUri.hasPort ? apiBaseUri.port : null,
+    path: '/ws',
+  );
+}
+
+Uri conversationRealtimeWebSocketUri(Uri wsBaseUri, String accessToken) {
+  return wsBaseUri.replace(
+    queryParameters: {
+      ...wsBaseUri.queryParameters,
+      'access_token': accessToken,
+    },
+  );
 }
 
 final class ConversationRealtimeEventMapper {
@@ -212,6 +228,7 @@ ConversationRealtimeEventType _eventType(String value) {
     'MessagePinned' => ConversationRealtimeEventType.messagePinned,
     'MessageUnpinned' => ConversationRealtimeEventType.messageUnpinned,
     'ReactionChanged' => ConversationRealtimeEventType.reactionChanged,
+    'AttachmentCreated' => ConversationRealtimeEventType.attachmentCreated,
     'TypingStarted' => ConversationRealtimeEventType.typingStarted,
     'TypingStopped' => ConversationRealtimeEventType.typingStopped,
     _ => ConversationRealtimeEventType.unknown,

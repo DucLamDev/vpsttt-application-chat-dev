@@ -60,6 +60,7 @@ final class ConversationRealtimeReducer {
             : state.copyWith(
                 messages: _setPinned(state.messages, messageId, false),
               ),
+      ConversationRealtimeEventType.attachmentCreated => state,
       ConversationRealtimeEventType.typingStarted => _typing(
         state,
         event.userId,

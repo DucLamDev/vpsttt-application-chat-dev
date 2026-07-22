@@ -6,7 +6,7 @@ import 'result.dart';
 
 Future<Result<T>> guardResult<T>(
   Future<T> Function() body, {
-  String decodingMessage = 'Khong the xu ly du lieu tu may chu.',
+  String decodingMessage = 'Không thể xử lý dữ liệu từ máy chủ.',
 }) async {
   try {
     return Success(await body());

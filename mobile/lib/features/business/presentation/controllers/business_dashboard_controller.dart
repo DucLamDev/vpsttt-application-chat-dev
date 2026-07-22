@@ -109,7 +109,7 @@ final class BusinessDashboardController
     } on Object {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: 'Khong the tai module nghiep vu.',
+        errorMessage: 'Không thể tải module nghiệp vụ.',
       );
     }
   }
@@ -122,7 +122,7 @@ final class BusinessDashboardController
     } on Object {
       state = state.copyWith(
         isRefreshing: false,
-        errorMessage: 'Khong the lam moi module nghiep vu.',
+        errorMessage: 'Không thể làm mới module nghiệp vụ.',
       );
     }
   }
@@ -133,7 +133,7 @@ final class BusinessDashboardController
       workspaceId: state.workspaceId,
       botId: detail.bot.id,
       flowId: flow.id,
-      input: 'Khach can ho tro don hang mau',
+      input: 'Khách cần hỗ trợ đơn hàng mẫu',
     );
     switch (result) {
       case Success<BotFlowRunSummary>(value: final run):
@@ -141,8 +141,8 @@ final class BusinessDashboardController
           isTestingFlow: false,
           lastFlowRun: run,
           noticeMessage: run.error?.isNotEmpty == true
-              ? 'Flow test loi: ${run.error}'
-              : 'Flow test da tao run ${run.status}.',
+              ? 'Flow test lỗi: ${run.error}'
+              : 'Flow test đã tạo run ${run.status}.',
         );
       case FailureResult<BotFlowRunSummary>(failure: final failure):
         state = state.copyWith(
@@ -165,7 +165,7 @@ final class BusinessDashboardController
         }
         state = state.copyWith(
           data: _copyDashboardData(data, tickets: [ticket, ...data.tickets]),
-          noticeMessage: 'Ticket da duoc tao.',
+          noticeMessage: 'Ticket đã được tạo.',
         );
       case FailureResult<TicketSummary>(failure: final failure):
         state = state.copyWith(errorMessage: failure.message);
@@ -189,7 +189,7 @@ final class BusinessDashboardController
         }
         state = state.copyWith(
           data: _replaceFlow(data, detail, published),
-          noticeMessage: 'Flow da publish.',
+          noticeMessage: 'Flow đã publish.',
         );
       case FailureResult<BotFlowSummary>(failure: final failure):
         state = state.copyWith(errorMessage: failure.message);
@@ -216,7 +216,7 @@ final class BusinessDashboardController
                 if (item.id == updated.id) updated else item,
             ],
           ),
-          noticeMessage: 'Ticket da chuyen sang $status.',
+          noticeMessage: 'Ticket đã chuyển sang $status.',
         );
       case FailureResult<TicketSummary>(failure: final failure):
         state = state.copyWith(errorMessage: failure.message);
@@ -242,7 +242,7 @@ final class BusinessDashboardController
                 if (item.id != token.id) item,
             ],
           ),
-          noticeMessage: 'API token da duoc thu hoi.',
+          noticeMessage: 'API token đã được thu hồi.',
         );
       case FailureResult<void>(failure: final failure):
         state = state.copyWith(errorMessage: failure.message);
@@ -256,7 +256,7 @@ final class BusinessDashboardController
     );
     switch (result) {
       case Success<void>():
-        state = state.copyWith(noticeMessage: 'Cronjob da duoc chay thu cong.');
+        state = state.copyWith(noticeMessage: 'Cronjob đã được chạy thủ công.');
       case FailureResult<void>(failure: final failure):
         state = state.copyWith(errorMessage: failure.message);
     }
@@ -285,7 +285,7 @@ final class BusinessDashboardController
                 if (item.id == updated.id) updated else item,
             ],
           ),
-          noticeMessage: 'Cronjob da chuyen sang $status.',
+          noticeMessage: 'Cronjob đã chuyển sang $status.',
         );
       case FailureResult<CronJobSummary>(failure: final failure):
         state = state.copyWith(errorMessage: failure.message);

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../../core/result/result.dart';
 import '../entities/chat_message.dart';
 
@@ -33,5 +35,16 @@ abstract interface class MessageAttachmentRepository {
     required String workspaceId,
     required String channelId,
     required String messageId,
+  });
+
+  Future<Result<List<MessageAttachment>>> listChannelMedia({
+    required String workspaceId,
+    required String channelId,
+    int limit = 500,
+  });
+
+  Future<Result<Uint8List>> downloadFileBytes({
+    required String downloadPath,
+    String? mimeType,
   });
 }
