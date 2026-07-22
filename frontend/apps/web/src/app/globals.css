@@ -921,7 +921,7 @@
   object-fit: contain;
   width: auto;
 }
-.chat-app-shell--zalo .message-row--media-only .attachment-image > span:last-child { display: none; }
+.chat-app-shell--zalo .message-row--media-only .attachment-image > .attachment-media-card__caption { display: none; }
 .chat-app-shell--zalo .message-row--media-only .reaction-add-button { background: #fff; }
 .chat-app-shell--zalo .message-row--media-only .message-actions {
   background: rgb(255 255 255 / 94%);
