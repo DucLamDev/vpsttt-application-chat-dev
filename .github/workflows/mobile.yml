@@ -32,7 +32,7 @@ permissions:
   contents: read
 
 env:
-  FLUTTER_VERSION: "3.38.4"
+  FLUTTER_VERSION: "3.44.6"
   WEBTUI_API_BASE_URL: "https://chat.vpsttt.com"
   DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/webtui-chat' }}
 
