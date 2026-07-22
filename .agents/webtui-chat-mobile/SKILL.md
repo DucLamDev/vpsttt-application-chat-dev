@@ -15,6 +15,7 @@ description: Hướng dẫn agent thiết kế, sinh code và rà soát mobile a
 6. UI gọi use case/controller, không gọi Dio, Drift, Secure Storage, Firebase hoặc WebSocket trực tiếp trong widget.
 7. Dữ liệu luôn scope theo `workspace_id`; không trộn cache, route, websocket subscription hoặc notification giữa các workspace.
 8. Tất cả copy UI, log, empty state, toast, lỗi và tài liệu bàn giao phải là tiếng Việt có dấu.
+9. Quy tắc toàn cục: không thêm tiếng Việt không dấu vào mobile app. Mọi chuỗi hardcoded mới trong `mobile/lib` phải qua guard `mobile/test/global/vietnamese_diacritics_rule_test.dart`.
 
 ## Nguyên tắc UI mobile
 

@@ -96,6 +96,9 @@ RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, paren
 		return messagesdomain.Message{}, fmt.Errorf("message send insert message: %w", err)
 	}
 
+	if err := touchDirectConversationLastMessage(ctx, tx, message); err != nil {
+		return messagesdomain.Message{}, fmt.Errorf("message send touch direct conversation: %w", err)
+	}
 	if err := r.replaceMentions(ctx, tx, message.WorkspaceID, message.ChannelID, message.ID, params.MentionedUserIDs); err != nil {
 		return messagesdomain.Message{}, fmt.Errorf("message send replace mentions: %w", err)
 	}
@@ -195,6 +198,18 @@ ON CONFLICT (channel_id, user_id)
 DO UPDATE SET status = 'active'
 WHERE channel_members.status IN ('left', 'removed', 'invited')
 `, workspaceID, channelID, userID)
+	return err
+}
+
+func touchDirectConversationLastMessage(ctx context.Context, exec commandExecutor, message messagesdomain.Message) error {
+	_, err := exec.Exec(ctx, `
+UPDATE direct_conversations
+SET last_message_id = $3::uuid,
+    updated_at = GREATEST(updated_at, $4::timestamptz)
+WHERE workspace_id = $1::uuid
+  AND channel_id = $2::uuid
+  AND archived_at IS NULL
+`, message.WorkspaceID, message.ChannelID, message.ID, message.CreatedAt)
 	return err
 }
 
@@ -388,6 +403,9 @@ RETURNING id::text, workspace_id::text, channel_id::text, sender_id::text, paren
 		return messagesdomain.Message{}, err
 	}
 
+	if err := touchDirectConversationLastMessage(ctx, tx, message); err != nil {
+		return messagesdomain.Message{}, fmt.Errorf("message forward touch direct conversation: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO message_attachments (workspace_id, message_id, file_id, sort_order)
 SELECT workspace_id, $3::uuid, file_id, sort_order
