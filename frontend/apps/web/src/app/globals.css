@@ -11865,6 +11865,24 @@ textarea {
   transition: filter 160ms ease, transform 160ms ease;
 }
 
+.chat-app-shell--zalo .media-grid {
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chat-app-shell--zalo .media-file-thumb {
+  aspect-ratio: 1;
+  background-position: center;
+}
+
+.chat-app-shell--zalo .media-file-thumb--loaded {
+  background-color: #f8fbff;
+  background-repeat: no-repeat;
+  background-size: contain;
+  border: 1px solid var(--zalo-border);
+  min-height: 128px;
+}
+
 .chat-app-shell--zalo .media-file-thumb:hover {
   filter: brightness(.94);
   transform: translateY(-1px);
