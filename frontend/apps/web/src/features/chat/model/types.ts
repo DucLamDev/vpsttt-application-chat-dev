@@ -63,8 +63,10 @@ export type ChatMessage = {
 export type MessageCallEvent = {
   direction: "incoming" | "outgoing";
   durationSeconds?: number;
+  initiatorUserId?: string;
   mode: "audio" | "video";
   status: "completed" | "missed";
+  targetUserId?: string;
 };
 
 export type MessageAttachmentItem = {
@@ -143,11 +145,17 @@ export type FileItem = {
 
 export type NotificationItem = {
   body: string;
+  callId?: string;
+  callMode?: "audio" | "video";
+  callStatus?: string;
   channelId?: string;
   createdAt: string;
+  data?: Record<string, unknown>;
   id: string;
+  initiatorUserId?: string;
   isRead: boolean;
   messageId?: string;
+  targetUserId?: string;
   title: string;
   type: string;
 };

@@ -13,6 +13,7 @@ export type WebRtcCallStatus = "idle" | "incoming" | "outgoing" | "connecting" |
 
 export type WebRtcCallState = {
   callId?: string;
+  channelId?: string;
   error?: string;
   initiatorUserId?: string;
   mode: CallMode;
@@ -43,6 +44,7 @@ type UseWebRtcCallOptions = {
   onCallOutcome?: (outcome: WebRtcCallOutcome) => void;
   peerName?: string;
   peerUserId?: string;
+  resolvePeerName?: (userId?: string, channelId?: string) => string | undefined;
   sendSignal: (type: CallSignalType, payload: CallSignalPayload) => boolean;
   workspaceId?: string;
 };
@@ -76,6 +78,7 @@ export function useWebRtcCall({
   lastSignal,
   peerName,
   peerUserId,
+  resolvePeerName,
   workspaceId
 }: UseWebRtcCallOptions) {
   const [callState, setCallState] = useState<WebRtcCallState>({ mode: "audio", status: "idle" });
@@ -212,6 +215,7 @@ export function useWebRtcCall({
           void api.calls.hangup(workspaceId, current.callId, "remote_left_zego").catch(() => undefined);
           resetCallUi({
             callId: current.callId,
+            channelId: current.channelId,
             initiatorUserId: current.initiatorUserId,
             mode: current.mode,
             peerName: current.peerName,
@@ -235,6 +239,7 @@ export function useWebRtcCall({
           }
           resetCallUi({
             callId: current.callId,
+            channelId: current.channelId,
             initiatorUserId: current.initiatorUserId,
             mode: current.mode,
             peerName: current.peerName,
@@ -291,6 +296,7 @@ export function useWebRtcCall({
       let backendCallId = "";
       try {
         setCallState({
+          channelId,
           initiatorUserId: currentUserId,
           mode,
           peerName: peerName || channelName,
@@ -314,6 +320,7 @@ export function useWebRtcCall({
 
         setCallState({
           callId: backendCall.id,
+          channelId: backendCall.channel_id || channelId,
           initiatorUserId: backendCall.initiator_user_id || currentUserId,
           mode,
           peerName: peerName || channelName,
@@ -330,6 +337,7 @@ export function useWebRtcCall({
           void api.calls.cancel(workspaceId, backendCall.id, "no_answer").catch(() => undefined);
           resetCallUi({
             callId: backendCall.id,
+            channelId: backendCall.channel_id || channelId,
             error: "Không có phản hồi.",
             initiatorUserId: currentUserId,
             mode,
@@ -344,6 +352,7 @@ export function useWebRtcCall({
         }
         resetCallUi({
           callId: backendCallId || undefined,
+          channelId,
           error: callErrorMessage(error),
           initiatorUserId: currentUserId,
           mode,
@@ -419,6 +428,7 @@ export function useWebRtcCall({
     }
     resetCallUi({
       callId: current.callId,
+      channelId: current.channelId,
       initiatorUserId: current.initiatorUserId,
       mode: current.mode,
       peerName: current.peerName,
@@ -431,15 +441,8 @@ export function useWebRtcCall({
     if (!lastSignal) {
       return;
     }
-    if (!enabled || !workspaceId || !channelId) {
+    if (!enabled || !workspaceId) {
       lastSignalSequenceRef.current = Math.max(lastSignalSequenceRef.current, lastSignal.sequence);
-      return;
-    }
-    if (
-      lastSignal.payload.channel_id &&
-      lastSignal.payload.channel_id !== channelId &&
-      lastSignal.payload.call_id !== callStateRef.current.callId
-    ) {
       return;
     }
     if (lastSignal.sequence <= lastSignalSequenceRef.current) {
@@ -451,9 +454,11 @@ export function useWebRtcCall({
     const callId = payload.call_id;
     const mode = payload.mode ?? callStateRef.current.mode ?? "audio";
     const signalWorkspaceId = payload.workspace_id || workspaceId;
+    const signalChannelId = payload.channel_id || callStateRef.current.channelId || channelId;
+    const initiatorUserId = payload.initiator_user_id || lastSignal.userId;
 
     if (lastSignal.type === "CallInvited") {
-      if (payload.target_user_id && payload.target_user_id !== currentUserId) {
+      if (payload.target_user_id !== currentUserId || initiatorUserId === currentUserId) {
         return;
       }
       const busy = callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error";
@@ -463,10 +468,11 @@ export function useWebRtcCall({
       }
       setCallState({
         callId,
-        initiatorUserId: payload.initiator_user_id || lastSignal.userId,
+        channelId: signalChannelId,
+        initiatorUserId,
         mode,
-        peerName: peerName || channelName,
-        peerUserId: payload.initiator_user_id || lastSignal.userId,
+        peerName: resolvePeerName?.(initiatorUserId, signalChannelId) || peerName || channelName,
+        peerUserId: initiatorUserId,
         status: "incoming"
       });
       return;
@@ -489,6 +495,7 @@ export function useWebRtcCall({
     if (lastSignal.type === "CallRejected") {
       resetCallUi({
         callId,
+        channelId: signalChannelId,
         error: rejectionMessage(payload.reason),
         mode,
         peerName: callStateRef.current.peerName,
@@ -501,6 +508,7 @@ export function useWebRtcCall({
     if (lastSignal.type === "CallCancelled" || lastSignal.type === "CallMissed") {
       resetCallUi({
         callId,
+        channelId: signalChannelId,
         error: lastSignal.type === "CallMissed" ? "Cuộc gọi bị nhỡ." : "Cuộc gọi đã bị hủy.",
         mode,
         peerName: callStateRef.current.peerName,
@@ -513,6 +521,7 @@ export function useWebRtcCall({
     if (lastSignal.type === "CallEnded") {
       resetCallUi({
         callId,
+        channelId: signalChannelId,
         mode,
         peerName: callStateRef.current.peerName,
         peerUserId: callStateRef.current.peerUserId,
@@ -528,14 +537,48 @@ export function useWebRtcCall({
     lastSignal,
     peerName,
     resetCallUi,
+    resolvePeerName,
     workspaceId
   ]);
+
+  const openIncomingCall = useCallback(
+    async (callId: string) => {
+      if (!enabled || !workspaceId || !callId) {
+        return false;
+      }
+      const busy = callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error";
+      if (busy) {
+        return callStateRef.current.callId === callId;
+      }
+      try {
+        const call = await api.calls.get(workspaceId, callId);
+        if (call.status !== "ringing" || call.target_user_id !== currentUserId) {
+          return false;
+        }
+        const mode = call.mode === "video" ? "video" : "audio";
+        setCallState({
+          callId: call.id,
+          channelId: call.channel_id,
+          initiatorUserId: call.initiator_user_id,
+          mode,
+          peerName: resolvePeerName?.(call.initiator_user_id, call.channel_id) || peerName || channelName,
+          peerUserId: call.initiator_user_id,
+          status: "incoming"
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [channelName, currentUserId, enabled, peerName, resolvePeerName, workspaceId]
+  );
 
   return {
     acceptCall,
     callState,
     endCall,
     hasZegoCall,
+    openIncomingCall,
     rejectCall,
     startCall,
     zegoContainerRef

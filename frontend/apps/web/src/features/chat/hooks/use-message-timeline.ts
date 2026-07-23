@@ -490,8 +490,10 @@ function resolveCallEvent(message: ApiMessage, currentUserId: string): MessageCa
   return {
     direction: initiatorUserId && initiatorUserId === currentUserId ? "outgoing" : "incoming",
     durationSeconds: typeof durationValue === "number" && Number.isFinite(durationValue) ? Math.max(0, Math.round(durationValue)) : undefined,
+    initiatorUserId: initiatorUserId || undefined,
     mode: modeValue === "video" ? "video" : "audio",
-    status: statusValue === "completed" ? "completed" : "missed"
+    status: statusValue === "completed" ? "completed" : "missed",
+    targetUserId: typeof metadata?.target_user_id === "string" ? metadata.target_user_id.trim() || undefined : undefined
   };
 }
 

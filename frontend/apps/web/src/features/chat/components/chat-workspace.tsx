@@ -805,6 +805,19 @@ export function ChatWorkspace() {
     profiles.set(currentUser.id, currentUser);
     return profiles;
   }, [currentUser, data.contactRequests, data.contacts, data.directConversations]);
+  const resolveCallPeerName = useCallback(
+    (userId?: string, channelId?: string) => {
+      const profileName = userId ? knownProfileByUserId.get(userId)?.name : undefined;
+      if (profileName) {
+        return profileName;
+      }
+      if (channelId) {
+        return data.directConversations.find((conversation) => conversation.id === channelId)?.user.name;
+      }
+      return undefined;
+    },
+    [data.directConversations, knownProfileByUserId]
+  );
   const displayWorkspaceMembers = useMemo(
     () => enrichMemberProfiles(data.members, knownProfileByUserId),
     [data.members, knownProfileByUserId]
@@ -886,11 +899,7 @@ export function ChatWorkspace() {
     if (shouldShowDesktopNotification(newest, notificationPreferences)) {
       const payload = {
         body: notificationPreferences.preview ? newest.body : "Bạn có thông báo mới.",
-        data: {
-          channelId: newest.channelId,
-          messageId: newest.messageId,
-          workspaceId: data.workspaceId
-        },
+        data: nativeNotificationData(newest, data.workspaceId),
         tag: newest.id,
         title: newest.title
       };
@@ -1066,15 +1075,27 @@ export function ChatWorkspace() {
     channelId: data.selectedChannelId,
     channelName: selectedChatChannel?.name,
     currentUserId: currentUser.id,
-    enabled: data.realtime.status === "connected" && selectedChatChannel?.type === "direct" && Boolean(data.selectedChannelId),
+    enabled: Boolean(data.workspaceId),
     lastSignal: data.realtime.lastCallSignal,
     onCallOutcome: handleCallOutcome,
     peerName: selectedChatChannel?.name,
     peerUserId: selectedChatChannel?.peerUserId,
+    resolvePeerName: resolveCallPeerName,
     sendSignal: data.realtime.publishCallSignal,
     workspaceId: data.workspaceId
   });
   useIncomingCallRingtone(callControls.callState.status === "incoming");
+  useEffect(() => {
+    if (!data.selectedChannelId || callControls.callState.status !== "idle") {
+      return;
+    }
+    const incoming = data.notifications.find(
+      (notification) => notification.channelId === data.selectedChannelId && isIncomingCallNotification(notification, currentUser.id)
+    );
+    if (incoming?.callId) {
+      void callControls.openIncomingCall(incoming.callId);
+    }
+  }, [callControls.callState.status, callControls.openIncomingCall, currentUser.id, data.notifications, data.selectedChannelId]);
   function handleCallOutcome(outcome: WebRtcCallOutcome) {
     if (!data.selectedChannelId || selectedChatChannel?.type !== "direct") {
       return;
@@ -1206,13 +1227,20 @@ export function ChatWorkspace() {
     if (!payload) {
       return;
     }
-    const channelId = typeof payload.channelId === "string" ? payload.channelId : "";
-    const workspaceId = typeof payload.workspaceId === "string" ? payload.workspaceId : data.workspaceId;
-    const messageId = typeof payload.messageId === "string" ? payload.messageId : "";
+    const channelId = typeof payload.channelId === "string" ? payload.channelId : typeof payload.channel_id === "string" ? payload.channel_id : "";
+    const workspaceId = typeof payload.workspaceId === "string" ? payload.workspaceId : typeof payload.workspace_id === "string" ? payload.workspace_id : data.workspaceId;
+    const messageId = typeof payload.messageId === "string" ? payload.messageId : typeof payload.message_id === "string" ? payload.message_id : "";
+    const callId = typeof payload.callId === "string" ? payload.callId : typeof payload.call_id === "string" ? payload.call_id : "";
     if (!channelId) {
+      if (callId) {
+        void callControls.openIncomingCall(callId);
+      }
       return;
     }
     openDesktopTarget({ channelId, kind: "channel", messageId, workspaceId });
+    if (callId) {
+      void callControls.openIncomingCall(callId);
+    }
   }
 
   function openDesktopTarget(target: DesktopDeepLinkTarget) {
@@ -1986,6 +2014,10 @@ export function ChatWorkspace() {
     if (notification.messageId) {
       setThreadMessageId(null);
       setFocusedMessageId(notification.messageId);
+    }
+
+    if (isIncomingCallNotification(notification, currentUser.id) && notification.callId) {
+      void callControls.openIncomingCall(notification.callId);
     }
 
     setIsNotificationsOpen(false);
@@ -7048,7 +7080,7 @@ function CallMessageRow({
   }
 
   const isMissed = callEvent.status === "missed";
-  const isLocalCallRow = Boolean(message.isMine || callEvent.direction === "outgoing" || isMissed);
+  const isLocalCallRow = callEvent.direction === "outgoing";
   const CallIcon = isMissed ? PhoneOff : callEvent.mode === "video" ? Video : Phone;
 
   return (
@@ -7172,10 +7204,15 @@ function parseDesktopDeepLink(value: string): DesktopDeepLinkTarget | null {
 
     const host = url.host.toLowerCase();
     const segments = url.pathname.split("/").filter(Boolean);
-    const workspaceId = url.searchParams.get("workspace") || url.searchParams.get("workspace_id") || segments[0] || "";
+    const workspaceId =
+      url.searchParams.get("workspaceId") ||
+      url.searchParams.get("workspace") ||
+      url.searchParams.get("workspace_id") ||
+      (host === "chat" && (segments[0] === "conversations" || segments[0] === "channels") ? "" : segments[0]) ||
+      "";
     const section = url.searchParams.get("section") || (host === "section" ? segments[1] : "");
     const kindParam = url.searchParams.get("kind");
-    const kind = kindParam === "dm" || host === "dm" ? "dm" : "channel";
+    const kind = kindParam === "dm" || host === "dm" || segments[0] === "conversations" ? "dm" : "channel";
     const channelId =
       url.searchParams.get("target") ||
       url.searchParams.get("channel") ||
@@ -7255,6 +7292,38 @@ function normalizeNotificationPreferences(preferences: Partial<NotificationPrefe
     quietHours: typeof preferences.quietHours === "boolean" ? preferences.quietHours : defaultNotificationPreferences.quietHours,
     quietStart: isTimeValue(preferences.quietStart) ? preferences.quietStart : defaultNotificationPreferences.quietStart
   };
+}
+
+function nativeNotificationData(notification: NotificationItem, workspaceId: string): Record<string, unknown> {
+  return {
+    ...(notification.data ?? {}),
+    callId: notification.callId,
+    call_id: notification.callId,
+    channelId: notification.channelId,
+    channel_id: notification.channelId,
+    initiatorUserId: notification.initiatorUserId,
+    initiator_user_id: notification.initiatorUserId,
+    messageId: notification.messageId,
+    message_id: notification.messageId,
+    mode: notification.callMode,
+    status: notification.callStatus,
+    targetUserId: notification.targetUserId,
+    target_user_id: notification.targetUserId,
+    workspaceId,
+    workspace_id: workspaceId
+  };
+}
+
+function isIncomingCallNotification(notification: NotificationItem, currentUserId: string): boolean {
+  const eventType = typeof notification.data?.event_type === "string" ? notification.data.event_type : "";
+  const status = notification.callStatus?.toLowerCase() || "";
+  const targetsCurrentUser = !notification.targetUserId || notification.targetUserId === currentUserId;
+  return Boolean(
+    notification.callId &&
+      targetsCurrentUser &&
+      (status === "" || status === "ringing") &&
+      (eventType === "call_invite" || notification.type === "invite")
+  );
 }
 
 function shouldShowDesktopNotification(notification: NotificationItem, preferences: NotificationPreferences): boolean {

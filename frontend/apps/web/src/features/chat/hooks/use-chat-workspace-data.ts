@@ -1331,16 +1331,31 @@ function mapMembersWithPresence(
 }
 
 function mapNotification(notification: ApiNotification): NotificationItem {
+  const data = notification.data && typeof notification.data === "object" && !Array.isArray(notification.data)
+    ? notification.data
+    : undefined;
+  const callMode = stringValue(data?.mode);
+  const channelId = notification.channel_id ?? stringValue(data?.channel_id) ?? undefined;
   return {
     body: notification.body,
-    channelId: notification.channel_id ?? undefined,
+    callId: stringValue(data?.call_id) ?? undefined,
+    callMode: callMode === "video" ? "video" : callMode === "audio" ? "audio" : undefined,
+    callStatus: stringValue(data?.status) ?? undefined,
+    channelId,
     createdAt: formatRelative(notification.created_at),
+    data,
     id: notification.id,
+    initiatorUserId: stringValue(data?.initiator_user_id) ?? undefined,
     isRead: Boolean(notification.read_at),
     messageId: notification.message_id ?? undefined,
+    targetUserId: stringValue(data?.target_user_id) ?? undefined,
     title: notification.title,
     type: notification.type
   };
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function mapPresenceStatus(status?: string): PresenceStatus {

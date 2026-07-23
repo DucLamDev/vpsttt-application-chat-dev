@@ -1408,65 +1408,72 @@ class _ComposerState extends State<_Composer> {
     setState(() => _showEmojiTray = false);
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: WebTuiColors.surface,
       builder: (context) {
+        final media = MediaQuery.of(context);
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              WebTuiSpacing.lg,
-              WebTuiSpacing.xs,
-              WebTuiSpacing.lg,
-              WebTuiSpacing.lg,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const _PermissionRationaleTile(),
-                _AttachmentSourceTile(
-                  icon: CupertinoIcons.camera,
-                  title: 'Chụp ảnh',
-                  subtitle: 'Mở camera và gửi ảnh vào cuộc trò chuyện',
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    widget.onPickAttachment(MessageAttachmentPickSource.camera);
-                  },
-                ),
-                _AttachmentSourceTile(
-                  icon: CupertinoIcons.photo,
-                  title: 'Thư viện ảnh',
-                  subtitle: 'Chọn ảnh sẵn có trong máy',
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    widget.onPickAttachment(
-                      MessageAttachmentPickSource.gallery,
-                    );
-                  },
-                ),
-                _AttachmentSourceTile(
-                  icon: CupertinoIcons.mic,
-                  title: 'Ghi âm voice',
-                  subtitle: 'Thu âm một đoạn thoại rồi gửi vào cuộc trò chuyện',
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _startVoiceRecording();
-                  },
-                ),
-                _AttachmentSourceTile(
-                  icon: CupertinoIcons.smiley,
-                  title: 'Biểu tượng cảm xúc',
-                  subtitle: 'Mở bảng emoji để chèn vào tin nhắn',
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _toggleEmojiTray();
-                  },
-                ),
-                const _AttachmentSourceTile(
-                  icon: CupertinoIcons.doc,
-                  title: 'Tệp',
-                  subtitle: 'File tài liệu sẽ nối ở bước native tiếp theo',
-                ),
-              ],
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: media.size.height * 0.78),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                WebTuiSpacing.lg,
+                WebTuiSpacing.xs,
+                WebTuiSpacing.lg,
+                WebTuiSpacing.lg + media.viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const _PermissionRationaleTile(),
+                  _AttachmentSourceTile(
+                    icon: CupertinoIcons.camera,
+                    title: 'Chụp ảnh',
+                    subtitle: 'Mở camera và gửi ảnh vào cuộc trò chuyện',
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      widget.onPickAttachment(
+                        MessageAttachmentPickSource.camera,
+                      );
+                    },
+                  ),
+                  _AttachmentSourceTile(
+                    icon: CupertinoIcons.photo,
+                    title: 'Thư viện ảnh',
+                    subtitle: 'Chọn ảnh sẵn có trong máy',
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      widget.onPickAttachment(
+                        MessageAttachmentPickSource.gallery,
+                      );
+                    },
+                  ),
+                  _AttachmentSourceTile(
+                    icon: CupertinoIcons.mic,
+                    title: 'Ghi âm voice',
+                    subtitle: 'Thu âm một đoạn thoại rồi gửi vào cuộc trò chuyện',
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _startVoiceRecording();
+                    },
+                  ),
+                  _AttachmentSourceTile(
+                    icon: CupertinoIcons.smiley,
+                    title: 'Biểu tượng cảm xúc',
+                    subtitle: 'Mở bảng emoji để chèn vào tin nhắn',
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _toggleEmojiTray();
+                    },
+                  ),
+                  const _AttachmentSourceTile(
+                    icon: CupertinoIcons.doc,
+                    title: 'Tệp',
+                    subtitle: 'File tài liệu sẽ nối ở bước native tiếp theo',
+                  ),
+                ],
+              ),
             ),
           ),
         );
