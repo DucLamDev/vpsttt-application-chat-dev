@@ -1452,7 +1452,8 @@ class _ComposerState extends State<_Composer> {
                   _AttachmentSourceTile(
                     icon: CupertinoIcons.mic,
                     title: 'Ghi âm voice',
-                    subtitle: 'Thu âm một đoạn thoại rồi gửi vào cuộc trò chuyện',
+                    subtitle:
+                        'Thu âm một đoạn thoại rồi gửi vào cuộc trò chuyện',
                     onTap: () {
                       Navigator.of(context).pop();
                       _startVoiceRecording();
