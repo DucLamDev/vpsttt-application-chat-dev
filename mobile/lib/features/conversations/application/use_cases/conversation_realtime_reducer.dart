@@ -73,6 +73,12 @@ final class ConversationRealtimeReducer {
         false,
         currentUserId,
       ),
+      ConversationRealtimeEventType.callInvited ||
+      ConversationRealtimeEventType.callAccepted ||
+      ConversationRealtimeEventType.callRejected ||
+      ConversationRealtimeEventType.callCancelled ||
+      ConversationRealtimeEventType.callEnded ||
+      ConversationRealtimeEventType.callMissed => state,
       ConversationRealtimeEventType.unknown => state,
     };
   }

@@ -2,7 +2,7 @@ package websocket
 
 import (
 	"context"
-	"fmt"
+	"strings"
 
 	callsapp "github.com/duclamdev/application-chat/backend/internal/modules/calls/application"
 	platformws "github.com/duclamdev/application-chat/backend/internal/platform/websocket"
@@ -20,23 +20,34 @@ func (p *Publisher) Publish(ctx context.Context, event callsapp.RealtimeEvent) e
 	if p == nil || p.manager == nil {
 		return nil
 	}
-	room := fmt.Sprintf("workspace:%s:channel:%s", event.WorkspaceID, event.ChannelID)
-	if err := p.manager.Broadcast(ctx, room, platformws.Event{
-		Type:    event.Type,
-		Room:    room,
-		UserID:  event.ActorUserID,
-		Payload: event.Payload,
-	}); err != nil {
-		return err
+	participants := []string{
+		payloadString(event.Payload, "initiator_user_id"),
+		payloadString(event.Payload, "target_user_id"),
 	}
-	if event.TargetUserID == "" {
-		return nil
+	seen := make(map[string]struct{}, len(participants))
+	for _, userID := range participants {
+		userID = strings.TrimSpace(userID)
+		if userID == "" {
+			continue
+		}
+		if _, exists := seen[userID]; exists {
+			continue
+		}
+		seen[userID] = struct{}{}
+		room := "user:" + userID
+		if err := p.manager.Broadcast(ctx, room, platformws.Event{
+			Type:    event.Type,
+			Room:    room,
+			UserID:  event.ActorUserID,
+			Payload: event.Payload,
+		}); err != nil {
+			return err
+		}
 	}
-	userRoom := "user:" + event.TargetUserID
-	return p.manager.Broadcast(ctx, userRoom, platformws.Event{
-		Type:    event.Type,
-		Room:    userRoom,
-		UserID:  event.ActorUserID,
-		Payload: event.Payload,
-	})
+	return nil
+}
+
+func payloadString(payload map[string]any, key string) string {
+	value, _ := payload[key].(string)
+	return value
 }

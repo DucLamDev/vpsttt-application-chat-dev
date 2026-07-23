@@ -39,6 +39,12 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>WebTui Chat dùng microphone để ghi và gửi tin nhắn thoại.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>WebTui Chat dùng camera cho cuộc gọi video.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

@@ -33,6 +33,7 @@ Tài liệu dự án WebTui Chat được viết bằng tiếng Việt có dấu
 - [Desktop App Phase D10 Completion](planning/desktop-phase-d10-completion.md)
 - [Deploy production lên VPS](deploy/vps-production.md)
 - [CI/CD từng bước với GitHub Actions và Docker Compose](deploy/cicd.md)
+- [Cấu hình ZEGOCLOUD và Firebase push](deploy/zegocloud-firebase.md)
 
 ## Backend contract
 

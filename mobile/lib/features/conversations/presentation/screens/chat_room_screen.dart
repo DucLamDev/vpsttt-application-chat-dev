@@ -199,6 +199,14 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen>
         onClearThread: controller.clearThread,
         onFocusMessage: controller.focusMessage,
         onCancelComposerContext: controller.cancelComposerContext,
+        onRetryAudioCall: () => unawaited(
+          _startCallFromCurrentConversation(
+            context,
+            controller,
+            state,
+            CallMode.audio,
+          ),
+        ),
       ),
     );
 
@@ -399,7 +407,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen>
           callId: call.id,
           title: widget.title,
           mode: mode,
-          onLeave: () => controller.endActiveCall(reason: 'zego_call_left'),
+          onLeave: controller.load,
         ),
       ),
     );
@@ -473,6 +481,7 @@ class _ChatRoomBody extends StatefulWidget {
     required this.onClearThread,
     required this.onFocusMessage,
     required this.onCancelComposerContext,
+    required this.onRetryAudioCall,
   });
 
   final String workspaceId;
@@ -503,6 +512,7 @@ class _ChatRoomBody extends StatefulWidget {
   final VoidCallback onClearThread;
   final ValueChanged<ChatMessage> onFocusMessage;
   final VoidCallback onCancelComposerContext;
+  final VoidCallback onRetryAudioCall;
 
   @override
   State<_ChatRoomBody> createState() => _ChatRoomBodyState();
@@ -649,7 +659,16 @@ class _ChatRoomBodyState extends State<_ChatRoomBody> {
                               if (showDay)
                                 const SizedBox(height: WebTuiSpacing.md),
                               if (message.isSystem)
-                                _SystemMessage(text: message.body)
+                                _isMissedCallMessage(message)
+                                    ? _MissedCallCard(
+                                        outgoing: false,
+                                        title: _missedCallTitle(message),
+                                        timeLabel: _timeLabel(
+                                          message.createdAt,
+                                        ),
+                                        onRetry: widget.onRetryAudioCall,
+                                      )
+                                    : _SystemMessage(text: message.body)
                               else
                                 GestureDetector(
                                   behavior: HitTestBehavior.opaque,
@@ -686,6 +705,7 @@ class _ChatRoomBodyState extends State<_ChatRoomBody> {
                                       reactions: _reactionLabels(
                                         message.reactions,
                                       ),
+                                      onRetryAudioCall: widget.onRetryAudioCall,
                                     ),
                                   ),
                                 ),
@@ -2401,6 +2421,7 @@ class _MessageRow extends StatelessWidget {
     required this.text,
     required this.timeLabel,
     required this.reactions,
+    required this.onRetryAudioCall,
   });
 
   final ChatMessage message;
@@ -2410,10 +2431,19 @@ class _MessageRow extends StatelessWidget {
   final String text;
   final String timeLabel;
   final List<String> reactions;
+  final VoidCallback onRetryAudioCall;
 
   @override
   Widget build(BuildContext context) {
     final showBody = text.trim().isNotEmpty || message.isDeleted;
+    if (_isMissedCallMessage(message)) {
+      return _MissedCallCard(
+        outgoing: outgoing,
+        title: _missedCallTitle(message),
+        timeLabel: timeLabel,
+        onRetry: onRetryAudioCall,
+      );
+    }
     if (outgoing) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -2473,6 +2503,139 @@ class _MessageRow extends StatelessWidget {
   }
 }
 
+class _MissedCallCard extends StatelessWidget {
+  const _MissedCallCard({
+    required this.outgoing,
+    required this.title,
+    required this.timeLabel,
+    required this.onRetry,
+  });
+
+  final bool outgoing;
+  final String title;
+  final String timeLabel;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = outgoing
+        ? WebTuiColors.messageOutgoing
+        : WebTuiColors.messageIncoming;
+    final borderColor = outgoing
+        ? WebTuiColors.messageOutgoingBorder
+        : WebTuiColors.border;
+
+    return Align(
+      alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: outgoing
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 148, maxWidth: 174),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: BorderRadius.circular(WebTuiRadii.sm),
+                border: Border.all(color: borderColor),
+                boxShadow: [
+                  BoxShadow(
+                    color: WebTuiColors.textPrimary.withValues(alpha: 0.08),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(WebTuiRadii.sm),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: WebTuiTypography.bodySmall.copyWith(
+                              color: WebTuiColors.danger,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.phone_missed_rounded,
+                                size: 18,
+                                color: WebTuiColors.danger,
+                              ),
+                              const SizedBox(width: 7),
+                              Flexible(
+                                child: Text(
+                                  'Cuộc gọi thoại',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: WebTuiTypography.bodySmall.copyWith(
+                                    color: WebTuiColors.textSecondary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Divider(height: 1, color: borderColor),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: onRetry,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          child: Center(
+                            child: Text(
+                              'Gọi lại',
+                              style: WebTuiTypography.bodySmall.copyWith(
+                                color: WebTuiColors.primary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              timeLabel,
+              style: WebTuiTypography.labelSmall.copyWith(
+                color: WebTuiColors.textMuted,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MessageAttachmentList extends StatelessWidget {
   const _MessageAttachmentList({
     required this.attachments,
@@ -2485,6 +2648,11 @@ class _MessageAttachmentList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final networkScope = WebTuiAvatarNetworkScope.maybeOf(context);
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final singleImageMaxWidth = (viewportWidth * 0.66).clamp(188, 258);
+    final singleImageMaxHeight = (viewportWidth * 0.72).clamp(188, 286);
+    final imageGridMaxWidth = (viewportWidth * 0.62).clamp(188, 230);
+    final imageTileSize = ((imageGridMaxWidth - 4) / 2).clamp(92, 112);
     final images = attachments
         .where((attachment) => attachment.isImage)
         .toList(growable: false);
@@ -2505,6 +2673,8 @@ class _MessageAttachmentList extends StatelessWidget {
                 attachment: images.first,
                 apiBaseUri: networkScope?.apiBaseUri,
                 fit: BoxFit.contain,
+                maxHeight: singleImageMaxHeight.toDouble(),
+                maxWidth: singleImageMaxWidth.toDouble(),
                 onPressed: () => openMessageImageGallery(
                   context,
                   attachments: images,
@@ -2517,7 +2687,9 @@ class _MessageAttachmentList extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: WebTuiSpacing.xs),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 246),
+                constraints: BoxConstraints(
+                  maxWidth: imageGridMaxWidth.toDouble(),
+                ),
                 child: Wrap(
                   spacing: 3,
                   runSpacing: 3,
@@ -2526,9 +2698,9 @@ class _MessageAttachmentList extends StatelessWidget {
                       MessageImageAttachmentView(
                         attachment: images[index],
                         apiBaseUri: networkScope?.apiBaseUri,
-                        height: 120,
-                        maxHeight: 120,
-                        maxWidth: 120,
+                        height: imageTileSize.toDouble(),
+                        maxHeight: imageTileSize.toDouble(),
+                        maxWidth: imageTileSize.toDouble(),
                         onPressed: () => openMessageImageGallery(
                           context,
                           attachments: images,
@@ -2852,10 +3024,37 @@ String _displayMessageBody(ChatMessage message) {
   if (message.isDeleted) {
     return 'Tin nhắn đã được thu hồi';
   }
+  if (_isMissedCallMessage(message)) {
+    return '';
+  }
   if (_isGeneratedAttachmentBody(message.body, message.attachments)) {
     return '';
   }
   return message.body;
+}
+
+bool _isMissedCallMessage(ChatMessage message) {
+  if (message.isDeleted || message.attachments.isNotEmpty) {
+    return false;
+  }
+  final normalized = _removeVietnameseDiacritics(
+    _compactMessageText(message.body),
+  );
+  return normalized == 'cuoc goi nho' ||
+      normalized == 'ban bi nho' ||
+      normalized == 'missed call' ||
+      normalized.contains('ban bi nho') ||
+      (normalized.contains('cuoc goi') && normalized.contains('nho'));
+}
+
+String _missedCallTitle(ChatMessage message) {
+  final normalized = _removeVietnameseDiacritics(
+    _compactMessageText(message.body),
+  );
+  if (normalized.contains('ban bi nho')) {
+    return 'Bạn bị nhỡ';
+  }
+  return 'Cuộc gọi nhỡ';
 }
 
 bool _isGeneratedAttachmentBody(

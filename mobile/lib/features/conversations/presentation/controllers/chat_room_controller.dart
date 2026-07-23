@@ -1215,7 +1215,10 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     }
   }
 
-  Future<void> endActiveCall({String? reason}) async {
+  Future<void> endActiveCall({
+    String? reason,
+    CallStatus? currentStatus,
+  }) async {
     final call = state.activeCall;
     if (call == null) {
       return;
@@ -1223,7 +1226,7 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
     final result = await _endCallUseCase.execute(
       workspaceId: state.scope.workspaceId,
       callId: call.id,
-      currentStatus: call.status,
+      currentStatus: currentStatus ?? call.status,
       reason: reason,
     );
     switch (result) {
@@ -1276,6 +1279,9 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
       messages: reduced.messages,
       typingUserIds: reduced.typingUserIds,
     );
+    if (event.isCallEvent) {
+      _handleRealtimeCallEvent(event);
+    }
     if (event.type == ConversationRealtimeEventType.messageCreated ||
         event.type == ConversationRealtimeEventType.messageUpdated) {
       final messageId = event.messageId ?? event.message?.id;
@@ -1293,6 +1299,35 @@ final class ChatRoomController extends StateNotifier<ChatRoomState> {
         unawaited(_hydrateMessageAttachments(messageId));
       }
     }
+  }
+
+  void _handleRealtimeCallEvent(ConversationRealtimeEvent event) {
+    final call = state.activeCall;
+    final eventCallId = event.callId?.trim();
+    if (call == null || eventCallId == null || eventCallId != call.id) {
+      if (event.callStatus?.isTerminal == true) {
+        unawaited(load());
+      }
+      return;
+    }
+    final status = event.callStatus;
+    if (status == null) {
+      return;
+    }
+    if (status.isTerminal) {
+      state = state.copyWith(clearActiveCall: true, clearError: true);
+      unawaited(load());
+      return;
+    }
+    state = state.copyWith(
+      activeCall: call.copyWith(
+        status: status,
+        startedAt: status == CallStatus.accepted
+            ? call.startedAt ?? event.timestamp ?? DateTime.now().toUtc()
+            : call.startedAt,
+        updatedAt: event.timestamp ?? DateTime.now().toUtc(),
+      ),
+    );
   }
 
   Future<void> _hydrateMessageAttachments(String messageId) async {

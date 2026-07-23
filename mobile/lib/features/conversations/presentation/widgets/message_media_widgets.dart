@@ -123,8 +123,8 @@ class MessageImageAttachmentView extends ConsumerStatefulWidget {
     this.apiBaseUri,
     this.fit = BoxFit.cover,
     this.height,
-    this.maxHeight = 420,
-    this.maxWidth = 280,
+    this.maxHeight = 300,
+    this.maxWidth = 260,
     this.onPressed,
     super.key,
   });
@@ -395,13 +395,13 @@ class _MessageVoiceAttachmentViewState
     final progress = _duration.inMilliseconds <= 0
         ? 0.0
         : (_position.inMilliseconds / _duration.inMilliseconds).clamp(0, 1);
-    final width = (MediaQuery.sizeOf(context).width * 0.72).clamp(230, 310);
+    final width = (MediaQuery.sizeOf(context).width * 0.62).clamp(204, 254);
     return SizedBox(
       width: width.toDouble(),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: WebTuiColors.primary,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(19),
           boxShadow: const [
             BoxShadow(
               color: Color(0x24245EBE),
@@ -411,11 +411,11 @@ class _MessageVoiceAttachmentViewState
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           child: Row(
             children: [
               SizedBox.square(
-                dimension: 34,
+                dimension: 31,
                 child: IconButton.filled(
                   tooltip: _playing ? 'Tạm dừng' : 'Phát tin nhắn thoại',
                   padding: EdgeInsets.zero,
@@ -436,11 +436,11 @@ class _MessageVoiceAttachmentViewState
                           _playing
                               ? CupertinoIcons.pause_fill
                               : CupertinoIcons.play_fill,
-                          size: 17,
+                          size: 16,
                         ),
                 ),
               ),
-              const SizedBox(width: 7),
+              const SizedBox(width: 6),
               Expanded(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -456,7 +456,7 @@ class _MessageVoiceAttachmentViewState
                   },
                   child: SizedBox(
                     key: _waveformKey,
-                    height: 30,
+                    height: 28,
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -464,7 +464,7 @@ class _MessageVoiceAttachmentViewState
                           Expanded(
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 0.7,
+                                horizontal: 0.6,
                               ),
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
@@ -482,7 +482,7 @@ class _MessageVoiceAttachmentViewState
                   ),
                 ),
               ),
-              const SizedBox(width: 7),
+              const SizedBox(width: 6),
               Text(
                 _failed
                     ? '--:--'
@@ -493,13 +493,13 @@ class _MessageVoiceAttachmentViewState
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 3),
               TextButton(
                 onPressed: _cycleRate,
                 style: TextButton.styleFrom(
                   foregroundColor: Colors.white,
-                  minimumSize: const Size(31, 26),
-                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  minimumSize: const Size(28, 24),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 child: Text('${_rateLabel(_playbackRate)}x'),

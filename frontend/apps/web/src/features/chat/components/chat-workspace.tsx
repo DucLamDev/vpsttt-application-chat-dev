@@ -40,6 +40,7 @@ import {
   MessageCircle,
   Mic,
   Monitor,
+  Minimize2,
   MoreVertical,
   Moon,
   PanelLeftClose,
@@ -1065,7 +1066,7 @@ export function ChatWorkspace() {
     channelId: data.selectedChannelId,
     channelName: selectedChatChannel?.name,
     currentUserId: currentUser.id,
-    enabled: activeRailItem === "messages" && data.realtime.status === "connected" && selectedChatChannel?.type === "direct" && Boolean(data.selectedChannelId),
+    enabled: data.realtime.status === "connected" && selectedChatChannel?.type === "direct" && Boolean(data.selectedChannelId),
     lastSignal: data.realtime.lastCallSignal,
     onCallOutcome: handleCallOutcome,
     peerName: selectedChatChannel?.name,
@@ -1090,15 +1091,6 @@ export function ChatWorkspace() {
     });
   }
 
-  function terminateActiveCall(nextChannelId?: string) {
-    if (nextChannelId && nextChannelId === data.selectedChannelId) {
-      return;
-    }
-    const status = callControls.callState.status;
-    if (status !== "idle" && status !== "ended" && status !== "error") {
-      callControls.endCall();
-    }
-  }
   const composerPlaceholder = botComposerPlaceholder(selectedChatChannel);
   const selectedChatFiles = useMemo(() => {
     const fileById = new Map<string, FileItem>();
@@ -1184,7 +1176,6 @@ export function ChatWorkspace() {
   }
 
   function handleChannelSelect(channelId: string) {
-    terminateActiveCall(channelId);
     const channel = data.channels.find((item) => item.id === channelId);
     if (channel?.privateSessionMode) {
       data.openPrivateSessionMutation.mutate(channelId, {
@@ -1226,7 +1217,6 @@ export function ChatWorkspace() {
 
   function openDesktopTarget(target: DesktopDeepLinkTarget) {
     if (target.section && railItems.some((item) => item.id === target.section)) {
-      terminateActiveCall();
       setActiveRailItem(target.section as RailItemId);
       data.setWorkspaceSection(target.section);
       return;
@@ -1237,7 +1227,6 @@ export function ChatWorkspace() {
     }
 
     const kind = target.kind === "dm" ? "direct" : "channel";
-    terminateActiveCall(target.channelId);
     showMessageWorkspace(target.kind === "dm" ? "conversations" : "channels");
     data.setSelectedChannelId(target.channelId, target.workspaceId || data.workspaceId, kind);
     if (target.messageId) {
@@ -1255,9 +1244,6 @@ export function ChatWorkspace() {
     if (!canAccessRailItem(itemId, data.can)) {
       setToast("Tài khoản của bạn chỉ được sử dụng các chức năng trao đổi trong workspace.");
       return;
-    }
-    if (itemId !== "messages" && itemId !== "channels") {
-      terminateActiveCall();
     }
     closeTransientWorkspaceUi();
     setIsProfileMenuOpen(false);
@@ -1918,7 +1904,6 @@ export function ChatWorkspace() {
   }
 
   function handleMobileBackToList() {
-    terminateActiveCall();
     setIsDetailPanelOpen(false);
     setThreadMessageId(null);
     handleCloseMessageSearch();
@@ -1994,7 +1979,6 @@ export function ChatWorkspace() {
     });
 
     if (notification.channelId) {
-      terminateActiveCall(notification.channelId);
       data.setSelectedChannelId(notification.channelId);
       setActiveRailItem("messages");
     }
@@ -2738,14 +2722,6 @@ export function ChatWorkspace() {
               onToggleFavorite={() => handleToggleFavorite(selectedChatChannel.id)}
               onToggleSearch={handleToggleMessageSearch}
             />
-            <CallPanel
-              callState={callControls.callState}
-              hasZegoCall={callControls.hasZegoCall}
-              onAccept={() => void callControls.acceptCall()}
-              onEnd={callControls.endCall}
-              onReject={callControls.rejectCall}
-              zegoContainerRef={callControls.zegoContainerRef}
-            />
             {isMessageSearchOpen ? (
               <div className="message-toolbar">
                 <div className="message-toolbar__search">
@@ -3084,6 +3060,15 @@ export function ChatWorkspace() {
           workspaceMembers={displayWorkspaceMembers}
         />
       ) : null}
+
+      <CallPanel
+        callState={callControls.callState}
+        hasZegoCall={callControls.hasZegoCall}
+        onAccept={() => void callControls.acceptCall()}
+        onEnd={callControls.endCall}
+        onReject={callControls.rejectCall}
+        zegoContainerRef={callControls.zegoContainerRef}
+      />
 
       {forwardingMessageId ? (
         <ForwardMessageDialog
@@ -6002,6 +5987,14 @@ function CallPanel({
   onReject: () => void;
   zegoContainerRef: RefObject<HTMLDivElement | null>;
 }) {
+  const [minimized, setMinimized] = useState(false);
+
+  useEffect(() => {
+    if (callState.status === "incoming" || callState.status === "idle") {
+      setMinimized(false);
+    }
+  }, [callState.status]);
+
   if (callState.status === "idle") {
     return null;
   }
@@ -6011,7 +6004,7 @@ function CallPanel({
   const showZegoCall = canControlCall;
 
   return (
-    <section className={`call-panel call-panel--${callState.status}`} role="status">
+    <section className={`call-panel call-panel--floating call-panel--${callState.status}${minimized ? " call-panel--minimized" : ""}`} role="status">
       <div className="call-panel__summary">
         <span className="call-panel__badge">
           {isVideo ? <Video size={18} /> : <Phone size={18} />}
@@ -6021,12 +6014,25 @@ function CallPanel({
           <small>{callPanelSubtitle(callState)}</small>
         </div>
       </div>
-      {showZegoCall ? (
+      {showZegoCall && !minimized ? (
         <div className={`call-panel__zego call-panel__zego--${callState.mode}`}>
           <div className={hasZegoCall ? "webtui-zego-call" : "webtui-zego-call webtui-zego-call--loading"} ref={zegoContainerRef} />
         </div>
       ) : null}
       <div className="call-panel__actions">
+        {showZegoCall ? (
+          <Tooltip label={minimized ? "Mở cửa sổ cuộc gọi" : "Thu nhỏ cuộc gọi"}>
+            <Button
+              aria-label={minimized ? "Mở cửa sổ cuộc gọi" : "Thu nhỏ cuộc gọi"}
+              className="call-panel__icon-button"
+              onClick={() => setMinimized((value) => !value)}
+              size="sm"
+              variant="secondary"
+            >
+              <Minimize2 size={16} />
+            </Button>
+          </Tooltip>
+        ) : null}
         {callState.status === "incoming" ? (
           <>
             <Button className="call-panel__button call-panel__button--accept" onClick={onAccept} size="sm" variant="secondary">

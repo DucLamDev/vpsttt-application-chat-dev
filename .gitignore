@@ -44,6 +44,7 @@ deploy/download/**/*.aab
 # Local planning / generated docs
 .agents/webtui-chat-architecture/references/architecture.md
 .env.example
+!deploy/.env.example
 !frontend/.env.example
 Task_list.md
 backend/ARCHITECTURE.md
@@ -61,7 +62,6 @@ backend/docs/messages.md
 backend/docs/notifications-worker-presence.md
 backend/docs/security-baseline.md
 backend/docs/workspace-channel.md
-deploy/.env.example
 docs/architecture/backend-clean-architecture.md
 docs/architecture/cicd-github-actions-docker-compose.md
 docs/architecture/module-template.md

@@ -19,6 +19,8 @@ type Repository interface {
 	Create(ctx context.Context, params CreateParams) (callsdomain.Call, error)
 	Get(ctx context.Context, workspaceID string, callID string) (callsdomain.Call, error)
 	UpdateStatus(ctx context.Context, params StatusParams) (callsdomain.Call, error)
+	ExpireRingingCall(ctx context.Context, workspaceID string, callID string, before time.Time) (callsdomain.Call, error)
+	ExpireRinging(ctx context.Context, before time.Time, limit int) ([]callsdomain.Call, error)
 	CreateSignal(ctx context.Context, params SignalParams) (callsdomain.Signal, error)
 	CreateCallMessage(ctx context.Context, params CallMessageParams) error
 }
@@ -28,9 +30,26 @@ type RealtimePublisher interface {
 }
 
 type Service struct {
-	repo     Repository
-	checker  PermissionChecker
-	realtime RealtimePublisher
+	repo          Repository
+	checker       PermissionChecker
+	realtime      RealtimePublisher
+	notifications NotificationPublisher
+	ringTimeout   time.Duration
+}
+
+type NotificationPublisher interface {
+	NotifyIncomingCall(ctx context.Context, call CallNotification) error
+	NotifyCallTerminal(ctx context.Context, call CallNotification) error
+}
+
+type CallNotification struct {
+	ID              string
+	WorkspaceID     string
+	ChannelID       string
+	InitiatorUserID string
+	TargetUserID    string
+	Mode            string
+	Status          string
 }
 
 type CreateInput struct {
@@ -62,10 +81,11 @@ type StatusInput struct {
 }
 
 type StatusParams struct {
-	WorkspaceID string
-	CallID      string
-	Status      string
-	ActorUserID string
+	WorkspaceID    string
+	CallID         string
+	Status         string
+	ExpectedStatus string
+	ActorUserID    string
 }
 
 type SignalInput struct {
@@ -128,8 +148,23 @@ type RealtimeEvent struct {
 	Payload      map[string]any
 }
 
-func NewService(repo Repository, checker PermissionChecker, realtime RealtimePublisher) *Service {
-	return &Service{repo: repo, checker: checker, realtime: realtime}
+func NewService(repo Repository, checker PermissionChecker, realtime RealtimePublisher, notifications ...NotificationPublisher) *Service {
+	service := &Service{
+		repo:        repo,
+		checker:     checker,
+		realtime:    realtime,
+		ringTimeout: 30 * time.Second,
+	}
+	if len(notifications) > 0 {
+		service.notifications = notifications[0]
+	}
+	return service
+}
+
+func (s *Service) SetRingTimeout(timeout time.Duration) {
+	if timeout > 0 {
+		s.ringTimeout = timeout
+	}
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (CallDTO, error) {
@@ -159,6 +194,8 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (CallDTO, error
 		return CallDTO{}, mapCallError(err)
 	}
 	_ = s.publish(ctx, "CallInvited", call, userID, call.TargetUserID, map[string]any{"reason": "created"})
+	_ = s.notifyIncomingCall(ctx, call)
+	s.scheduleRingTimeout(call)
 	return toCallDTO(call), nil
 }
 
@@ -184,16 +221,18 @@ func (s *Service) ChangeStatus(ctx context.Context, input StatusInput) (CallDTO,
 		return CallDTO{}, err
 	}
 	updated, err := s.repo.UpdateStatus(ctx, StatusParams{
-		WorkspaceID: call.WorkspaceID,
-		CallID:      call.ID,
-		Status:      nextStatus,
-		ActorUserID: actorID,
+		WorkspaceID:    call.WorkspaceID,
+		CallID:         call.ID,
+		Status:         nextStatus,
+		ExpectedStatus: call.Status,
+		ActorUserID:    actorID,
 	})
 	if err != nil {
 		return CallDTO{}, mapCallError(err)
 	}
 	if isTerminalStatus(nextStatus) {
 		_ = s.createCallMessage(ctx, updated)
+		_ = s.notifyCallTerminal(ctx, updated)
 	}
 	targetUserID := updated.TargetUserID
 	if actorID == updated.TargetUserID {
@@ -201,6 +240,40 @@ func (s *Service) ChangeStatus(ctx context.Context, input StatusInput) (CallDTO,
 	}
 	_ = s.publish(ctx, eventType, updated, actorID, targetUserID, map[string]any{"reason": strings.TrimSpace(input.Reason)})
 	return toCallDTO(updated), nil
+}
+
+func (s *Service) ExpireUnanswered(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	calls, err := s.repo.ExpireRinging(ctx, time.Now().UTC().Add(-s.ringTimeout), limit)
+	if err != nil {
+		return 0, err
+	}
+	for _, call := range calls {
+		_ = s.createCallMessage(ctx, call)
+		_ = s.notifyCallTerminal(ctx, call)
+		_ = s.publish(ctx, "CallMissed", call, "system", call.TargetUserID, map[string]any{"reason": "no_answer"})
+	}
+	return len(calls), nil
+}
+
+func (s *Service) scheduleRingTimeout(call callsdomain.Call) {
+	timeout := s.ringTimeout
+	if timeout <= 0 {
+		return
+	}
+	time.AfterFunc(timeout, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		expired, err := s.repo.ExpireRingingCall(ctx, call.WorkspaceID, call.ID, time.Now().UTC())
+		if err != nil {
+			return
+		}
+		_ = s.createCallMessage(ctx, expired)
+		_ = s.notifyCallTerminal(ctx, expired)
+		_ = s.publish(ctx, "CallMissed", expired, "system", expired.TargetUserID, map[string]any{"reason": "no_answer"})
+	})
 }
 
 func (s *Service) SendSignal(ctx context.Context, input SignalInput) (SignalDTO, error) {
@@ -323,6 +396,32 @@ func (s *Service) createCallMessage(ctx context.Context, call callsdomain.Call) 
 		Body:        body,
 		Metadata:    metadata,
 	})
+}
+
+func (s *Service) notifyIncomingCall(ctx context.Context, call callsdomain.Call) error {
+	if s.notifications == nil {
+		return nil
+	}
+	return s.notifications.NotifyIncomingCall(ctx, callNotification(call))
+}
+
+func (s *Service) notifyCallTerminal(ctx context.Context, call callsdomain.Call) error {
+	if s.notifications == nil {
+		return nil
+	}
+	return s.notifications.NotifyCallTerminal(ctx, callNotification(call))
+}
+
+func callNotification(call callsdomain.Call) CallNotification {
+	return CallNotification{
+		ID:              call.ID,
+		WorkspaceID:     call.WorkspaceID,
+		ChannelID:       call.ChannelID,
+		InitiatorUserID: call.InitiatorUserID,
+		TargetUserID:    call.TargetUserID,
+		Mode:            call.Mode,
+		Status:          call.Status,
+	}
 }
 
 func (s *Service) publish(ctx context.Context, eventType string, call callsdomain.Call, actorUserID string, targetUserID string, extra map[string]any) error {

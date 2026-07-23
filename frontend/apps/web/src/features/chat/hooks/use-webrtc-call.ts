@@ -65,7 +65,7 @@ type ZegoPrebuiltInstance = {
   leaveRoom?: () => void;
 };
 
-const outgoingRingTimeoutMs = 45_000;
+const outgoingRingTimeoutMs = 30_000;
 const zegoContainerWaitTimeoutMs = 4_000;
 
 export function useWebRtcCall({
@@ -189,6 +189,7 @@ export function useWebRtcCall({
         },
         sharedLinks: [],
         showAudioVideoSettingsButton: true,
+        autoLeaveRoomWhenOnlySelfInRoom: true,
         showLeavingView: false,
         showMyCameraToggleButton: mode === "video",
         showMyMicrophoneToggleButton: true,
@@ -197,8 +198,27 @@ export function useWebRtcCall({
         showScreenSharingButton: false,
         showTextChat: false,
         showUserList: false,
+        showRoomTimer: false,
         turnOnCameraWhenJoining: mode === "video",
         turnOnMicrophoneWhenJoining: true,
+        onUserLeave: () => {
+          if (suppressZegoLeaveRef.current) {
+            return;
+          }
+          const current = callStateRef.current;
+          if (!current.callId || !workspaceId || (current.status !== "active" && current.status !== "connecting")) {
+            return;
+          }
+          void api.calls.hangup(workspaceId, current.callId, "remote_left_zego").catch(() => undefined);
+          resetCallUi({
+            callId: current.callId,
+            initiatorUserId: current.initiatorUserId,
+            mode: current.mode,
+            peerName: current.peerName,
+            peerUserId: current.peerUserId,
+            status: "ended"
+          });
+        },
         onLeaveRoom: () => {
           if (suppressZegoLeaveRef.current) {
             return;
@@ -233,11 +253,7 @@ export function useWebRtcCall({
     if (channelChanged) {
       lastSignalSequenceRef.current = 0;
     }
-    const hasLiveCall = callStateRef.current.status !== "idle" && callStateRef.current.status !== "ended" && callStateRef.current.status !== "error";
-    if ((!enabled || channelChanged) && hasLiveCall) {
-      resetCallUi();
-    }
-  }, [channelId, enabled, resetCallUi]);
+  }, [channelId]);
 
   useEffect(() => {
     if (callState.status !== "ended" && callState.status !== "error") {
@@ -362,7 +378,7 @@ export function useWebRtcCall({
       if (operationToken !== operationTokenRef.current) {
         return;
       }
-      await api.calls.accept(workspaceId, current.callId).catch(() => undefined);
+      await api.calls.accept(workspaceId, current.callId);
       setCallState({
         ...current,
         startedAt: current.startedAt ?? Date.now(),
@@ -419,7 +435,11 @@ export function useWebRtcCall({
       lastSignalSequenceRef.current = Math.max(lastSignalSequenceRef.current, lastSignal.sequence);
       return;
     }
-    if (lastSignal.payload.channel_id && lastSignal.payload.channel_id !== channelId) {
+    if (
+      lastSignal.payload.channel_id &&
+      lastSignal.payload.channel_id !== channelId &&
+      lastSignal.payload.call_id !== callStateRef.current.callId
+    ) {
       return;
     }
     if (lastSignal.sequence <= lastSignalSequenceRef.current) {

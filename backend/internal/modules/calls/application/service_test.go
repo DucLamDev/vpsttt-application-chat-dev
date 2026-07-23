@@ -57,6 +57,26 @@ func (r *fakeCallRepo) UpdateStatus(_ context.Context, params StatusParams) (cal
 	return r.call, nil
 }
 
+func (r *fakeCallRepo) ExpireRingingCall(_ context.Context, _ string, _ string, _ time.Time) (callsdomain.Call, error) {
+	if r.call.Status != "ringing" {
+		return callsdomain.Call{}, callsdomain.ErrCallInvalidTransition
+	}
+	now := time.Now()
+	r.call.Status = "missed"
+	r.call.EndedAt = &now
+	return r.call, nil
+}
+
+func (r *fakeCallRepo) ExpireRinging(_ context.Context, before time.Time, limit int) ([]callsdomain.Call, error) {
+	if limit <= 0 || r.call.Status != "ringing" || r.call.CreatedAt.After(before) {
+		return []callsdomain.Call{}, nil
+	}
+	now := time.Now()
+	r.call.Status = "missed"
+	r.call.EndedAt = &now
+	return []callsdomain.Call{r.call}, nil
+}
+
 func (r *fakeCallRepo) CreateSignal(_ context.Context, params SignalParams) (callsdomain.Signal, error) {
 	r.lastSignal = params
 	return callsdomain.Signal{
@@ -90,6 +110,21 @@ type fakeRealtime struct {
 
 func (p *fakeRealtime) Publish(_ context.Context, event RealtimeEvent) error {
 	p.events = append(p.events, event)
+	return nil
+}
+
+type fakeCallNotifications struct {
+	incoming []CallNotification
+	terminal []CallNotification
+}
+
+func (p *fakeCallNotifications) NotifyIncomingCall(_ context.Context, call CallNotification) error {
+	p.incoming = append(p.incoming, call)
+	return nil
+}
+
+func (p *fakeCallNotifications) NotifyCallTerminal(_ context.Context, call CallNotification) error {
+	p.terminal = append(p.terminal, call)
 	return nil
 }
 
@@ -201,5 +236,88 @@ func TestMissCreatesCallMessageAndRealtimeEvent(t *testing.T) {
 	}
 	if len(realtime.events) != 1 || realtime.events[0].Type != "CallMissed" || realtime.events[0].TargetUserID != "user-1" {
 		t.Fatalf("realtime event không đúng: %#v", realtime.events)
+	}
+}
+
+func TestAcceptedCallEndsAsCompleted(t *testing.T) {
+	repo := &fakeCallRepo{
+		call: callsdomain.Call{
+			ID:              "call-1",
+			WorkspaceID:     "workspace-1",
+			ChannelID:       "channel-1",
+			InitiatorUserID: "user-1",
+			TargetUserID:    "user-2",
+			Mode:            "audio",
+			Status:          "ringing",
+			CreatedAt:       time.Now(),
+			UpdatedAt:       time.Now(),
+		},
+	}
+	realtime := &fakeRealtime{}
+	notifications := &fakeCallNotifications{}
+	service := NewService(repo, fakeCallChecker{allowed: true}, realtime, notifications)
+
+	if _, err := service.ChangeStatus(context.Background(), StatusInput{
+		ActorUserID: "user-2",
+		WorkspaceID: "workspace-1",
+		CallID:      "call-1",
+		Action:      "accept",
+	}); err != nil {
+		t.Fatalf("ChangeStatus(accept) error = %v", err)
+	}
+	call, err := service.ChangeStatus(context.Background(), StatusInput{
+		ActorUserID: "user-1",
+		WorkspaceID: "workspace-1",
+		CallID:      "call-1",
+		Action:      "hangup",
+	})
+	if err != nil {
+		t.Fatalf("ChangeStatus(hangup) error = %v", err)
+	}
+	if call.Status != "ended" || !repo.messageCalled {
+		t.Fatalf("ended call = %#v, messageCalled = %v", call, repo.messageCalled)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(repo.lastMessage.Metadata, &metadata); err != nil {
+		t.Fatalf("decode call message metadata: %v", err)
+	}
+	if metadata["call_status"] != "completed" {
+		t.Fatalf("call_status = %#v", metadata["call_status"])
+	}
+	if len(notifications.terminal) != 1 || notifications.terminal[0].Status != "ended" {
+		t.Fatalf("terminal notifications = %#v", notifications.terminal)
+	}
+	if realtime.events[len(realtime.events)-1].Type != "CallEnded" {
+		t.Fatalf("realtime events = %#v", realtime.events)
+	}
+}
+
+func TestExpireUnansweredMarksMissedWithSystemEvent(t *testing.T) {
+	repo := &fakeCallRepo{
+		call: callsdomain.Call{
+			ID:              "call-1",
+			WorkspaceID:     "workspace-1",
+			ChannelID:       "channel-1",
+			InitiatorUserID: "user-1",
+			TargetUserID:    "user-2",
+			Mode:            "video",
+			Status:          "ringing",
+			CreatedAt:       time.Now().Add(-31 * time.Second),
+			UpdatedAt:       time.Now().Add(-31 * time.Second),
+		},
+	}
+	realtime := &fakeRealtime{}
+	service := NewService(repo, fakeCallChecker{allowed: true}, realtime)
+	service.SetRingTimeout(30 * time.Second)
+
+	count, err := service.ExpireUnanswered(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ExpireUnanswered() error = %v", err)
+	}
+	if count != 1 || repo.call.Status != "missed" || !repo.messageCalled {
+		t.Fatalf("count = %d, call = %#v, messageCalled = %v", count, repo.call, repo.messageCalled)
+	}
+	if len(realtime.events) != 1 || realtime.events[0].Type != "CallMissed" || realtime.events[0].ActorUserID != "system" {
+		t.Fatalf("realtime events = %#v", realtime.events)
 	}
 }

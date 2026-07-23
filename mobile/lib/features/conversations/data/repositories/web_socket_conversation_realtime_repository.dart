@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../../../../core/network/api_response.dart';
 import '../../../auth/domain/repositories/auth_token_repository.dart';
+import '../../domain/entities/call_session.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/conversation_realtime_event.dart';
 import '../../domain/repositories/conversation_repository.dart';
@@ -203,10 +204,21 @@ final class ConversationRealtimeEventMapper {
         ? null
         : _messageFromMap(messageMap, fallbackWorkspaceId, fallbackChannelId);
     final type = _eventType(stringField(map, const ['type']));
+    final callStatus = _callStatusForEvent(type);
     return ConversationRealtimeEvent(
       type: type,
-      workspaceId: message?.workspaceId ?? fallbackWorkspaceId,
-      channelId: message?.channelId ?? fallbackChannelId,
+      workspaceId:
+          message?.workspaceId ??
+          stringField(payload, const [
+            'workspace_id',
+            'workspaceId',
+          ], fallback: fallbackWorkspaceId),
+      channelId:
+          message?.channelId ??
+          stringField(payload, const [
+            'channel_id',
+            'channelId',
+          ], fallback: fallbackChannelId),
       message: message,
       messageId:
           message?.id ??
@@ -216,6 +228,18 @@ final class ConversationRealtimeEventMapper {
           nullableStringField(map, const ['user_id', 'userId']) ??
           nullableStringField(payload, const ['user_id', 'userId']),
       timestamp: nullableDateTimeField(map, const ['timestamp']),
+      callId: nullableStringField(payload, const ['call_id', 'callId']),
+      callMode: _callMode(nullableStringField(payload, const ['mode'])),
+      callStatus: callStatus,
+      callInitiatorUserId: nullableStringField(payload, const [
+        'initiator_user_id',
+        'initiatorUserId',
+      ]),
+      callTargetUserId: nullableStringField(payload, const [
+        'target_user_id',
+        'targetUserId',
+      ]),
+      reason: nullableStringField(payload, const ['reason']),
     );
   }
 }
@@ -231,7 +255,33 @@ ConversationRealtimeEventType _eventType(String value) {
     'AttachmentCreated' => ConversationRealtimeEventType.attachmentCreated,
     'TypingStarted' => ConversationRealtimeEventType.typingStarted,
     'TypingStopped' => ConversationRealtimeEventType.typingStopped,
+    'CallInvited' => ConversationRealtimeEventType.callInvited,
+    'CallAccepted' => ConversationRealtimeEventType.callAccepted,
+    'CallRejected' => ConversationRealtimeEventType.callRejected,
+    'CallCancelled' => ConversationRealtimeEventType.callCancelled,
+    'CallEnded' => ConversationRealtimeEventType.callEnded,
+    'CallMissed' => ConversationRealtimeEventType.callMissed,
     _ => ConversationRealtimeEventType.unknown,
+  };
+}
+
+CallMode? _callMode(String? value) {
+  return switch (value?.trim().toLowerCase()) {
+    'audio' => CallMode.audio,
+    'video' => CallMode.video,
+    _ => null,
+  };
+}
+
+CallStatus? _callStatusForEvent(ConversationRealtimeEventType type) {
+  return switch (type) {
+    ConversationRealtimeEventType.callInvited => CallStatus.ringing,
+    ConversationRealtimeEventType.callAccepted => CallStatus.accepted,
+    ConversationRealtimeEventType.callRejected => CallStatus.rejected,
+    ConversationRealtimeEventType.callCancelled => CallStatus.cancelled,
+    ConversationRealtimeEventType.callEnded => CallStatus.ended,
+    ConversationRealtimeEventType.callMissed => CallStatus.missed,
+    _ => null,
   };
 }
 

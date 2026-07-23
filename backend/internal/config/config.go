@@ -38,6 +38,7 @@ type Config struct {
 	Storage      StorageConfig
 	Security     SecurityConfig
 	ZegoCloud    ZegoCloudConfig
+	Firebase     FirebaseConfig
 	Registration RegistrationConfig
 	Order        OrderConfig
 }
@@ -137,6 +138,13 @@ type ZegoCloudConfig struct {
 	AppSign      string
 	ServerSecret string
 	TokenTTL     time.Duration
+	RingTimeout  time.Duration
+}
+
+type FirebaseConfig struct {
+	ProjectID                string
+	ServiceAccountFile       string
+	ServiceAccountJSONBase64 string
 }
 
 type RegistrationConfig struct {
@@ -235,6 +243,12 @@ func Load() (*Config, error) {
 			AppSign:      getEnv("ZEGO_APP_SIGN", ""),
 			ServerSecret: getEnv("ZEGO_SERVER_SECRET", ""),
 			TokenTTL:     getEnvDuration("ZEGO_TOKEN_TTL", 24*time.Hour),
+			RingTimeout:  getEnvDuration("ZEGO_CALL_RING_TIMEOUT", 30*time.Second),
+		},
+		Firebase: FirebaseConfig{
+			ProjectID:                getEnv("FIREBASE_PROJECT_ID", ""),
+			ServiceAccountFile:       getEnv("FIREBASE_SERVICE_ACCOUNT_FILE", ""),
+			ServiceAccountJSONBase64: getEnv("FIREBASE_SERVICE_ACCOUNT_JSON_BASE64", ""),
 		},
 		Registration: RegistrationConfig{
 			DefaultWorkspaceID: getEnv("REGISTRATION_DEFAULT_WORKSPACE_ID", ""),
@@ -326,6 +340,9 @@ func (c *Config) Validate() error {
 	}
 	if c.ZegoCloud.TokenTTL <= 0 {
 		problems = append(problems, "ZEGO_TOKEN_TTL must be greater than 0")
+	}
+	if c.ZegoCloud.RingTimeout <= 0 {
+		problems = append(problems, "ZEGO_CALL_RING_TIMEOUT must be greater than 0")
 	}
 	if c.Registration.DefaultWorkspaceID != "" && !uuidPattern.MatchString(c.Registration.DefaultWorkspaceID) {
 		problems = append(problems, "REGISTRATION_DEFAULT_WORKSPACE_ID must be a valid UUID")

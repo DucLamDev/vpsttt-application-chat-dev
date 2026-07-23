@@ -94,16 +94,8 @@ class ContactsHomeView extends ConsumerWidget {
       padding: const EdgeInsets.only(bottom: WebTuiSpacing.lg),
       children: [
         _TopSearch(
-          hintText: 'Tìm người, hội thoại hoặc kênh...',
+          hintText: 'Tìm bạn bè...',
           onChanged: controller.setSearchQuery,
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: WebTuiSpacing.lg),
-          child: WebTuiSegmentedTabs(
-            tabs: const ['Hội thoại', 'Kênh & Bot'],
-            selectedIndex: state.contactsTab,
-            onChanged: controller.setContactsTab,
-          ),
         ),
         if (state.errorMessage != null)
           WebTuiErrorState(
@@ -111,25 +103,16 @@ class ContactsHomeView extends ConsumerWidget {
             message: state.errorMessage!,
             onRetry: controller.load,
           )
-        else if (state.contactsTab == 0)
+        else
           _ContactSections(
             contacts: state.filteredContacts,
-            members: state.workspaceMembers,
             presenceByUserId: state.presenceByUserId,
-            membersErrorMessage: state.membersErrorMessage,
             onTap: (contact) async {
               final conversation = await controller.openDirect(contact);
               if (conversation != null && context.mounted) {
                 _openChat(context, conversation);
               }
             },
-          )
-        else
-          _ChannelList(
-            channels: state.filteredChannels,
-            emptyTitle: 'Chưa có kênh hoặc bot',
-            sectionLabel: 'Kênh & Bot',
-            onTap: (channel) => _handleChannelTap(context, controller, channel),
           ),
       ],
     );
@@ -285,33 +268,20 @@ class _ConversationTile extends StatelessWidget {
 class _ContactSections extends StatelessWidget {
   const _ContactSections({
     required this.contacts,
-    required this.members,
     required this.presenceByUserId,
     required this.onTap,
-    this.membersErrorMessage,
   });
 
   final List<ContactSummary> contacts;
-  final List<ContactSummary> members;
   final Map<String, ConversationPresence> presenceByUserId;
-  final String? membersErrorMessage;
   final ValueChanged<ContactSummary> onTap;
 
   @override
   Widget build(BuildContext context) {
-    final uniqueMembers = members
-        .where(
-          (member) =>
-              contacts.every((contact) => contact.userId != member.userId),
-        )
-        .toList(growable: false);
-
-    if (contacts.isEmpty &&
-        uniqueMembers.isEmpty &&
-        membersErrorMessage == null) {
+    if (contacts.isEmpty) {
       return const WebTuiEmptyState(
-        title: 'Chưa có danh bạ',
-        message: 'Kết bạn hoặc thêm thành viên workspace để mở hội thoại.',
+        title: 'Chưa có bạn bè',
+        message: 'Bạn bè đã kết nối sẽ xuất hiện tại đây.',
         icon: Icons.contacts_outlined,
       );
     }
@@ -332,24 +302,6 @@ class _ContactSections extends StatelessWidget {
             ],
           ),
         ],
-        if (uniqueMembers.isNotEmpty) ...[
-          const WebTuiSectionLabel('Thành viên workspace'),
-          WebTuiListSurface(
-            children: [
-              for (final member in uniqueMembers)
-                _ContactTile(
-                  contact: member,
-                  presence: presenceByUserId[member.userId],
-                  onTap: () => onTap(member),
-                ),
-            ],
-          ),
-        ],
-        if (membersErrorMessage != null)
-          WebTuiErrorState(
-            title: 'Không xem được thành viên',
-            message: membersErrorMessage!,
-          ),
       ],
     );
   }

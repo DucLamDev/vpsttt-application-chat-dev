@@ -29,6 +29,7 @@ export {
   MessageCircle,
   Mic,
   MicOff,
+  Minimize2,
   Monitor,
   MoreVertical,
   Moon,

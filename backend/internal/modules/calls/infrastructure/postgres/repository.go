@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
 
 	callsapp "github.com/duclamdev/application-chat/backend/internal/modules/calls/application"
 	callsdomain "github.com/duclamdev/application-chat/backend/internal/modules/calls/domain"
@@ -70,14 +71,71 @@ SET status = $3,
 WHERE workspace_id = $1::uuid
   AND id = $2::uuid
   AND (initiator_user_id = $4::uuid OR target_user_id = $4::uuid)
+  AND status = $5
 RETURNING id::text, workspace_id::text, channel_id::text, initiator_user_id::text, target_user_id::text,
           client_call_id, mode, status, metadata::text, started_at, ended_at, created_at, updated_at
-`, params.WorkspaceID, params.CallID, params.Status, params.ActorUserID)
+`, params.WorkspaceID, params.CallID, params.Status, params.ActorUserID, params.ExpectedStatus)
 	call, err := scanCall(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return callsdomain.Call{}, callsdomain.ErrCallNotFound
+		return callsdomain.Call{}, callsdomain.ErrCallInvalidTransition
 	}
 	return call, err
+}
+
+func (r *Repository) ExpireRingingCall(ctx context.Context, workspaceID string, callID string, before time.Time) (callsdomain.Call, error) {
+	row := r.pool.QueryRow(ctx, `
+UPDATE call_sessions
+SET status = 'missed',
+    ended_at = COALESCE(ended_at, now())
+WHERE workspace_id = $1::uuid
+  AND id = $2::uuid
+  AND status = 'ringing'
+  AND created_at <= $3
+RETURNING id::text, workspace_id::text, channel_id::text, initiator_user_id::text, target_user_id::text,
+          client_call_id, mode, status, metadata::text, started_at, ended_at, created_at, updated_at
+`, workspaceID, callID, before)
+	call, err := scanCall(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return callsdomain.Call{}, callsdomain.ErrCallInvalidTransition
+	}
+	return call, err
+}
+
+func (r *Repository) ExpireRinging(ctx context.Context, before time.Time, limit int) ([]callsdomain.Call, error) {
+	rows, err := r.pool.Query(ctx, `
+WITH expired AS (
+    SELECT id
+    FROM call_sessions
+    WHERE status = 'ringing'
+      AND created_at <= $1
+    ORDER BY created_at ASC
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE call_sessions cs
+SET status = 'missed',
+    ended_at = COALESCE(cs.ended_at, now())
+FROM expired
+WHERE cs.id = expired.id
+RETURNING cs.id::text, cs.workspace_id::text, cs.channel_id::text,
+          cs.initiator_user_id::text, cs.target_user_id::text,
+          cs.client_call_id, cs.mode, cs.status, cs.metadata::text,
+          cs.started_at, cs.ended_at, cs.created_at, cs.updated_at
+`, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	calls := make([]callsdomain.Call, 0)
+	for rows.Next() {
+		call, err := scanCall(rows)
+		if err != nil {
+			return nil, err
+		}
+		calls = append(calls, call)
+	}
+	return calls, rows.Err()
 }
 
 func (r *Repository) CreateSignal(ctx context.Context, params callsapp.SignalParams) (callsdomain.Signal, error) {

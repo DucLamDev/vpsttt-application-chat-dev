@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -12,8 +13,11 @@ import '../../../../design_system/tokens/webtui_radii.dart';
 import '../../../../design_system/tokens/webtui_spacing.dart';
 import '../../../../design_system/tokens/webtui_typography.dart';
 import '../../../business/presentation/screens/business_dashboard_screen.dart';
+import '../../../conversations/domain/entities/call_session.dart';
 import '../../../conversations/domain/entities/conversation_summary.dart';
+import '../../../conversations/presentation/controllers/chat_room_controller.dart';
 import '../../../conversations/presentation/controllers/conversation_home_controller.dart';
+import '../../../conversations/presentation/screens/zego_call_screen.dart';
 import '../../../conversations/presentation/widgets/conversation_home_views.dart';
 import '../../../notifications/domain/entities/mobile_notification.dart';
 import '../../../notifications/presentation/controllers/notification_center_controller.dart';
@@ -41,6 +45,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
   bool _notificationEnabled = true;
   bool _compactMode = false;
   bool _networkDegraded = false;
+  String? _activeIncomingCallId;
   double _soundLevel = 0.64;
   double _textScalePreview = 0.42;
 
@@ -316,7 +321,11 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
       if (!mounted) {
         return;
       }
-      _openNotificationTarget(target);
+      if (target.isIncomingCall) {
+        unawaited(_showIncomingCall(target));
+      } else {
+        _openNotificationTarget(target);
+      }
     });
     _foregroundNotificationSubscription ??= service.foregroundTargets.listen((
       target,
@@ -325,6 +334,10 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
         return;
       }
       ref.invalidate(notificationCenterControllerProvider(target.workspaceId));
+      if (target.isIncomingCall) {
+        unawaited(_showIncomingCall(target));
+        return;
+      }
       final location = _locationForNotificationTarget(target);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -347,7 +360,256 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
     }
   }
 
+  Future<void> _showIncomingCall(NotificationTarget target) async {
+    final callId = target.callId?.trim();
+    if (!mounted || callId == null || callId.isEmpty) {
+      return;
+    }
+    if (_activeIncomingCallId == callId) {
+      return;
+    }
+    _activeIncomingCallId = callId;
+    try {
+      final initialResult = await ref
+          .read(getCallUseCaseProvider)
+          .execute(workspaceId: target.workspaceId, callId: callId);
+      final initialCall = initialResult.valueOrNull;
+      if (!mounted ||
+          initialCall == null ||
+          initialCall.status != CallStatus.ringing) {
+        return;
+      }
+      final accepted = await showDialog<bool>(
+        context: context,
+        useRootNavigator: true,
+        barrierDismissible: false,
+        builder: (dialogContext) => _IncomingCallDialog(
+          callerName: target.callerName ?? 'Cuộc gọi đến',
+          mode: initialCall.mode,
+          checkStatus: () async {
+            final result = await ref
+                .read(getCallUseCaseProvider)
+                .execute(workspaceId: target.workspaceId, callId: callId);
+            return result.valueOrNull?.status;
+          },
+        ),
+      );
+      if (!mounted || accepted == null) {
+        return;
+      }
+      if (!accepted) {
+        await ref
+            .read(rejectCallUseCaseProvider)
+            .execute(
+              workspaceId: target.workspaceId,
+              callId: callId,
+              reason: 'declined',
+            );
+        return;
+      }
+      final acceptedResult = await ref
+          .read(acceptCallUseCaseProvider)
+          .execute(workspaceId: target.workspaceId, callId: callId);
+      final acceptedCall = acceptedResult.valueOrNull;
+      if (!mounted || acceptedCall == null) {
+        return;
+      }
+      await Navigator.of(context, rootNavigator: true).push<void>(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => ZegoCallScreen(
+            workspaceId: acceptedCall.workspaceId,
+            channelId: acceptedCall.channelId,
+            callId: acceptedCall.id,
+            title: target.callerName ?? 'Cuộc gọi đến',
+            mode: acceptedCall.mode,
+            incoming: true,
+            onLeave: () async {
+              ref.invalidate(chatRoomControllerProvider);
+              ref.invalidate(
+                conversationHomeControllerProvider(acceptedCall.workspaceId),
+              );
+              ref.invalidate(
+                notificationCenterControllerProvider(acceptedCall.workspaceId),
+              );
+            },
+          ),
+        ),
+      );
+    } finally {
+      if (_activeIncomingCallId == callId) {
+        _activeIncomingCallId = null;
+      }
+    }
+  }
+
   static const _titles = ['Tin nhắn', 'Bạn bè', 'Kênh', 'Nghiệp vụ', 'Cài đặt'];
+}
+
+class _IncomingCallDialog extends StatefulWidget {
+  const _IncomingCallDialog({
+    required this.callerName,
+    required this.mode,
+    required this.checkStatus,
+  });
+
+  final String callerName;
+  final CallMode mode;
+  final Future<CallStatus?> Function() checkStatus;
+
+  @override
+  State<_IncomingCallDialog> createState() => _IncomingCallDialogState();
+}
+
+class _IncomingCallDialogState extends State<_IncomingCallDialog> {
+  Timer? _timer;
+  int _remainingSeconds = 30;
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SystemSound.play(SystemSoundType.alert);
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _remainingSeconds -= 1);
+      if (_remainingSeconds % 3 == 0 && _remainingSeconds > 0) {
+        SystemSound.play(SystemSoundType.alert);
+      }
+      unawaited(_checkCall());
+      if (_remainingSeconds <= 0) {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkCall() async {
+    if (_checking) {
+      return;
+    }
+    _checking = true;
+    try {
+      final status = await widget.checkStatus();
+      if (mounted && status != null && status != CallStatus.ringing) {
+        Navigator.of(context).pop();
+      }
+    } finally {
+      _checking = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final video = widget.mode == CallMode.video;
+    return PopScope(
+      canPop: false,
+      child: Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 34,
+                backgroundColor: WebTuiColors.primary.withValues(alpha: 0.12),
+                child: Icon(
+                  video ? Icons.videocam_rounded : Icons.call_rounded,
+                  size: 32,
+                  color: WebTuiColors.primary,
+                ),
+              ),
+              const SizedBox(height: WebTuiSpacing.md),
+              Text(
+                widget.callerName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: WebTuiTypography.titleMedium.copyWith(
+                  color: WebTuiColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: WebTuiSpacing.xs),
+              Text(
+                video ? 'Cuộc gọi video đến' : 'Cuộc gọi thoại đến',
+                style: WebTuiTypography.bodySmall.copyWith(
+                  color: WebTuiColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _IncomingCallAction(
+                    label: 'Từ chối',
+                    icon: Icons.call_end_rounded,
+                    color: WebTuiColors.danger,
+                    onPressed: () => Navigator.of(context).pop(false),
+                  ),
+                  _IncomingCallAction(
+                    label: 'Nghe',
+                    icon: video ? Icons.videocam_rounded : Icons.call_rounded,
+                    color: const Color(0xFF16A34A),
+                    onPressed: () => Navigator.of(context).pop(true),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IncomingCallAction extends StatelessWidget {
+  const _IncomingCallAction({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton.filled(
+          onPressed: onPressed,
+          style: IconButton.styleFrom(
+            backgroundColor: color,
+            foregroundColor: Colors.white,
+            minimumSize: const Size.square(58),
+          ),
+          icon: Icon(icon, size: 27),
+        ),
+        const SizedBox(height: WebTuiSpacing.xs),
+        Text(
+          label,
+          style: WebTuiTypography.labelSmall.copyWith(
+            color: WebTuiColors.textSecondary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 String? _locationForNotificationTarget(NotificationTarget target) {

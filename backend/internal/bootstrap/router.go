@@ -239,7 +239,8 @@ func (a *API) registerAPIV1() {
 	if a.resources.WebSocket != nil {
 		callsRealtime = callsws.NewPublisher(a.resources.WebSocket)
 	}
-	callsService := callsapp.NewService(callsRepo, rbacService, callsRealtime)
+	callsService := callsapp.NewService(callsRepo, rbacService, callsRealtime, notificationsService)
+	callsService.SetRingTimeout(a.cfg.ZegoCloud.RingTimeout)
 	callsHandler := callshttp.NewHandler(callsService)
 	callsHandler.RegisterRoutes(v1, authMiddleware)
 

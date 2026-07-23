@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	callsapp "github.com/duclamdev/application-chat/backend/internal/modules/calls/application"
 	notificationsdomain "github.com/duclamdev/application-chat/backend/internal/modules/notifications/domain"
 	outboxdomain "github.com/duclamdev/application-chat/backend/internal/modules/outbox/domain"
 	apperrors "github.com/duclamdev/application-chat/backend/internal/shared/errors"
@@ -14,6 +15,9 @@ import (
 
 type Repository interface {
 	CreateMentionNotifications(ctx context.Context, params MentionParams) error
+	CreateMessageNotifications(ctx context.Context, params MessageNotificationParams) error
+	CreateIncomingCallNotification(ctx context.Context, params CallNotificationParams) error
+	UpdateCallNotification(ctx context.Context, params CallNotificationParams) error
 	GetPreference(ctx context.Context, userID string, workspaceID string) (notificationsdomain.NotificationPreference, error)
 	ListForUser(ctx context.Context, params ListParams) ([]notificationsdomain.Notification, error)
 	MarkRead(ctx context.Context, userID string, notificationID string) (notificationsdomain.Notification, error)
@@ -35,6 +39,25 @@ type MentionParams struct {
 	MessageID        string
 	SenderID         string
 	MentionedUserIDs []string
+}
+
+type MessageNotificationParams struct {
+	EventID          string
+	WorkspaceID      string
+	ChannelID        string
+	MessageID        string
+	SenderID         string
+	MentionedUserIDs []string
+}
+
+type CallNotificationParams struct {
+	CallID          string
+	WorkspaceID     string
+	ChannelID       string
+	InitiatorUserID string
+	TargetUserID    string
+	Mode            string
+	Status          string
 }
 
 type ListParams struct {
@@ -200,10 +223,7 @@ func (s *Service) Handle(ctx context.Context, event outboxdomain.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
-	if len(payload.MentionedUserIDs) == 0 {
-		return nil
-	}
-	return s.repo.CreateMentionNotifications(ctx, MentionParams{
+	return s.repo.CreateMessageNotifications(ctx, MessageNotificationParams{
 		EventID:          event.ID,
 		WorkspaceID:      payload.WorkspaceID,
 		ChannelID:        payload.ChannelID,
@@ -211,6 +231,26 @@ func (s *Service) Handle(ctx context.Context, event outboxdomain.Event) error {
 		SenderID:         payload.SenderID,
 		MentionedUserIDs: payload.MentionedUserIDs,
 	})
+}
+
+func (s *Service) NotifyIncomingCall(ctx context.Context, call callsapp.CallNotification) error {
+	return s.repo.CreateIncomingCallNotification(ctx, callNotificationParams(call))
+}
+
+func (s *Service) NotifyCallTerminal(ctx context.Context, call callsapp.CallNotification) error {
+	return s.repo.UpdateCallNotification(ctx, callNotificationParams(call))
+}
+
+func callNotificationParams(call callsapp.CallNotification) CallNotificationParams {
+	return CallNotificationParams{
+		CallID:          call.ID,
+		WorkspaceID:     call.WorkspaceID,
+		ChannelID:       call.ChannelID,
+		InitiatorUserID: call.InitiatorUserID,
+		TargetUserID:    call.TargetUserID,
+		Mode:            call.Mode,
+		Status:          call.Status,
+	}
 }
 
 func (s *Service) ProcessJobs(ctx context.Context, limit int) (int, error) {

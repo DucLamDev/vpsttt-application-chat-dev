@@ -2,6 +2,14 @@ enum CallMode { audio, video }
 
 enum CallStatus { ringing, accepted, rejected, cancelled, ended, missed }
 
+extension CallStatusState on CallStatus {
+  bool get isTerminal =>
+      this == CallStatus.rejected ||
+      this == CallStatus.cancelled ||
+      this == CallStatus.ended ||
+      this == CallStatus.missed;
+}
+
 enum CallSignalType {
   offer,
   answer,
@@ -45,11 +53,30 @@ final class CallSession {
   final DateTime updatedAt;
   final Map<String, Object?> metadata;
 
-  bool get isTerminal =>
-      status == CallStatus.rejected ||
-      status == CallStatus.cancelled ||
-      status == CallStatus.ended ||
-      status == CallStatus.missed;
+  bool get isTerminal => status.isTerminal;
+
+  CallSession copyWith({
+    CallStatus? status,
+    DateTime? startedAt,
+    DateTime? endedAt,
+    DateTime? updatedAt,
+  }) {
+    return CallSession(
+      id: id,
+      workspaceId: workspaceId,
+      channelId: channelId,
+      initiatorUserId: initiatorUserId,
+      targetUserId: targetUserId,
+      clientCallId: clientCallId,
+      mode: mode,
+      status: status ?? this.status,
+      startedAt: startedAt ?? this.startedAt,
+      endedAt: endedAt ?? this.endedAt,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      metadata: metadata,
+    );
+  }
 }
 
 final class CallSignal {

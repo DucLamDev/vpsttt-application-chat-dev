@@ -13,6 +13,8 @@ import (
 type fakeNotificationRepo struct {
 	mentionParams       MentionParams
 	mentionCalled       bool
+	messageParams       MessageNotificationParams
+	messageCalled       bool
 	preference          notificationsdomain.NotificationPreference
 	upsertCalled        bool
 	channelPreference   notificationsdomain.ChannelPreference
@@ -22,6 +24,20 @@ type fakeNotificationRepo struct {
 func (r *fakeNotificationRepo) CreateMentionNotifications(_ context.Context, params MentionParams) error {
 	r.mentionParams = params
 	r.mentionCalled = true
+	return nil
+}
+
+func (r *fakeNotificationRepo) CreateMessageNotifications(_ context.Context, params MessageNotificationParams) error {
+	r.messageParams = params
+	r.messageCalled = true
+	return nil
+}
+
+func (r *fakeNotificationRepo) CreateIncomingCallNotification(context.Context, CallNotificationParams) error {
+	return nil
+}
+
+func (r *fakeNotificationRepo) UpdateCallNotification(context.Context, CallNotificationParams) error {
 	return nil
 }
 
@@ -110,13 +126,13 @@ func TestHandleCreatesMentionNotificationsFromMessageCreatedEvent(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Handle() trả lỗi: %v", err)
 	}
-	if !repo.mentionCalled {
+	if !repo.messageCalled {
 		t.Fatal("Handle() phải tạo notification khi message có mention")
 	}
-	if repo.mentionParams.EventID != "event-1" || repo.mentionParams.MessageID != "message-1" {
+	if repo.messageParams.EventID != "event-1" || repo.messageParams.MessageID != "message-1" {
 		t.Fatalf("mention params không đúng: %#v", repo.mentionParams)
 	}
-	if len(repo.mentionParams.MentionedUserIDs) != 2 {
+	if len(repo.messageParams.MentionedUserIDs) != 2 {
 		t.Fatalf("mentioned_user_ids = %#v", repo.mentionParams.MentionedUserIDs)
 	}
 }

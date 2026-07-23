@@ -11,9 +11,12 @@ import (
 	aptokenspostgres "github.com/duclamdev/application-chat/backend/internal/modules/api_tokens/infrastructure/postgres"
 	backupsapp "github.com/duclamdev/application-chat/backend/internal/modules/backups/application"
 	backupspostgres "github.com/duclamdev/application-chat/backend/internal/modules/backups/infrastructure/postgres"
+	callsapp "github.com/duclamdev/application-chat/backend/internal/modules/calls/application"
+	callspostgres "github.com/duclamdev/application-chat/backend/internal/modules/calls/infrastructure/postgres"
 	cronjobsapp "github.com/duclamdev/application-chat/backend/internal/modules/cronjobs/application"
 	cronjobspostgres "github.com/duclamdev/application-chat/backend/internal/modules/cronjobs/infrastructure/postgres"
 	notificationsapp "github.com/duclamdev/application-chat/backend/internal/modules/notifications/application"
+	notificationsfcm "github.com/duclamdev/application-chat/backend/internal/modules/notifications/infrastructure/fcm"
 	notificationspostgres "github.com/duclamdev/application-chat/backend/internal/modules/notifications/infrastructure/postgres"
 	outboxapp "github.com/duclamdev/application-chat/backend/internal/modules/outbox/application"
 	outboxpostgres "github.com/duclamdev/application-chat/backend/internal/modules/outbox/infrastructure/postgres"
@@ -90,8 +93,16 @@ func (w *Worker) tasks() []workerTask {
 	}
 
 	pool := w.resources.Database.Pool()
-	notificationsRepo := notificationspostgres.NewRepository(pool)
+	pushSender := notificationsfcm.NewSender(notificationsfcm.Config{
+		ProjectID:                w.cfg.Firebase.ProjectID,
+		ServiceAccountFile:       w.cfg.Firebase.ServiceAccountFile,
+		ServiceAccountJSONBase64: w.cfg.Firebase.ServiceAccountJSONBase64,
+	})
+	notificationsRepo := notificationspostgres.NewRepository(pool, pushSender)
 	notificationsService := notificationsapp.NewService(notificationsRepo)
+	callsRepo := callspostgres.NewRepository(pool)
+	callsService := callsapp.NewService(callsRepo, nil, nil, notificationsService)
+	callsService.SetRingTimeout(w.cfg.ZegoCloud.RingTimeout)
 	apiTokensRepo := aptokenspostgres.NewRepository(pool)
 	apiTokensService := aptokensapp.NewService(apiTokensRepo, nil)
 	webhooksRepo := webhookspostgres.NewRepository(pool)
@@ -129,8 +140,19 @@ func (w *Worker) tasks() []workerTask {
 			},
 		},
 		{
+			name:     "call_timeouts",
+			interval: time.Second,
+			run: func(ctx context.Context) error {
+				count, err := callsService.ExpireUnanswered(ctx, limit)
+				if count > 0 {
+					slog.Debug("Đã kết thúc cuộc gọi không được trả lời", "count", count)
+				}
+				return err
+			},
+		},
+		{
 			name:     "notification_jobs",
-			interval: 5 * time.Second,
+			interval: time.Second,
 			run: func(ctx context.Context) error {
 				count, err := notificationsService.ProcessJobs(ctx, limit)
 				if count > 0 {

@@ -295,6 +295,25 @@ export function useChannelRealtime({
         if (!payload?.call_id) {
           return;
         }
+        if (
+          event.type === "CallRejected" ||
+          event.type === "CallCancelled" ||
+          event.type === "CallEnded" ||
+          event.type === "CallMissed"
+        ) {
+          const terminalChannelId = payload.channel_id || signalChannelId || channelId;
+          if (terminalChannelId) {
+            window.setTimeout(() => {
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.messages.channel(workspaceId, terminalChannelId)
+              });
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.channels.directConversations(workspaceId)
+              });
+              void queryClient.invalidateQueries({ queryKey: queryKeys.channels.all(workspaceId) });
+            }, 250);
+          }
+        }
         const actorUserId = payload.actor_user_id || event.user_id || event.payload?.user_id || payload.initiator_user_id || "";
         if (!actorUserId || actorUserId === currentUserId || !event.room) {
           return;

@@ -112,6 +112,11 @@ final class NotificationTarget {
     this.messageId,
     this.deepLink,
     this.targetType,
+    this.eventType,
+    this.callId,
+    this.callMode,
+    this.callStatus,
+    this.callerName,
   });
 
   factory NotificationTarget.fromPayload({
@@ -145,6 +150,19 @@ final class NotificationTarget {
       ], fallback: messageId ?? linkTarget?.messageId),
       deepLink: linkTarget?.deepLink,
       targetType: _firstString(data, const ['target_type', 'targetType']),
+      eventType: _firstString(data, const ['event_type', 'eventType']),
+      callId: _firstString(data, const ['call_id', 'callId']),
+      callMode: _firstString(data, const ['mode', 'call_mode', 'callMode']),
+      callStatus: _firstString(data, const [
+        'status',
+        'call_status',
+        'callStatus',
+      ]),
+      callerName: _firstString(data, const [
+        'caller_name',
+        'callerName',
+        'body',
+      ]),
     );
   }
 
@@ -179,9 +197,20 @@ final class NotificationTarget {
   final String? messageId;
   final String? deepLink;
   final String? targetType;
+  final String? eventType;
+  final String? callId;
+  final String? callMode;
+  final String? callStatus;
+  final String? callerName;
 
   bool get canOpenConversation =>
       workspaceId.trim().isNotEmpty && channelId?.trim().isNotEmpty == true;
+
+  bool get isIncomingCall =>
+      targetType == 'call' &&
+      eventType == 'call_invite' &&
+      callStatus == 'ringing' &&
+      callId?.trim().isNotEmpty == true;
 }
 
 String? _firstString(

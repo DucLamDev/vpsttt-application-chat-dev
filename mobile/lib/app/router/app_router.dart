@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -12,8 +13,11 @@ import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/settings/presentation/screens/app_settings_screen.dart';
 import '../../features/settings/presentation/screens/privacy_sessions_screen.dart';
 
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
 final appRouterProvider = Provider<GoRouter>((_) {
   return GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: '/login',
     routes: [
       GoRoute(
