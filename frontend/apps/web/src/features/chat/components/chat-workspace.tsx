@@ -7080,7 +7080,7 @@ function CallMessageRow({
   }
 
   const isMissed = callEvent.status === "missed";
-  const isLocalCallRow = callEvent.direction === "outgoing";
+  const isLocalCallRow = message.isMine;
   const CallIcon = isMissed ? PhoneOff : callEvent.mode === "video" ? Video : Phone;
 
   return (
