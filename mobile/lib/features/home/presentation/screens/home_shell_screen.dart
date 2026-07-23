@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/providers/foundation_providers.dart';
+import '../../../../core/notifications/native_incoming_call_service.dart';
 import '../../../../design_system/components/webtui_components.dart';
 import '../../../../design_system/tokens/webtui_colors.dart';
 import '../../../../design_system/tokens/webtui_radii.dart';
@@ -42,6 +43,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
   Timer? _presenceTimer;
   StreamSubscription<NotificationTarget>? _notificationOpenSubscription;
   StreamSubscription<NotificationTarget>? _foregroundNotificationSubscription;
+  StreamSubscription<NativeIncomingCallAction>? _nativeCallSubscription;
   bool _notificationEnabled = true;
   bool _compactMode = false;
   bool _networkDegraded = false;
@@ -62,6 +64,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
     _presenceTimer?.cancel();
     _notificationOpenSubscription?.cancel();
     _foregroundNotificationSubscription?.cancel();
+    _nativeCallSubscription?.cancel();
     final workspaceId = _presenceWorkspaceId;
     if (workspaceId != null) {
       unawaited(_setPresence(workspaceId, ConversationPresence.offline));
@@ -317,6 +320,14 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
 
   void _listenPushTargets() {
     final service = ref.read(pushNotificationServiceProvider);
+    _nativeCallSubscription ??= NativeIncomingCallService.actions.listen((
+      action,
+    ) {
+      if (!mounted) {
+        return;
+      }
+      unawaited(_handleNativeIncomingCallAction(action));
+    });
     _notificationOpenSubscription ??= service.openedTargets.listen((target) {
       if (!mounted) {
         return;
@@ -377,6 +388,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
       if (!mounted ||
           initialCall == null ||
           initialCall.status != CallStatus.ringing) {
+        await NativeIncomingCallService.endCall(callId);
         return;
       }
       final accepted = await showDialog<bool>(
@@ -398,6 +410,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
         return;
       }
       if (!accepted) {
+        await NativeIncomingCallService.endCall(callId);
         await ref
             .read(rejectCallUseCaseProvider)
             .execute(
@@ -412,8 +425,10 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
           .execute(workspaceId: target.workspaceId, callId: callId);
       final acceptedCall = acceptedResult.valueOrNull;
       if (!mounted || acceptedCall == null) {
+        await NativeIncomingCallService.endCall(callId);
         return;
       }
+      await NativeIncomingCallService.markConnected(callId);
       await Navigator.of(context, rootNavigator: true).push<void>(
         MaterialPageRoute<void>(
           fullscreenDialog: true,
@@ -425,6 +440,7 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
             mode: acceptedCall.mode,
             incoming: true,
             onLeave: () async {
+              await NativeIncomingCallService.endCall(acceptedCall.id);
               ref.invalidate(chatRoomControllerProvider);
               ref.invalidate(
                 conversationHomeControllerProvider(acceptedCall.workspaceId),
@@ -441,6 +457,100 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
         _activeIncomingCallId = null;
       }
     }
+  }
+
+  Future<void> _handleNativeIncomingCallAction(
+    NativeIncomingCallAction action,
+  ) async {
+    switch (action.type) {
+      case NativeIncomingCallActionType.accept:
+        await _acceptNativeIncomingCall(action.target);
+      case NativeIncomingCallActionType.decline:
+        await _rejectNativeIncomingCall(action.target, reason: 'declined');
+      case NativeIncomingCallActionType.timeout:
+        await _rejectNativeIncomingCall(action.target, reason: 'timeout');
+      case NativeIncomingCallActionType.ended:
+        await _rejectNativeIncomingCall(action.target, reason: 'ended');
+    }
+  }
+
+  Future<void> _acceptNativeIncomingCall(NotificationTarget target) async {
+    final callId = target.callId?.trim();
+    if (!mounted || callId == null || callId.isEmpty) {
+      return;
+    }
+    if (_activeIncomingCallId == callId) {
+      return;
+    }
+    _activeIncomingCallId = callId;
+    try {
+      final currentResult = await ref
+          .read(getCallUseCaseProvider)
+          .execute(workspaceId: target.workspaceId, callId: callId);
+      final currentCall = currentResult.valueOrNull;
+      if (!mounted || currentCall == null || currentCall.isTerminal) {
+        await NativeIncomingCallService.endCall(callId);
+        return;
+      }
+
+      final acceptedCall = currentCall.status == CallStatus.accepted
+          ? currentCall
+          : (await ref
+                    .read(acceptCallUseCaseProvider)
+                    .execute(workspaceId: target.workspaceId, callId: callId))
+                .valueOrNull;
+      if (!mounted || acceptedCall == null || acceptedCall.isTerminal) {
+        await NativeIncomingCallService.endCall(callId);
+        return;
+      }
+
+      await NativeIncomingCallService.markConnected(callId);
+      await Navigator.of(context, rootNavigator: true).push<void>(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => ZegoCallScreen(
+            workspaceId: acceptedCall.workspaceId,
+            channelId: acceptedCall.channelId,
+            callId: acceptedCall.id,
+            title: target.callerName ?? 'Cuộc gọi đến',
+            mode: acceptedCall.mode,
+            incoming: true,
+            onLeave: () async {
+              await NativeIncomingCallService.endCall(acceptedCall.id);
+              ref.invalidate(chatRoomControllerProvider);
+              ref.invalidate(
+                conversationHomeControllerProvider(acceptedCall.workspaceId),
+              );
+              ref.invalidate(
+                notificationCenterControllerProvider(acceptedCall.workspaceId),
+              );
+            },
+          ),
+        ),
+      );
+    } finally {
+      if (_activeIncomingCallId == callId) {
+        _activeIncomingCallId = null;
+      }
+    }
+  }
+
+  Future<void> _rejectNativeIncomingCall(
+    NotificationTarget target, {
+    required String reason,
+  }) async {
+    final callId = target.callId?.trim();
+    if (callId == null || callId.isEmpty) {
+      return;
+    }
+    await NativeIncomingCallService.endCall(callId);
+    await ref
+        .read(rejectCallUseCaseProvider)
+        .execute(
+          workspaceId: target.workspaceId,
+          callId: callId,
+          reason: reason,
+        );
   }
 
   static const _titles = ['Tin nhắn', 'Bạn bè', 'Kênh', 'Nghiệp vụ', 'Cài đặt'];

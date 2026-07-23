@@ -43,6 +43,7 @@
 	<string>WebTui Chat dùng camera cho cuộc gọi video.</string>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>voip</string>
 		<string>remote-notification</string>
 	</array>
 	<key>UILaunchStoryboardName</key>

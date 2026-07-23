@@ -2,7 +2,7 @@ package fcm
 
 import "testing"
 
-func TestBuildMessageUsesHighPriorityCallNotification(t *testing.T) {
+func TestBuildMessageUsesHighPriorityCallDataOnlyPayload(t *testing.T) {
 	message := buildMessage("device-token", map[string]any{
 		"event_type": "call_invite",
 		"title":      "Incoming call",
@@ -18,13 +18,15 @@ func TestBuildMessageUsesHighPriorityCallNotification(t *testing.T) {
 	if !ok || android["priority"] != "high" || android["collapse_key"] != "call-call-1" {
 		t.Fatalf("android config = %#v", message["android"])
 	}
-	notification, ok := android["notification"].(map[string]any)
-	if !ok || notification["tag"] != "call-call-1" || notification["notification_priority"] != "PRIORITY_MAX" {
-		t.Fatalf("android notification = %#v", android["notification"])
+	if _, exists := android["notification"]; exists {
+		t.Fatal("call invite must not include android notification config")
 	}
 	data, ok := message["data"].(map[string]string)
 	if !ok || data["event_type"] != "call_invite" || data["call_id"] != "call-1" {
 		t.Fatalf("data = %#v", message["data"])
+	}
+	if _, exists := message["notification"]; exists {
+		t.Fatal("call invite must stay data-only so mobile background handlers can show CallKit")
 	}
 }
 

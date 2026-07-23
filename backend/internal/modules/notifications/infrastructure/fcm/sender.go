@@ -230,8 +230,9 @@ func buildMessage(token string, payload map[string]any) map[string]any {
 	body := strings.TrimSpace(data["body"])
 	tag := strings.TrimSpace(data["tag"])
 	eventType := strings.TrimSpace(data["event_type"])
+	isCallEvent := strings.HasPrefix(eventType, "call_")
 	category := "WEBTUI_MESSAGE"
-	if strings.HasPrefix(eventType, "call_") {
+	if isCallEvent {
 		category = "WEBTUI_CALL"
 	}
 	androidNotification := map[string]any{
@@ -244,9 +245,11 @@ func buildMessage(token string, payload map[string]any) map[string]any {
 		androidNotification["tag"] = tag
 	}
 	androidConfig := map[string]any{
-		"priority":     "high",
-		"ttl":          "35s",
-		"notification": androidNotification,
+		"priority": "high",
+		"ttl":      "35s",
+	}
+	if !isCallEvent {
+		androidConfig["notification"] = androidNotification
 	}
 	if tag != "" {
 		androidConfig["collapse_key"] = tag
@@ -266,7 +269,7 @@ func buildMessage(token string, payload map[string]any) map[string]any {
 			},
 		},
 	}
-	if title != "" || body != "" {
+	if !isCallEvent && (title != "" || body != "") {
 		message["notification"] = map[string]string{"title": title, "body": body}
 	}
 	return message

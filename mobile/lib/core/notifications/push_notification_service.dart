@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -9,12 +10,21 @@ import '../../features/auth/domain/repositories/device_identity_repository.dart'
 import '../../features/notifications/domain/entities/mobile_notification.dart';
 import '../network/api_transport.dart';
 import 'firebase_runtime_options.dart';
+import 'native_incoming_call_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> webTuiFirebaseMessagingBackgroundHandler(
   RemoteMessage message,
 ) async {
+  DartPluginRegistrant.ensureInitialized();
   await ensureFirebaseRuntime();
+  await NativeIncomingCallService.syncRemoteMessagePayload(
+    fallbackWorkspaceId:
+        message.data['workspace_id']?.toString() ??
+        message.data['workspaceId']?.toString() ??
+        '',
+    data: message.data.cast<String, Object?>(),
+  );
 }
 
 Future<bool> ensureFirebaseRuntime() async {
@@ -89,6 +99,7 @@ final class PushNotificationService {
     _registeredWorkspaceId = normalizedWorkspaceId;
 
     if (firebase) {
+      unawaited(NativeIncomingCallService.prepareDevicePermissions());
       _startMessageHandlers(normalizedWorkspaceId);
       if (!_tokenRefreshListening) {
         _tokenRefreshListening = true;
@@ -212,6 +223,11 @@ final class PushNotificationService {
       workspaceId: workspaceId,
       data: message.data.cast<String, Object?>(),
     );
+    if (target.targetType == 'call' &&
+        target.eventType == 'call_ended' &&
+        target.callId?.trim().isNotEmpty == true) {
+      unawaited(NativeIncomingCallService.endCall(target.callId!));
+    }
     if (target.canOpenConversation || target.deepLink != null) {
       controller.add(target);
     }

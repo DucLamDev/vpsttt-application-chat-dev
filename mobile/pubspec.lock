@@ -415,7 +415,7 @@ packages:
     source: hosted
     version: "3.4.1"
   flutter_callkit_incoming:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: flutter_callkit_incoming
       sha256: "3589deb8b71e43f2d520a9c8a5240243f611062a8b246cdca4b1fda01fbbf9b8"
