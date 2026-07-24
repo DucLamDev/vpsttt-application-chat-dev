@@ -29,8 +29,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.22 AS runtime
 
 RUN apk add --no-cache ca-certificates postgresql-client tzdata wget \
-  && addgroup -S webtui \
-  && adduser -S -G webtui webtui
+  && addgroup -S -g 10001 webtui \
+  && adduser -S -D -H -u 10001 -G webtui webtui
 
 WORKDIR /app
 

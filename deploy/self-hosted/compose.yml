@@ -67,6 +67,21 @@ services:
         condition: service_healthy
     restart: "no"
 
+  storage-permissions:
+    image: alpine:3.22
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /var/lib/vpsttt-chat/storage /var/lib/vpsttt-chat/backups
+        chown -R 10001:10001 /var/lib/vpsttt-chat/storage /var/lib/vpsttt-chat/backups
+        chmod -R u+rwX,g+rwX /var/lib/vpsttt-chat/storage /var/lib/vpsttt-chat/backups
+    volumes:
+      - storage_data:/var/lib/vpsttt-chat/storage
+      - backup_data:/var/lib/vpsttt-chat/backups
+    restart: "no"
+
   api:
     build:
       context: ../../backend
@@ -82,6 +97,8 @@ services:
     expose: ["8080"]
     networks: [backend]
     depends_on:
+      storage-permissions:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       postgres:
@@ -111,6 +128,8 @@ services:
       - backup_data:/var/lib/vpsttt-chat/backups
     networks: [backend]
     depends_on:
+      storage-permissions:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       postgres:
