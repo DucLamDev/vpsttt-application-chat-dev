@@ -1,5 +1,12 @@
 # VPSTTT Chat domain-first zone: kết quả Phase 0-8
 
+> Lưu ý trạng thái: tài liệu này là lịch sử thiết kế cho hướng shared SaaS /
+> control-plane domain claim. Định hướng sản phẩm hiện tại là self-hosted
+> open-source cho từng customer, xem `deploy/self-hosted/README.md` và
+> `docs/planning/mobile-self-hosted-flow.md`. Trong self-hosted, người dùng
+> nhập domain để discovery instance đã được cài trước; mobile không gọi luồng
+> `/api/v1/zones/claims` để tự tạo tenant.
+
 Tài liệu này mô tả kiến trúc và trạng thái triển khai VPSTTT Chat theo hướng
 server/domain-first tương tự Nextcloud Talk. Người dùng bắt đầu bằng domain,
 ứng dụng discovery runtime của domain đó, rồi đăng nhập vào một zone tách biệt.

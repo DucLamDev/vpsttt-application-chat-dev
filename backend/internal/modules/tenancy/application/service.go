@@ -856,6 +856,9 @@ func (s *Service) toDiscovery(
 	resolved tenancydomain.ResolvedZone,
 ) DiscoveryDTO {
 	runtime := s.runtime(domain, resolved.Deployment)
+	if name := strings.TrimSpace(resolved.Zone.Name); name != "" {
+		runtime.AppName = name
+	}
 	capabilities := capabilitiesFromMetadata(resolved.Zone.Metadata)
 	// Federation remains fail-closed until its runtime protocol is deployed.
 	capabilities.Federation = false

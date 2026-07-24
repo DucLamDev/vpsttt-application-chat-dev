@@ -78,7 +78,6 @@ void main() {
           displayName: ' Lâm Đức ',
           email: ' lam@example.com ',
           username: ' lamduc ',
-          domain: ' https://chat.company.com/path ',
           password: ' matkhau123 ',
           confirmPassword: ' matkhau123 ',
         ),
@@ -89,7 +88,6 @@ void main() {
       expect(auth.lastDisplayName, 'Lâm Đức');
       expect(auth.lastEmail, 'lam@example.com');
       expect(auth.lastUsername, 'lamduc');
-      expect(auth.lastDomain, 'chat.company.com');
       expect(auth.lastPassword, 'matkhau123');
       expect(tokens.accessToken, 'access-token');
       expect(tokens.refreshToken, 'refresh-token');
@@ -108,7 +106,6 @@ void main() {
           displayName: 'Lâm Đức',
           email: 'lam@example.com',
           username: 'lamduc',
-          domain: '',
           password: 'matkhau123',
           confirmPassword: 'matkhau456',
         ),
@@ -250,7 +247,6 @@ final class _FakeAuthRepository implements AuthRepository {
   String? lastDisplayName;
   String? lastEmail;
   String? lastUsername;
-  String? lastDomain;
   String? lastIdentifier;
   String? lastPassword;
   String? lastGoogleCredential;
@@ -272,7 +268,6 @@ final class _FakeAuthRepository implements AuthRepository {
     required String displayName,
     required String email,
     required String username,
-    required String domain,
     required String password,
     required DeviceIdentity device,
   }) async {
@@ -280,7 +275,6 @@ final class _FakeAuthRepository implements AuthRepository {
     lastDisplayName = displayName;
     lastEmail = email;
     lastUsername = username;
-    lastDomain = domain;
     lastPassword = password;
     return registerResult ?? Success(_session());
   }

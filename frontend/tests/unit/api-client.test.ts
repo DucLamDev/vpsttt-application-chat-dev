@@ -395,4 +395,27 @@ describe("zone runtime helpers", () => {
       ws_base_url: "ws://127.0.0.1:8080/ws",
     });
   });
+
+  it("keeps discovered endpoints when build defaults are public", () => {
+    expect(
+      localizeZoneRuntime(
+        {
+          app_name: "Company Chat",
+          app_version: "1.0.0",
+          release_channel: "stable",
+          locale: "vi-VN",
+          web_base_url: "https://chat.company.example",
+          api_base_url: "https://chat.company.example",
+          ws_base_url: "wss://chat.company.example/ws",
+        },
+        "http://127.0.0.1:3000",
+        "https://chat.vpsttt.com",
+        "wss://chat.vpsttt.com/ws",
+      ),
+    ).toMatchObject({
+      api_base_url: "https://chat.company.example",
+      web_base_url: "http://127.0.0.1:3000",
+      ws_base_url: "wss://chat.company.example/ws",
+    });
+  });
 });

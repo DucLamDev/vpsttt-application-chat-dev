@@ -20,6 +20,9 @@ Chi tiết yêu cầu hạ tầng, firewall, backup và restore:
 Người dùng nhập domain của instance để kết nối. Domain input chỉ discovery một
 server đã được customer cài trước, không tạo tenant SaaS. Tài khoản đăng ký đầu
 tiên trở thành owner và instance tự chuyển sang chế độ chỉ nhận lời mời.
+Admin có thể nhập domain tại `https://portal.webtuichat.com`; portal kiểm tra
+instance rồi chuyển browser tới đúng màn đăng ký hoặc đăng nhập trên domain của
+customer. Portal không nhận password, token hoặc dữ liệu chat.
 
 Backend dùng Go + Gin, WebSocket, RabbitMQ, PostgreSQL và Redis. Cuộc gọi 1:1
 dùng WebRTC với coturn của chính customer.
@@ -27,7 +30,10 @@ dùng WebRTC với coturn của chính customer.
 ## Tài liệu chính
 
 - [CleanArchitecture.md](CleanArchitecture.md): bản thiết kế tổng quan.
+- [docs/architecture/self-hosted-portal-clients.md](docs/architecture/self-hosted-portal-clients.md): contract giữa portal, instance customer, web, desktop và mobile.
 - [deploy/self-hosted/README.md](deploy/self-hosted/README.md): cài và vận hành instance customer.
+- [deploy/portal/README.md](deploy/portal/README.md): triển khai portal trung tâm.
+- [docs/planning/mobile-self-hosted-flow.md](docs/planning/mobile-self-hosted-flow.md): luồng nhập domain, discovery, auth, push và deep link trên mobile self-hosted.
 - [docs/README.md](docs/README.md): mục lục tài liệu dự án.
 - [docs/architecture/source-layout.md](docs/architecture/source-layout.md): cấu trúc thư mục nguồn.
 - [docs/architecture/backend-clean-architecture.md](docs/architecture/backend-clean-architecture.md): quy tắc Clean Architecture cho backend.

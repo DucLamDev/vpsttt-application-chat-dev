@@ -7,6 +7,7 @@ import 'package:webtui_chat/app/flavor/app_config.dart';
 import 'package:webtui_chat/app/flavor/app_flavor.dart';
 import 'package:webtui_chat/app/providers/foundation_providers.dart';
 import 'package:webtui_chat/core/error/failure.dart';
+import 'package:webtui_chat/core/network/self_hosted_server_discovery.dart';
 import 'package:webtui_chat/core/result/result.dart';
 import 'package:webtui_chat/features/auth/application/use_cases/login_use_case.dart';
 import 'package:webtui_chat/features/auth/application/use_cases/register_use_case.dart';
@@ -92,7 +93,7 @@ void main() {
 
     expect(find.text('Tạo tài khoản mới'), findsOneWidget);
     expect(find.text('Xác nhận mật khẩu'), findsOneWidget);
-    expect(find.text('Domain server'), findsOneWidget);
+    expect(find.text('Địa chỉ server'), findsOneWidget);
     expect(find.byKey(const Key('register_submit_button')), findsOneWidget);
   });
 }
@@ -112,7 +113,16 @@ Future<void> _pumpLogin(
             wsBaseUri: Uri.parse('ws://localhost:8080/ws'),
           ),
         ),
-        serverConnectorProvider.overrideWithValue((_) async {}),
+        serverConnectorProvider.overrideWithValue(
+          (_) async => SelfHostedServerDiscovery(
+            domain: 'localhost',
+            name: 'Company Chat',
+            apiBaseUri: Uri.parse('http://localhost:8080'),
+            wsBaseUri: Uri.parse('ws://localhost:8080/ws'),
+            registrationMode: 'open',
+            appVersion: 'test',
+          ),
+        ),
         loginUseCaseProvider.overrideWithValue(
           LoginUseCase(
             authRepository: authRepository,
@@ -183,7 +193,6 @@ final class _WidgetAuthRepository implements AuthRepository {
     required String displayName,
     required String email,
     required String username,
-    required String domain,
     required String password,
     required DeviceIdentity device,
   }) {

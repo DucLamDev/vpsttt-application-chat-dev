@@ -1,0 +1,42 @@
+name: webtui-portal
+
+services:
+  portal:
+    build:
+      context: ../../frontend
+      dockerfile: apps/portal/Dockerfile
+      args:
+        NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL: ${DESKTOP_DOWNLOAD_URL}
+        NEXT_PUBLIC_DOCUMENTATION_URL: ${DOCUMENTATION_URL}
+        NEXT_PUBLIC_MOBILE_DOWNLOAD_URL: ${MOBILE_DOWNLOAD_URL}
+    image: webtui-chat-portal:${PORTAL_VERSION:-latest}
+    restart: unless-stopped
+    expose: ["3002"]
+    networks: [portal]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+      PORTAL_DOMAIN: ${PORTAL_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [portal]
+    depends_on:
+      portal:
+        condition: service_started
+
+networks:
+  portal:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

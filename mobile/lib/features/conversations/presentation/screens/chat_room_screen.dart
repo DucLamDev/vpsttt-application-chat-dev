@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -598,7 +597,7 @@ class _ChatRoomBodyState extends State<_ChatRoomBody> {
                 ? const _ChatEmptyState()
                 : ListView.builder(
                     controller: _scrollController,
-                    scrollCacheExtent: const ScrollCacheExtent.pixels(900),
+                    cacheExtent: 900,
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: true,
                     keyboardDismissBehavior:

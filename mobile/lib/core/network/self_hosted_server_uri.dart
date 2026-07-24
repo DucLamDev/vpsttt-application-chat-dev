@@ -11,7 +11,7 @@ Uri parseSelfHostedServerUri(String value) {
       parsed.path.replaceAll('/', '').isNotEmpty ||
       parsed.query.isNotEmpty ||
       parsed.fragment.isNotEmpty) {
-    throw const FormatException('Domain server không hợp lệ.');
+    throw const FormatException('Địa chỉ server không hợp lệ.');
   }
 
   final isLocal =

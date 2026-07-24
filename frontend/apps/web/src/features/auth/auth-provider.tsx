@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshToken = useAuthStore((state) => state.refreshToken);
   const user = useAuthStore((state) => state.user);
   const zoneDomain = useAuthStore((state) => state.zoneDomain);
+  const zoneRuntime = useAuthStore((state) => state.zoneRuntime);
   const clearSession = useAuthStore((state) => state.clearSession);
   const setSession = useAuthStore((state) => state.setSession);
   const setRememberLogin = useAuthStore((state) => state.setRememberLogin);
@@ -62,6 +63,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const requestedMode = new URL(window.location.href).searchParams.get("auth");
+    if (requestedMode === "register" || requestedMode === "login") {
+      setMode(requestedMode);
+    }
   }, []);
 
   useEffect(() => {
@@ -145,7 +156,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     api.auth
       .refresh({
-        domain: zoneDomain ?? undefined,
         refresh_token: refreshToken
       })
       .then((result) => {
@@ -182,8 +192,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginMutation = useMutation({
     mutationFn: async (input: LoginInput) => {
-      const domain = await selectZone(input.domain, setZoneRuntime, true);
-      return api.auth.login({ ...input, domain });
+      const { domain: requestedDomain, ...credentials } = input;
+      await selectZone(requestedDomain ?? browserDomain(), setZoneRuntime, true);
+      return api.auth.login(credentials);
     },
     onError: (error) => {
       if (!isZoneNavigationStarted(error)) {
@@ -199,8 +210,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerMutation = useMutation({
     mutationFn: async (input: RegisterInput) => {
-      const domain = await selectZone(input.domain, setZoneRuntime, true);
-      return api.auth.register({ ...input, domain });
+      const { domain: requestedDomain, ...profile } = input;
+      await selectZone(requestedDomain ?? browserDomain(), setZoneRuntime, true);
+      return api.auth.register(profile);
     },
     onError: (error) => {
       if (!isZoneNavigationStarted(error)) {
@@ -216,8 +228,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const googleMutation = useMutation({
     mutationFn: async (input: GoogleLoginInput) => {
-      const domain = await selectZone(input.domain, setZoneRuntime, true);
-      return api.auth.google({ ...input, domain });
+      const { domain: requestedDomain, ...credential } = input;
+      await selectZone(requestedDomain ?? browserDomain(), setZoneRuntime, true);
+      return api.auth.google(credential);
     },
     onError: (error) => {
       if (!isZoneNavigationStarted(error)) {
@@ -313,6 +326,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         panelLogoAlt="WebTui Chat"
         panelLogoSrc="/brand/logo_webtui.png"
+        showServerField={getPlatformServices().lifecycle.isDesktop}
+        title={zoneRuntime?.app_name ?? runtimeEnvironment.appName}
       />
     );
   }
@@ -386,7 +401,11 @@ async function selectZone(
 }
 
 function runtimeForCurrentBrowser(runtime: ZoneRuntime): ZoneRuntime {
-  if (typeof window === "undefined" || !isLocalHostname(window.location.hostname)) {
+  if (
+    typeof window === "undefined" ||
+    getPlatformServices().lifecycle.isDesktop ||
+    !isLocalHostname(window.location.hostname)
+  ) {
     return runtime;
   }
   return localizeZoneRuntime(
@@ -398,7 +417,10 @@ function runtimeForCurrentBrowser(runtime: ZoneRuntime): ZoneRuntime {
 }
 
 function navigateToZoneWeb(webBaseUrl: string): boolean {
-  if (typeof window === "undefined") {
+  if (
+    typeof window === "undefined" ||
+    getPlatformServices().lifecycle.isDesktop
+  ) {
     return false;
   }
   const target = zoneWebNavigationTarget(webBaseUrl, window.location.href);

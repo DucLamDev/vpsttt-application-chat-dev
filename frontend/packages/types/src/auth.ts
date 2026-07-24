@@ -47,13 +47,13 @@ export type AuthZone = {
 export type LoginInput = {
   identifier: string;
   password: string;
-  domain: string;
+  domain?: string;
   device_name?: string;
 };
 
 export type GoogleLoginInput = {
   credential: string;
-  domain: string;
+  domain?: string;
   device_name?: string;
 };
 
@@ -84,7 +84,7 @@ export type RegisterInput = {
   email: string;
   username: string;
   display_name: string;
-  domain: string;
+  domain?: string;
   invite_token?: string;
   password: string;
   device_name?: string;

@@ -4,6 +4,8 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/package.json
+COPY apps/desktop/package.json apps/desktop/package.json
+COPY apps/portal/package.json apps/portal/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/api-client/package.json packages/api-client/package.json
 COPY packages/chat-core/package.json packages/chat-core/package.json

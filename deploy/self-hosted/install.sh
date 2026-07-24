@@ -8,11 +8,12 @@ DOMAIN=""
 EMAIL=""
 INSTANCE_NAME="VPSTTT Chat"
 TURN_EXTERNAL_IP=""
+PORTAL_ORIGIN="https://portal.webtuichat.com"
 FORCE=0
 SKIP_DNS_CHECK=0
 
 usage() {
-  echo "Usage: $0 --domain chat.example.com --email admin@example.com [--name 'Example Chat'] [--external-ip 203.0.113.10] [--skip-dns-check] [--force]"
+  echo "Usage: $0 --domain chat.example.com --email admin@example.com [--name 'Example Chat'] [--portal-origin https://portal.webtuichat.com] [--external-ip 203.0.113.10] [--skip-dns-check] [--force]"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -20,6 +21,7 @@ while [ "$#" -gt 0 ]; do
     --domain) DOMAIN=${2:-}; shift 2 ;;
     --email) EMAIL=${2:-}; shift 2 ;;
     --name) INSTANCE_NAME=${2:-}; shift 2 ;;
+    --portal-origin) PORTAL_ORIGIN=${2:-}; shift 2 ;;
     --external-ip) TURN_EXTERNAL_IP=${2:-}; shift 2 ;;
     --skip-dns-check) SKIP_DNS_CHECK=1; shift ;;
     --force) FORCE=1; shift ;;
@@ -44,6 +46,10 @@ fi
 if [ -z "$INSTANCE_NAME" ] ||
   printf '%s' "$INSTANCE_NAME" | grep -Eq '[#=]|[[:cntrl:]]'; then
   echo "Instance name must not be empty or contain #, =, or control characters." >&2
+  exit 1
+fi
+if ! printf '%s' "$PORTAL_ORIGIN" | grep -Eq '^https://([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}(:[0-9]{1,5})?$'; then
+  echo "Portal origin must be an HTTPS origin without a path." >&2
   exit 1
 fi
 for command_name in docker openssl curl; do
@@ -107,7 +113,7 @@ DEPLOYMENT_MODE=self_hosted
 INSTANCE_DOMAIN=$DOMAIN
 INSTANCE_NAME=$INSTANCE_NAME
 APP_ENV=production
-APP_NAME=vpsttt-chat
+APP_NAME=$INSTANCE_NAME
 APP_URL=https://$DOMAIN
 APP_VERSION=self-hosted
 LOG_LEVEL=info
@@ -115,7 +121,8 @@ LOG_FORMAT=json
 API_HTTP_HOST=0.0.0.0
 API_HTTP_PORT=8080
 TRUSTED_PROXIES=172.16.0.0/12,127.0.0.1
-CORS_ALLOWED_ORIGINS=https://$DOMAIN,http://tauri.localhost,https://tauri.localhost,tauri://localhost
+PORTAL_ORIGIN=$PORTAL_ORIGIN
+CORS_ALLOWED_ORIGINS=https://$DOMAIN,$PORTAL_ORIGIN,http://tauri.localhost,https://tauri.localhost,tauri://localhost
 SECURE_HEADERS_ENABLED=true
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_PER_MINUTE=120
@@ -177,4 +184,5 @@ until curl -fsS --max-time 10 "https://$DOMAIN/ready" >/dev/null 2>&1; do
 done
 
 echo "VPSTTT Chat is ready at https://$DOMAIN"
+echo "Register or sign in through $PORTAL_ORIGIN with domain $DOMAIN"
 echo "The first account registered on this domain becomes workspace owner."

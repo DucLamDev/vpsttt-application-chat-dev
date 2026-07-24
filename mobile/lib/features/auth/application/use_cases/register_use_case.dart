@@ -10,7 +10,6 @@ final class RegisterCommand {
     required this.displayName,
     required this.email,
     required this.username,
-    required this.domain,
     required this.password,
     required this.confirmPassword,
   });
@@ -18,7 +17,6 @@ final class RegisterCommand {
   final String displayName;
   final String email;
   final String username;
-  final String domain;
   final String password;
   final String confirmPassword;
 }
@@ -40,7 +38,6 @@ final class RegisterUseCase {
     final displayName = command.displayName.trim();
     final email = command.email.trim();
     final username = command.username.trim();
-    final domain = _normalizeDomain(command.domain);
     final password = command.password.trim();
     final confirmPassword = command.confirmPassword.trim();
 
@@ -80,23 +77,12 @@ final class RegisterUseCase {
         ),
       );
     }
-    if (domain == null) {
-      return const FailureResult(
-        Failure(
-          kind: FailureKind.validation,
-          message: 'Domain không hợp lệ. Ví dụ đúng: company.com.',
-          code: 'REGISTER_DOMAIN_INVALID',
-        ),
-      );
-    }
-
     try {
       final device = await _deviceIdentityRepository.currentDevice();
       final result = await _authRepository.register(
         displayName: displayName,
         email: email,
         username: username,
-        domain: domain,
         password: password,
         device: device,
       );
@@ -115,21 +101,4 @@ final class RegisterUseCase {
       );
     }
   }
-}
-
-String? _normalizeDomain(String value) {
-  var domain = value.trim().toLowerCase();
-  if (domain.isEmpty) {
-    return '';
-  }
-  domain = domain
-      .replaceFirst(RegExp(r'^https?://'), '')
-      .split('/')
-      .first
-      .split(':')
-      .first;
-  final valid = RegExp(
-    r'^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$',
-  );
-  return valid.hasMatch(domain) ? domain : null;
 }

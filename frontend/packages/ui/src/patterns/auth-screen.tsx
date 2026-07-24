@@ -40,6 +40,7 @@ export type AuthScreenProps = {
   onRegister: (values: RegisterFormValues) => void;
   panelLogoAlt?: string;
   panelLogoSrc?: string;
+  showServerField?: boolean;
   subtitle?: string;
   title?: string;
 };
@@ -60,6 +61,7 @@ export function AuthScreen({
   onRegister,
   panelLogoAlt = "",
   panelLogoSrc,
+  showServerField = true,
   subtitle = "Kết nối – Trò chuyện – Hiệu quả",
   title = "WEBTUI CHAT"
 }: AuthScreenProps) {
@@ -244,11 +246,13 @@ export function AuthScreen({
           <h2>{mode === "login" ? "Đăng nhập" : "Tạo tài khoản mới"}</h2>
         </div>
         <form className="auth-form" onSubmit={handleSubmit}>
-          <label>Server domain<Input autoCapitalize="none" autoComplete="url" onChange={(event) => {
-            setDomain(event.target.value);
-            setOIDCProviders([]);
-            setSelectedOIDCProvider("");
-          }} placeholder="chat.example.com" required spellCheck={false} value={domain} /></label>
+          {showServerField ? (
+            <label>Server domain<Input autoCapitalize="none" autoComplete="url" onChange={(event) => {
+              setDomain(event.target.value);
+              setOIDCProviders([]);
+              setSelectedOIDCProvider("");
+            }} placeholder="chat.example.com" required spellCheck={false} value={domain} /></label>
+          ) : null}
           {mode === "register" ? <>
             <label>Họ và tên<Input autoComplete="name" onChange={(event) => setDisplayName(event.target.value)} placeholder="Nhập họ và tên của bạn" required value={displayName} /></label>
             <label>Email công việc<Input autoComplete="email" onChange={(event) => setEmail(event.target.value)} placeholder="Nhập email công việc" required type="email" value={email} /></label>

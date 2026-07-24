@@ -31,7 +31,6 @@ final class AuthRepositoryImpl implements AuthRepository {
     required String displayName,
     required String email,
     required String username,
-    required String domain,
     required String password,
     required DeviceIdentity device,
   }) {
@@ -40,7 +39,6 @@ final class AuthRepositoryImpl implements AuthRepository {
         displayName: displayName,
         email: email,
         username: username,
-        domain: domain,
         password: password,
         device: device,
       ),

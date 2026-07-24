@@ -4289,7 +4289,7 @@ components:
           type: integer
     RegisterRequest:
       type: object
-      required: [email, username, display_name, domain, password]
+      required: [email, username, display_name, password]
       properties:
         email:
           type: string
@@ -4300,7 +4300,7 @@ components:
           type: string
         domain:
           type: string
-          description: Domain server/zone cần đăng ký.
+          description: Tùy chọn cho control plane dùng chung. Instance self-hosted luôn dùng INSTANCE_DOMAIN đã cấu hình.
           example: chat.customer.example
         invite_token:
           type: string
@@ -4313,7 +4313,7 @@ components:
           description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.
     LoginRequest:
       type: object
-      required: [identifier, password, domain]
+      required: [identifier, password]
       properties:
         identifier:
           type: string
@@ -4323,19 +4323,21 @@ components:
           format: password
         domain:
           type: string
+          description: Tùy chọn cho control plane dùng chung; instance self-hosted dùng INSTANCE_DOMAIN.
           example: chat.customer.example
         device_name:
           type: string
           description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.
     GoogleLoginRequest:
       type: object
-      required: [credential, domain]
+      required: [credential]
       properties:
         credential:
           type: string
           description: Google ID token do Google Identity Services trả về.
         domain:
           type: string
+          description: Tùy chọn cho control plane dùng chung; instance self-hosted dùng INSTANCE_DOMAIN.
           example: chat.customer.example
         device_name:
           type: string

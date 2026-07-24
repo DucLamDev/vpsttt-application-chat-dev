@@ -56,11 +56,11 @@ final class AppConfig {
   final String appVersion;
   final String releaseChannel;
 
-  AppConfig forServer(Uri serverUri) {
+  AppConfig forServer(Uri serverUri, {Uri? wsBaseUri}) {
     return AppConfig(
       flavor: flavor,
       apiBaseUri: serverUri,
-      wsBaseUri: _defaultRealtimeWsUri(serverUri),
+      wsBaseUri: wsBaseUri ?? _defaultRealtimeWsUri(serverUri),
       appVersion: appVersion,
       releaseChannel: releaseChannel,
     );

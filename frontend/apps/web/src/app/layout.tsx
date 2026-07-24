@@ -10,8 +10,10 @@ const inter = Inter({
   variable: "--font-inter"
 });
 
+const instanceName = process.env.NEXT_PUBLIC_APP_NAME?.trim() || "WebTui Chat";
+
 export const metadata: Metadata = {
-  title: "WebTui Chat",
+  title: instanceName,
   description: "Nền tảng chat nội bộ tự host cho doanh nghiệp Việt.",
   icons: {
     apple: "/brand/logo_webtui.png",

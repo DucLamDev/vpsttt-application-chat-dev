@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const webBaseUrl = process.env.E2E_WEB_BASE_URL ?? "http://127.0.0.1:3000";
 const adminBaseUrl = process.env.E2E_ADMIN_BASE_URL ?? "http://127.0.0.1:3001";
+const portalBaseUrl = process.env.E2E_PORTAL_BASE_URL ?? "http://127.0.0.1:3002";
 
 export default defineConfig({
   expect: {
@@ -23,6 +24,14 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         baseURL: adminBaseUrl
+      }
+    },
+    {
+      name: "portal-chromium",
+      testMatch: /portal\..*\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: portalBaseUrl
       }
     }
   ],

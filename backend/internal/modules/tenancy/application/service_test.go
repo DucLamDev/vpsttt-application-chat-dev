@@ -244,6 +244,9 @@ func TestDiscoverBuildsRuntimeFromDeployment(t *testing.T) {
 	if discovery.Runtime.APIBaseURL != "https://api.chat.abc.com" {
 		t.Fatalf("api base = %q", discovery.Runtime.APIBaseURL)
 	}
+	if discovery.Runtime.AppName != "ABC" {
+		t.Fatalf("app name = %q, want zone name", discovery.Runtime.AppName)
+	}
 	if discovery.Capabilities.Federation || !discovery.Capabilities.Dedicated ||
 		!discovery.Capabilities.OIDCConfiguration || !discovery.Capabilities.SelfHosted ||
 		discovery.Capabilities.CustomDomain {

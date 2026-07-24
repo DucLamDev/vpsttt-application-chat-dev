@@ -43,7 +43,6 @@ export const api = createWebTuiApiClient({
     if (!refreshRequest) {
       refreshRequest = api.auth
         .refresh({
-          domain: state.zoneDomain ?? undefined,
           refresh_token: refreshToken
         })
         .then((result) => {

@@ -111,6 +111,10 @@ final activeServerUriProvider = StateProvider<Uri>((ref) {
   return ref.watch(appConfigProvider).apiBaseUri;
 });
 
+final activeServerWsUriProvider = StateProvider<Uri>((ref) {
+  return ref.watch(appConfigProvider).wsBaseUri;
+});
+
 final dioProvider = Provider<Dio>((ref) {
   final activeServerUri = ref.watch(activeServerUriProvider);
   final logger = ref.watch(redactingLoggerProvider);
@@ -566,13 +570,11 @@ final catchUpWorkspaceSyncUseCaseProvider =
 
 final conversationRealtimeRepositoryProvider =
     Provider<ConversationRealtimeRepository>((ref) {
-      final config = ref.watch(appConfigProvider);
       final activeServerUri = ref.watch(activeServerUriProvider);
+      final activeServerWsUri = ref.watch(activeServerWsUriProvider);
       final repository = WebSocketConversationRealtimeRepository(
         apiBaseUri: activeServerUri,
-        wsBaseUri: activeServerUri == config.apiBaseUri
-            ? config.wsBaseUri
-            : defaultConversationRealtimeWsUri(activeServerUri),
+        wsBaseUri: activeServerWsUri,
         tokenRepository: ref.watch(authTokenRepositoryProvider),
       );
       ref.onDispose(() {

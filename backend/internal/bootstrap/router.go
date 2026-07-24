@@ -165,6 +165,9 @@ func (a *API) registerAPIV1() {
 	authRepo := authpostgres.NewRepository(pool, a.cfg.Registration.DefaultWorkspaceID)
 	authService := authapp.NewService(authRepo, tokenManager)
 	authHandler := authhttp.NewHandler(authService, a.cfg.Security.GoogleClientID)
+	if a.cfg.Deployment.IsSelfHosted() {
+		authHandler.SetInstanceDomain(a.cfg.Deployment.InstanceDomain)
+	}
 	authHandler.SetOIDCService(authapp.NewOIDCService(
 		authService,
 		authRepo,

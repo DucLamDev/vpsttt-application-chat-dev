@@ -31,7 +31,6 @@ final class AuthRemoteDataSource {
     required String displayName,
     required String email,
     required String username,
-    required String domain,
     required String password,
     required DeviceIdentity device,
   }) async {
@@ -41,7 +40,6 @@ final class AuthRemoteDataSource {
         'display_name': displayName,
         'email': email,
         'username': username,
-        if (domain.isNotEmpty) 'domain': domain,
         'password': password,
         'device_name': device.displayName,
       },

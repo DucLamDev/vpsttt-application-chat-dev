@@ -5,6 +5,7 @@ Tài liệu dự án WebTui Chat được viết bằng tiếng Việt có dấu
 ## Kiến trúc
 
 - [Tổng quan kiến trúc](architecture/overview.md)
+- [Portal, instance self-hosted và client dùng chung](architecture/self-hosted-portal-clients.md)
 - [Cấu trúc thư mục nguồn](architecture/source-layout.md)
 - [Clean Architecture cho backend](architecture/backend-clean-architecture.md)
 - [Chuẩn module backend](architecture/module-template.md)
@@ -21,6 +22,8 @@ Tài liệu dự án WebTui Chat được viết bằng tiếng Việt có dấu
 ## Kế hoạch triển khai
 
 - [Cài đặt self-hosted cho customer](../deploy/self-hosted/README.md)
+- [Triển khai portal trung tâm](../deploy/portal/README.md)
+- [Luồng mobile cho mô hình self-hosted](planning/mobile-self-hosted-flow.md)
 - [Kế hoạch hoàn thiện backend](planning/backend-roadmap.md)
 - [Kế hoạch Desktop App Tauri](planning/desktop-tauri-roadmap.md)
 - [Desktop App Phase D0 Completion](planning/desktop-phase-d0-completion.md)

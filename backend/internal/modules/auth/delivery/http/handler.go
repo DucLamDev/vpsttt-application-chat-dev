@@ -22,6 +22,7 @@ type Handler struct {
 	oidcService    *authapp.OIDCService
 	googleClientID string
 	httpClient     *nethttp.Client
+	instanceDomain string
 }
 
 type registerRequest struct {
@@ -96,6 +97,10 @@ func (h *Handler) SetOIDCService(service *authapp.OIDCService) {
 	h.oidcService = service
 }
 
+func (h *Handler) SetInstanceDomain(domain string) {
+	h.instanceDomain = strings.TrimSpace(domain)
+}
+
 func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerFunc) {
 	router.POST("/register", h.Register)
 	router.POST("/login", h.Login)
@@ -122,7 +127,7 @@ func (h *Handler) ListOIDCProviders(c *gin.Context) {
 	}
 	providers, err := h.oidcService.ListProviders(
 		c.Request.Context(),
-		authRequestDomain(c, c.Query("domain")),
+		h.authRequestDomain(c, c.Query("domain")),
 	)
 	if err != nil {
 		response.Error(c, err)
@@ -142,7 +147,7 @@ func (h *Handler) StartOIDC(c *gin.Context) {
 		return
 	}
 	result, err := h.oidcService.Start(c.Request.Context(), authapp.OIDCStartInput{
-		Domain:      authRequestDomain(c, req.Domain),
+		Domain:      h.authRequestDomain(c, req.Domain),
 		ProviderID:  req.ProviderID,
 		RedirectURI: requestOrigin(c) + "/api/v1/auth/oidc/callback",
 		ReturnTo:    req.ReturnTo,
@@ -186,7 +191,7 @@ func (h *Handler) CompleteOIDC(c *gin.Context) {
 	}
 	result, err := h.oidcService.Complete(c.Request.Context(), authapp.OIDCCompleteInput{
 		Code:       req.Code,
-		Domain:     authRequestDomain(c, req.Domain),
+		Domain:     h.authRequestDomain(c, req.Domain),
 		DeviceName: req.DeviceName,
 		IPAddress:  clientIP(c),
 		UserAgent:  c.Request.UserAgent(),
@@ -219,7 +224,7 @@ func (h *Handler) GoogleLogin(c *gin.Context) {
 		EmailVerified: profile.EmailVerified == "true",
 		DisplayName:   profile.Name,
 		AvatarURL:     profile.Picture,
-		Domain:        authRequestDomain(c, req.Domain),
+		Domain:        h.authRequestDomain(c, req.Domain),
 		DeviceName:    req.DeviceName,
 		IPAddress:     clientIP(c),
 		UserAgent:     c.Request.UserAgent(),
@@ -270,7 +275,7 @@ func (h *Handler) Register(c *gin.Context) {
 		Email:       req.Email,
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
-		Domain:      authRequestDomain(c, req.Domain),
+		Domain:      h.authRequestDomain(c, req.Domain),
 		InviteToken: req.InviteToken,
 		Password:    req.Password,
 		DeviceName:  req.DeviceName,
@@ -294,7 +299,7 @@ func (h *Handler) Login(c *gin.Context) {
 	result, err := h.service.Login(c.Request.Context(), authapp.LoginInput{
 		Identifier: req.Identifier,
 		Password:   req.Password,
-		Domain:     authRequestDomain(c, req.Domain),
+		Domain:     h.authRequestDomain(c, req.Domain),
 		DeviceName: req.DeviceName,
 		IPAddress:  clientIP(c),
 		UserAgent:  c.Request.UserAgent(),
@@ -315,7 +320,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 
 	result, err := h.service.Refresh(c.Request.Context(), authapp.RefreshInput{
 		RefreshToken: req.RefreshToken,
-		Domain:       authRequestDomain(c, req.Domain),
+		Domain:       h.authRequestDomain(c, req.Domain),
 	})
 	if err != nil {
 		response.Error(c, err)
@@ -381,11 +386,17 @@ func (h *Handler) RevokeAllSessions(c *gin.Context) {
 	response.NoContent(c)
 }
 
-func authRequestDomain(c *gin.Context, bodyDomain string) string {
+func (h *Handler) authRequestDomain(c *gin.Context, bodyDomain string) string {
+	if h.instanceDomain != "" {
+		return h.instanceDomain
+	}
 	if value := strings.TrimSpace(bodyDomain); value != "" {
 		return value
 	}
-	return c.Request.Host
+	if host := strings.TrimSpace(c.Request.Host); host != "" {
+		return host
+	}
+	return strings.TrimSpace(bodyDomain)
 }
 
 func requestOrigin(c *gin.Context) string {

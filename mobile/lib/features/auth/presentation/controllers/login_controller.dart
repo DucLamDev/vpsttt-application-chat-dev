@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/providers/foundation_providers.dart';
+import '../../../../core/network/self_hosted_server_discovery.dart';
 import '../../../../core/network/self_hosted_server_uri.dart';
 import '../../../../core/result/result.dart';
 import '../../../../core/security/secure_key_value_store.dart';
@@ -11,7 +12,8 @@ import '../../domain/entities/auth_session.dart';
 
 enum AuthFormMode { login, register }
 
-typedef ServerConnector = Future<void> Function(String domain);
+typedef ServerConnector =
+    Future<SelfHostedServerDiscovery> Function(String domain);
 
 final serverConnectorProvider = Provider<ServerConnector>((ref) {
   return (domain) => _connectToServer(ref, domain);
@@ -19,8 +21,9 @@ final serverConnectorProvider = Provider<ServerConnector>((ref) {
 
 final loginControllerProvider =
     StateNotifierProvider.autoDispose<LoginController, LoginState>((ref) {
+      final activeServer = ref.read(activeServerUriProvider);
       return LoginController(
-        initialDomain: ref.read(activeServerUriProvider).host,
+        initialServer: _serverInputFromUri(activeServer),
         connectToServer: ref.read(serverConnectorProvider),
         login: (command) => ref.read(loginUseCaseProvider).execute(command),
         register: (command) =>
@@ -46,6 +49,8 @@ final class LoginState {
     this.isGoogleLoading = false,
     this.errorMessage,
     this.succeeded = false,
+    this.serverName,
+    this.registrationMode,
   });
 
   final AuthFormMode mode;
@@ -63,6 +68,8 @@ final class LoginState {
   final bool isGoogleLoading;
   final String? errorMessage;
   final bool succeeded;
+  final String? serverName;
+  final String? registrationMode;
 
   bool get isLogin => mode == AuthFormMode.login;
 
@@ -100,6 +107,9 @@ final class LoginState {
     String? errorMessage,
     bool clearError = false,
     bool? succeeded,
+    String? serverName,
+    String? registrationMode,
+    bool clearServer = false,
   }) {
     return LoginState(
       mode: mode ?? this.mode,
@@ -117,14 +127,19 @@ final class LoginState {
       isGoogleLoading: isGoogleLoading ?? this.isGoogleLoading,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       succeeded: succeeded ?? this.succeeded,
+      serverName: clearServer ? null : serverName ?? this.serverName,
+      registrationMode: clearServer
+          ? null
+          : registrationMode ?? this.registrationMode,
     );
   }
 }
 
 final class LoginController extends StateNotifier<LoginState> {
   LoginController({
-    required String initialDomain,
-    required Future<void> Function(String domain) connectToServer,
+    required String initialServer,
+    required Future<SelfHostedServerDiscovery> Function(String domain)
+    connectToServer,
     required Future<Result<AuthSession>> Function(LoginCommand command) login,
     required Future<Result<AuthSession>> Function(RegisterCommand command)
     register,
@@ -133,9 +148,10 @@ final class LoginController extends StateNotifier<LoginState> {
        _login = login,
        _register = register,
        _googleLogin = googleLogin,
-       super(LoginState(domain: initialDomain));
+       super(LoginState(domain: initialServer));
 
-  final Future<void> Function(String domain) _connectToServer;
+  final Future<SelfHostedServerDiscovery> Function(String domain)
+  _connectToServer;
   final Future<Result<AuthSession>> Function(LoginCommand command) _login;
   final Future<Result<AuthSession>> Function(RegisterCommand command) _register;
   final Future<Result<AuthSession>> Function() _googleLogin;
@@ -167,7 +183,12 @@ final class LoginController extends StateNotifier<LoginState> {
   }
 
   void updateDomain(String value) {
-    state = state.copyWith(domain: value, clearError: true, succeeded: false);
+    state = state.copyWith(
+      domain: value,
+      clearError: true,
+      succeeded: false,
+      clearServer: true,
+    );
   }
 
   void updateIdentifier(String value) {
@@ -208,8 +229,9 @@ final class LoginController extends StateNotifier<LoginState> {
     }
 
     state = state.copyWith(isLoading: true, clearError: true, succeeded: false);
+    late final SelfHostedServerDiscovery server;
     try {
-      await _connectToServer(state.domain);
+      server = await _connectToServer(state.domain);
     } on Object catch (error) {
       state = state.copyWith(
         isLoading: false,
@@ -218,6 +240,21 @@ final class LoginController extends StateNotifier<LoginState> {
       );
       return;
     }
+    if (!state.isLogin && !server.canRegister) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: server.registrationMode == 'invite_only'
+            ? 'Server ${server.name} chỉ nhận tài khoản qua lời mời.'
+            : 'Server ${server.name} đang đóng đăng ký tài khoản.',
+        serverName: server.name,
+        registrationMode: server.registrationMode,
+      );
+      return;
+    }
+    state = state.copyWith(
+      serverName: server.name,
+      registrationMode: server.registrationMode,
+    );
     final result = state.isLogin
         ? await _login(
             LoginCommand(
@@ -230,7 +267,6 @@ final class LoginController extends StateNotifier<LoginState> {
               displayName: state.displayName,
               email: state.email,
               username: state.username,
-              domain: state.domain,
               password: state.password,
               confirmPassword: state.confirmPassword,
             ),
@@ -260,7 +296,11 @@ final class LoginController extends StateNotifier<LoginState> {
       succeeded: false,
     );
     try {
-      await _connectToServer(state.domain);
+      final server = await _connectToServer(state.domain);
+      state = state.copyWith(
+        serverName: server.name,
+        registrationMode: server.registrationMode,
+      );
     } on Object catch (error) {
       state = state.copyWith(
         isLoading: false,
@@ -289,8 +329,11 @@ final class LoginController extends StateNotifier<LoginState> {
   }
 }
 
-Future<void> _connectToServer(Ref ref, String rawDomain) async {
-  final uri = parseSelfHostedServerUri(rawDomain);
+Future<SelfHostedServerDiscovery> _connectToServer(
+  Ref ref,
+  String rawDomain,
+) async {
+  final serverUri = parseSelfHostedServerUri(rawDomain);
   final response =
       await Dio(
         BaseOptions(
@@ -299,21 +342,30 @@ Future<void> _connectToServer(Ref ref, String rawDomain) async {
           followRedirects: true,
         ),
       ).getUri<Object>(
-        uri
+        serverUri
             .resolve('/api/v1/discovery')
-            .replace(queryParameters: {'domain': uri.host}),
+            .replace(queryParameters: {'domain': serverUri.host}),
       );
-  final body = response.data;
-  if (response.statusCode != 200 ||
-      body is! Map ||
-      body['data'] is! Map ||
-      (body['data'] as Map)['discovery'] is! Map) {
-    throw StateError('Server không trả discovery VPSTTT Chat hợp lệ.');
+  if (response.statusCode != 200) {
+    throw StateError('Server không trả discovery WebTUI Chat hợp lệ.');
+  }
+  final discovery = SelfHostedServerDiscovery.fromApiResponse(
+    payload: response.data,
+    requestedServer: serverUri,
+  );
+  final activeServer = ref.read(activeServerUriProvider);
+  if (activeServer != discovery.apiBaseUri) {
+    await ref.read(sessionStateRepositoryProvider).resetForLogout();
   }
   await ref
       .read(secureKeyValueStoreProvider)
-      .write(SecureStoreKey.instanceBaseUrl, uri.toString());
-  ref.read(activeServerUriProvider.notifier).state = uri;
+      .write(SecureStoreKey.instanceBaseUrl, discovery.apiBaseUri.toString());
+  await ref
+      .read(secureKeyValueStoreProvider)
+      .write(SecureStoreKey.instanceWsBaseUrl, discovery.wsBaseUri.toString());
+  ref.read(activeServerUriProvider.notifier).state = discovery.apiBaseUri;
+  ref.read(activeServerWsUriProvider.notifier).state = discovery.wsBaseUri;
+  return discovery;
 }
 
 String _serverError(Object error) {
@@ -324,4 +376,15 @@ String _serverError(Object error) {
       .toString()
       .replaceFirst(RegExp(r'^(StateError|FormatException):\s*'), '')
       .trim();
+}
+
+String _serverInputFromUri(Uri uri) {
+  final isLocal =
+      uri.host == 'localhost' ||
+      uri.host == '127.0.0.1' ||
+      uri.host.endsWith('.localhost');
+  if (isLocal || uri.scheme != 'https' || uri.hasPort) {
+    return uri.toString().replaceFirst(RegExp(r'/$'), '');
+  }
+  return uri.host;
 }

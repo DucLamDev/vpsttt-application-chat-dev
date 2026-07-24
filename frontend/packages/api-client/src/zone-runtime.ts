@@ -19,8 +19,12 @@ export function localizeZoneRuntime(
   return {
     ...discovered,
     web_base_url: trimTrailingSlash(currentOrigin),
-    api_base_url: trimTrailingSlash(apiBaseUrl),
-    ws_base_url: trimTrailingSlash(wsBaseUrl)
+    api_base_url: trimTrailingSlash(
+      isLocalRuntimeUrl(apiBaseUrl) ? apiBaseUrl : discovered.api_base_url
+    ),
+    ws_base_url: trimTrailingSlash(
+      isLocalRuntimeUrl(wsBaseUrl) ? wsBaseUrl : discovered.ws_base_url
+    )
   };
 }
 
@@ -106,4 +110,12 @@ export function serverDiscoveryBaseUrl(
 function trimTrailingSlash(value: string): string {
   const normalized = value.trim();
   return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
+}
+
+function isLocalRuntimeUrl(value: string): boolean {
+  try {
+    return isLocalHostname(new URL(value).hostname);
+  } catch {
+    return false;
+  }
 }

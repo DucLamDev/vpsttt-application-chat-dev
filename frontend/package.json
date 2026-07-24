@@ -10,9 +10,11 @@
   "scripts": {
     "dev:web": "npm --workspace @webtui/web run dev",
     "dev:admin": "npm --workspace @webtui/admin run dev",
+    "dev:portal": "npm --workspace @webtui/portal run dev",
     "dev:desktop": "npm --workspace @webtui/desktop run dev",
     "build:web": "npm --workspace @webtui/web run build",
     "build:admin": "npm --workspace @webtui/admin run build",
+    "build:portal": "npm --workspace @webtui/portal run build",
     "build:desktop": "npm --workspace @webtui/desktop run build",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",

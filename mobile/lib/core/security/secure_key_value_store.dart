@@ -5,6 +5,7 @@ enum SecureStoreKey {
   refreshToken('refresh_token'),
   deviceId('device_id'),
   instanceBaseUrl('instance_base_url'),
+  instanceWsBaseUrl('instance_ws_base_url'),
   activeWorkspaceId('active_workspace_id'),
   appLockEnabled('app_lock_enabled'),
   appLockPinHash('app_lock_pin_hash');

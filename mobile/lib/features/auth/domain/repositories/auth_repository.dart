@@ -14,7 +14,6 @@ abstract interface class AuthRepository {
     required String displayName,
     required String email,
     required String username,
-    required String domain,
     required String password,
     required DeviceIdentity device,
   });

@@ -113,13 +113,13 @@ class _LoginContent extends StatelessWidget {
         const _AuthTitle(
           center: true,
           title: 'Chào mừng trở lại',
-          subtitle: 'Đăng nhập để tiếp tục trò chuyện cùng WebTui',
+          subtitle: 'Đăng nhập vào server chat của công ty bạn',
         ),
         const SizedBox(height: 30),
         _AuthTextField(
           fieldKey: const Key('login_domain_field'),
           initialValue: state.domain,
-          label: 'Domain server',
+          label: 'Địa chỉ server',
           hint: 'chat.example.com',
           icon: Icons.dns_outlined,
           enabled: !state.isLoading,
@@ -225,7 +225,7 @@ class _RegisterContent extends StatelessWidget {
         const _AuthTitle(
           center: true,
           title: 'Tạo tài khoản mới',
-          subtitle: 'Một tài khoản, mọi cuộc trò chuyện công việc',
+          subtitle: 'Tài khoản được tạo trên server đã chọn',
         ),
         const SizedBox(height: 24),
         _AuthTextField(
@@ -265,7 +265,7 @@ class _RegisterContent extends StatelessWidget {
         _AuthTextField(
           fieldKey: const Key('register_domain_field'),
           initialValue: state.domain,
-          label: 'Domain server',
+          label: 'Địa chỉ server',
           hint: 'chat.example.com',
           icon: Icons.language_rounded,
           enabled: !state.isLoading,
