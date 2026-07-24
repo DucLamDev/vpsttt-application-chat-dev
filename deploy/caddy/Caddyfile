@@ -24,7 +24,7 @@ https:// {
 		reverse_proxy api:8080
 	}
 
-	@api path /.well-known/vpsttt-chat /api/* /health /ready /version /metrics /desktop/releases* /mobile/releases* /downloads/manifest*
+	@api path /.well-known/vpsttt-chat /api /api/* /health /ready /version /metrics /desktop/releases* /mobile/releases* /downloads/manifest*
 	handle @api {
 		reverse_proxy api:8080
 	}

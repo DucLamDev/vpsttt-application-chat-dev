@@ -45,7 +45,6 @@ func TestOpenAPIParsesAndContainsMobileP0Paths(t *testing.T) {
 		"/mobile/releases/{platform}/{channel}/{current_version}",
 		"/downloads/manifest/{channel}",
 		"/api/v1/mobile/devices",
-		"/api/v1/video/zego-token",
 		"/api/v1/workspaces/{workspace_id}/sync",
 		"/api/v1/workspaces/{workspace_id}/calls",
 		"/api/v1/workspaces/{workspace_id}/channels/{channel_id}/media",

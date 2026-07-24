@@ -1,10 +1,33 @@
-# WebTui Chat Backend
+# VPSTTT Chat
 
-Đây là repository thiết kế kiến trúc cho WebTui Chat theo hướng Go + Gin, Clean Architecture, WebSocket realtime, RabbitMQ cho bất đồng bộ, PostgreSQL/Redis/MinIO cho dữ liệu và GitHub Actions cho CI/CD.
+VPSTTT Chat là phần mềm chat self-hosted. Mỗi customer cài một instance trên
+VPS/hạ tầng của họ với domain, PostgreSQL, Redis, RabbitMQ, storage, TLS,
+secret và TURN riêng. VPSTTT không provision zone customer trên hạ tầng dùng
+chung và không giữ dữ liệu chat của customer.
+
+## Cài self-hosted
+
+```sh
+sh deploy/self-hosted/install.sh \
+  --domain chat.example.com \
+  --email admin@example.com \
+  --name "Example Chat"
+```
+
+Chi tiết yêu cầu hạ tầng, firewall, backup và restore:
+[deploy/self-hosted/README.md](deploy/self-hosted/README.md).
+
+Người dùng nhập domain của instance để kết nối. Domain input chỉ discovery một
+server đã được customer cài trước, không tạo tenant SaaS. Tài khoản đăng ký đầu
+tiên trở thành owner và instance tự chuyển sang chế độ chỉ nhận lời mời.
+
+Backend dùng Go + Gin, WebSocket, RabbitMQ, PostgreSQL và Redis. Cuộc gọi 1:1
+dùng WebRTC với coturn của chính customer.
 
 ## Tài liệu chính
 
 - [CleanArchitecture.md](CleanArchitecture.md): bản thiết kế tổng quan.
+- [deploy/self-hosted/README.md](deploy/self-hosted/README.md): cài và vận hành instance customer.
 - [docs/README.md](docs/README.md): mục lục tài liệu dự án.
 - [docs/architecture/source-layout.md](docs/architecture/source-layout.md): cấu trúc thư mục nguồn.
 - [docs/architecture/backend-clean-architecture.md](docs/architecture/backend-clean-architecture.md): quy tắc Clean Architecture cho backend.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -27,6 +28,7 @@ var defaultCORSAllowedOrigins = []string{
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 var oidcSecretAliasPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+var instanceDomainPattern = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 
 type Config struct {
 	App          AppConfig
@@ -41,8 +43,9 @@ type Config struct {
 	RabbitMQ     RabbitMQConfig
 	Storage      StorageConfig
 	Security     SecurityConfig
-	ZegoCloud    ZegoCloudConfig
+	Calls        CallsConfig
 	Firebase     FirebaseConfig
+	Deployment   DeploymentConfig
 	Registration RegistrationConfig
 	Order        OrderConfig
 }
@@ -140,12 +143,9 @@ type SecurityConfig struct {
 	OIDCClientSecrets    map[string]string
 }
 
-type ZegoCloudConfig struct {
-	AppID        uint32
-	AppSign      string
-	ServerSecret string
-	TokenTTL     time.Duration
-	RingTimeout  time.Duration
+type CallsConfig struct {
+	RingTimeout time.Duration
+	ICEServers  []map[string]any
 }
 
 type FirebaseConfig struct {
@@ -154,8 +154,20 @@ type FirebaseConfig struct {
 	ServiceAccountJSONBase64 string
 }
 
+type DeploymentConfig struct {
+	Mode           string
+	InstanceDomain string
+	InstanceName   string
+}
+
+func (c DeploymentConfig) IsSelfHosted() bool {
+	return strings.EqualFold(strings.TrimSpace(c.Mode), "self_hosted")
+}
+
 type RegistrationConfig struct {
-	DefaultWorkspaceID string
+	DefaultWorkspaceID    string
+	CustomDomainDNSType   string
+	CustomDomainDNSTarget string
 }
 
 type OrderConfig struct {
@@ -166,10 +178,21 @@ type OrderConfig struct {
 }
 
 func Load() (*Config, error) {
+	appEnv := getEnv("APP_ENV", "dev")
+	deploymentMode := strings.ToLower(getEnv("DEPLOYMENT_MODE", "self_hosted"))
+	instanceDomainFallback := ""
+	orderAPIBaseURLFallback := ""
+	if deploymentMode == "self_hosted" && appEnv != "production" {
+		instanceDomainFallback = "localhost"
+	}
+	if deploymentMode == "saas" {
+		orderAPIBaseURLFallback = "https://order.vpsttt.com/api"
+	}
+
 	cfg := &Config{
 		App: AppConfig{
 			Name:        getEnv("APP_NAME", "webtui-chat"),
-			Env:         getEnv("APP_ENV", "dev"),
+			Env:         appEnv,
 			URL:         getEnv("APP_URL", "http://localhost:8080"),
 			Version:     getEnv("APP_VERSION", "dev"),
 			LogLevel:    getEnv("LOG_LEVEL", "info"),
@@ -248,23 +271,33 @@ func Load() (*Config, error) {
 			OIDCStateSecret:      getEnv("OIDC_STATE_SECRET", ""),
 			OIDCClientSecrets:    getEnvMap("OIDC_CLIENT_SECRETS"),
 		},
-		ZegoCloud: ZegoCloudConfig{
-			AppID:        getEnvUint32("ZEGO_APP_ID", 0),
-			AppSign:      getEnv("ZEGO_APP_SIGN", ""),
-			ServerSecret: getEnv("ZEGO_SERVER_SECRET", ""),
-			TokenTTL:     getEnvDuration("ZEGO_TOKEN_TTL", 24*time.Hour),
-			RingTimeout:  getEnvDuration("ZEGO_CALL_RING_TIMEOUT", 30*time.Second),
+		Calls: CallsConfig{
+			RingTimeout: getEnvDuration("CALL_RING_TIMEOUT", 30*time.Second),
+			ICEServers: getEnvJSONObjectList(
+				"RTC_ICE_SERVERS",
+				getEnvJSONObjectList(
+					"NEXT_PUBLIC_RTC_ICE_SERVERS",
+					[]map[string]any{{"urls": "stun:stun.l.google.com:19302"}},
+				),
+			),
 		},
 		Firebase: FirebaseConfig{
 			ProjectID:                getEnv("FIREBASE_PROJECT_ID", ""),
 			ServiceAccountFile:       getEnv("FIREBASE_SERVICE_ACCOUNT_FILE", ""),
 			ServiceAccountJSONBase64: getEnv("FIREBASE_SERVICE_ACCOUNT_JSON_BASE64", ""),
 		},
+		Deployment: DeploymentConfig{
+			Mode:           deploymentMode,
+			InstanceDomain: strings.ToLower(strings.TrimSpace(getEnv("INSTANCE_DOMAIN", instanceDomainFallback))),
+			InstanceName:   strings.TrimSpace(getEnv("INSTANCE_NAME", "VPSTTT Chat")),
+		},
 		Registration: RegistrationConfig{
-			DefaultWorkspaceID: getEnv("REGISTRATION_DEFAULT_WORKSPACE_ID", ""),
+			DefaultWorkspaceID:    getEnv("REGISTRATION_DEFAULT_WORKSPACE_ID", ""),
+			CustomDomainDNSType:   strings.ToUpper(getEnv("CUSTOM_DOMAIN_DNS_TYPE", "")),
+			CustomDomainDNSTarget: getEnv("CUSTOM_DOMAIN_DNS_TARGET", ""),
 		},
 		Order: OrderConfig{
-			BaseURL:        getEnv("ORDER_API_BASE_URL", "https://order.vpsttt.com/api"),
+			BaseURL:        getEnv("ORDER_API_BASE_URL", orderAPIBaseURLFallback),
 			InternalAPIKey: getEnv("ORDER_INTERNAL_API_KEY", ""),
 			QuickOrderKey:  getEnv("ORDER_QUICK_ORDER_KEY", ""),
 			Timeout:        getEnvDuration("ORDER_API_TIMEOUT", 10*time.Second),
@@ -334,28 +367,46 @@ func (c *Config) Validate() error {
 	if c.Order.Timeout <= 0 {
 		problems = append(problems, "ORDER_API_TIMEOUT must be greater than 0")
 	}
-	zegoConfigured := c.ZegoCloud.AppID != 0 || strings.TrimSpace(c.ZegoCloud.AppSign) != "" || strings.TrimSpace(c.ZegoCloud.ServerSecret) != ""
-	if zegoConfigured {
-		if c.ZegoCloud.AppID == 0 {
-			problems = append(problems, "ZEGO_APP_ID must be configured when ZEGOCLOUD is enabled")
-		}
-		if strings.TrimSpace(c.ZegoCloud.AppSign) == "" {
-			problems = append(problems, "ZEGO_APP_SIGN must be configured when ZEGOCLOUD is enabled")
-		}
-		if strings.TrimSpace(c.ZegoCloud.ServerSecret) == "" {
-			problems = append(problems, "ZEGO_SERVER_SECRET must be configured when ZEGOCLOUD is enabled")
-		} else if len(c.ZegoCloud.ServerSecret) != 32 {
-			problems = append(problems, "ZEGO_SERVER_SECRET must be a 32 byte string")
-		}
+	if c.Calls.RingTimeout <= 0 {
+		problems = append(problems, "CALL_RING_TIMEOUT must be greater than 0")
 	}
-	if c.ZegoCloud.TokenTTL <= 0 {
-		problems = append(problems, "ZEGO_TOKEN_TTL must be greater than 0")
-	}
-	if c.ZegoCloud.RingTimeout <= 0 {
-		problems = append(problems, "ZEGO_CALL_RING_TIMEOUT must be greater than 0")
+	switch strings.ToLower(strings.TrimSpace(c.Deployment.Mode)) {
+	case "saas":
+	case "self_hosted":
+		domain := strings.ToLower(strings.TrimSpace(c.Deployment.InstanceDomain))
+		validLocalDomain := c.App.Env != "production" &&
+			(domain == "localhost" || net.ParseIP(domain) != nil || strings.HasSuffix(domain, ".localhost"))
+		if domain == "" || (!instanceDomainPattern.MatchString(domain) && !validLocalDomain) {
+			problems = append(problems, "INSTANCE_DOMAIN must be a valid public domain when DEPLOYMENT_MODE=self_hosted")
+		}
+		if strings.TrimSpace(c.Deployment.InstanceName) == "" {
+			problems = append(problems, "INSTANCE_NAME must not be empty when DEPLOYMENT_MODE=self_hosted")
+		}
+	default:
+		problems = append(problems, "DEPLOYMENT_MODE only supports saas or self_hosted")
 	}
 	if c.Registration.DefaultWorkspaceID != "" && !uuidPattern.MatchString(c.Registration.DefaultWorkspaceID) {
 		problems = append(problems, "REGISTRATION_DEFAULT_WORKSPACE_ID must be a valid UUID")
+	}
+	customDomainDNSType := strings.ToUpper(strings.TrimSpace(c.Registration.CustomDomainDNSType))
+	customDomainDNSTarget := strings.TrimSpace(c.Registration.CustomDomainDNSTarget)
+	if (customDomainDNSType == "") != (customDomainDNSTarget == "") {
+		problems = append(problems, "CUSTOM_DOMAIN_DNS_TYPE and CUSTOM_DOMAIN_DNS_TARGET must be configured together")
+	}
+	if customDomainDNSType != "" {
+		ip := net.ParseIP(customDomainDNSTarget)
+		switch customDomainDNSType {
+		case "A":
+			if ip == nil || ip.To4() == nil {
+				problems = append(problems, "CUSTOM_DOMAIN_DNS_TARGET must be a valid IPv4 address when CUSTOM_DOMAIN_DNS_TYPE=A")
+			}
+		case "AAAA":
+			if ip == nil || ip.To4() != nil {
+				problems = append(problems, "CUSTOM_DOMAIN_DNS_TARGET must be a valid IPv6 address when CUSTOM_DOMAIN_DNS_TYPE=AAAA")
+			}
+		default:
+			problems = append(problems, "CUSTOM_DOMAIN_DNS_TYPE only supports A or AAAA")
+		}
 	}
 	if strings.TrimSpace(c.Order.BaseURL) != "" {
 		parsed, err := url.Parse(strings.TrimSpace(c.Order.BaseURL))
@@ -438,19 +489,6 @@ func getEnvInt(key string, fallback int) int {
 	return value
 }
 
-func getEnvUint32(key string, fallback uint32) uint32 {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-
-	value, err := strconv.ParseUint(raw, 10, 32)
-	if err != nil {
-		return fallback
-	}
-	return uint32(value)
-}
-
 func getEnvBool(key string, fallback bool) bool {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
@@ -475,6 +513,18 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return value
+}
+
+func getEnvJSONObjectList(key string, fallback []map[string]any) []map[string]any {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	var values []map[string]any
+	if err := json.Unmarshal([]byte(raw), &values); err != nil || len(values) == 0 {
+		return fallback
+	}
+	return values
 }
 
 func getEnvCSV(key string, fallback []string) []string {

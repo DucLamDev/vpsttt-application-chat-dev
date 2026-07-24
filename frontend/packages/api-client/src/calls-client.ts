@@ -29,6 +29,8 @@ export type CreateCallInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type CallSignalType = "offer" | "answer" | "ice_candidate" | "ready";
+
 export function createCallsClient(http: HttpClient) {
   const basePath = (workspaceId: string) => `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/calls`;
   const callPath = (workspaceId: string, callId: string) => `${basePath(workspaceId)}/${encodeURIComponent(callId)}`;
@@ -63,6 +65,17 @@ export function createCallsClient(http: HttpClient) {
     },
     miss(workspaceId: string, callId: string, reason?: string) {
       return unwrapCall(http.post<unknown>(`${callPath(workspaceId, callId)}/miss`, { reason }));
+    },
+    signal(
+      workspaceId: string,
+      callId: string,
+      signalType: CallSignalType,
+      payload: Record<string, unknown>
+    ) {
+      return http.post<unknown>(`${callPath(workspaceId, callId)}/signals`, {
+        payload,
+        signal_type: signalType
+      });
     }
   };
 }

@@ -264,9 +264,13 @@ func (r *Repository) provisionRegistrationAccess(
 	inviteToken string,
 	target authapp.ZoneAccess,
 ) error {
-	if err := validateZoneTarget(ctx, tx, target); err != nil {
+	currentTarget, err := lockRegistrationTarget(ctx, tx, target)
+	if err != nil {
 		return err
 	}
+	target.ZoneKind = currentTarget.ZoneKind
+	target.ZoneStatus = currentTarget.ZoneStatus
+	target.RegistrationMode = currentTarget.RegistrationMode
 
 	var inviteID string
 	var inviteRoleID string
@@ -309,9 +313,21 @@ FOR UPDATE
 	if err := addWorkspaceMembership(ctx, tx, userID, target.WorkspaceID, inviteRoleID); err != nil {
 		return err
 	}
-	if target.ZoneKind == "vpsttt_internal" {
-		if err := claimInternalWorkspaceOwnership(ctx, tx, userID, target.WorkspaceID); err != nil {
+	if target.ZoneKind == "vpsttt_internal" || target.ZoneKind == "customer_dedicated" {
+		claimed, err := claimInitialWorkspaceOwnership(ctx, tx, userID, target.WorkspaceID)
+		if err != nil {
 			return err
+		}
+		if claimed && target.ZoneKind == "customer_dedicated" {
+			if _, err := tx.Exec(ctx, `
+UPDATE zones
+SET registration_mode = 'invite_only'
+WHERE id = $1::uuid
+  AND registration_mode = 'open'
+  AND deleted_at IS NULL
+`, target.ZoneID); err != nil {
+				return err
+			}
 		}
 	}
 	if inviteID != "" {
@@ -327,12 +343,43 @@ WHERE id = $1::uuid
 	return nil
 }
 
-func claimInternalWorkspaceOwnership(
+func lockRegistrationTarget(
+	ctx context.Context,
+	tx pgx.Tx,
+	target authapp.ZoneAccess,
+) (authapp.ZoneAccess, error) {
+	err := tx.QueryRow(ctx, `
+SELECT zone.kind, zone.status, zone.registration_mode
+FROM zones zone
+JOIN workspaces workspace
+  ON workspace.id = $2::uuid
+ AND workspace.zone_id = zone.id
+ AND workspace.status = 'active'
+ AND workspace.deleted_at IS NULL
+WHERE zone.id = $1::uuid
+  AND zone.status = 'active'
+  AND zone.deleted_at IS NULL
+FOR UPDATE OF zone, workspace
+`, target.ZoneID, target.WorkspaceID).Scan(
+		&target.ZoneKind,
+		&target.ZoneStatus,
+		&target.RegistrationMode,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authapp.ZoneAccess{}, authdomain.ErrRegistrationClosed
+	}
+	if err != nil {
+		return authapp.ZoneAccess{}, err
+	}
+	return target, nil
+}
+
+func claimInitialWorkspaceOwnership(
 	ctx context.Context,
 	tx pgx.Tx,
 	userID string,
 	workspaceID string,
-) error {
+) (bool, error) {
 	tag, err := tx.Exec(ctx, `
 UPDATE workspaces
 SET owner_id = $2::uuid
@@ -340,8 +387,11 @@ WHERE id = $1::uuid
   AND owner_id IS NULL
   AND deleted_at IS NULL
 `, workspaceID, userID)
-	if err != nil || tag.RowsAffected() == 0 {
-		return err
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
 	}
 
 	if _, err = tx.Exec(ctx, `
@@ -356,7 +406,7 @@ ORDER BY role.created_at
 LIMIT 1
 ON CONFLICT (workspace_id, user_id, role_id) DO NOTHING
 `, workspaceID, userID); err != nil {
-		return err
+		return false, err
 	}
 
 	var hasOwnerRole bool
@@ -372,12 +422,12 @@ SELECT EXISTS (
       AND member_role.user_id = $2::uuid
 )
 `, workspaceID, userID).Scan(&hasOwnerRole); err != nil {
-		return err
+		return false, err
 	}
 	if !hasOwnerRole {
-		return defaultWorkspaceUnavailable("workspace_owner_role_unavailable")
+		return false, defaultWorkspaceUnavailable("workspace_owner_role_unavailable")
 	}
-	return nil
+	return true, nil
 }
 
 func (r *Repository) ensureZoneWorkspaceAccess(

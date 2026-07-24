@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -110,11 +111,12 @@ func (c fakeCallChecker) HasWorkspacePermission(context.Context, string, string,
 
 type fakeRealtime struct {
 	events []RealtimeEvent
+	err    error
 }
 
 func (p *fakeRealtime) Publish(_ context.Context, event RealtimeEvent) error {
 	p.events = append(p.events, event)
-	return nil
+	return p.err
 }
 
 type fakeCallNotifications struct {
@@ -173,6 +175,114 @@ func TestCreatePublishesCallInvited(t *testing.T) {
 	}
 	if len(realtime.events) != 1 || realtime.events[0].Type != "CallInvited" || realtime.events[0].TargetUserID != "user-2" {
 		t.Fatalf("realtime event không đúng: %#v", realtime.events)
+	}
+}
+
+func TestSendSignalRequiresAcceptedCallAndCorrectSDPRole(t *testing.T) {
+	call := callsdomain.Call{
+		ID:              "call-1",
+		WorkspaceID:     "workspace-1",
+		ChannelID:       "channel-1",
+		InitiatorUserID: "user-1",
+		TargetUserID:    "user-2",
+		Mode:            "video",
+		Status:          "ringing",
+	}
+	repo := &fakeCallRepo{call: call}
+	service := NewService(repo, fakeCallChecker{allowed: true}, nil)
+
+	_, err := service.SendSignal(context.Background(), SignalInput{
+		ActorUserID: "user-1",
+		WorkspaceID: "workspace-1",
+		CallID:      "call-1",
+		SignalType:  "offer",
+		Payload:     json.RawMessage(`{"sdp":{"type":"offer","sdp":"v=0"}}`),
+	})
+	if err == nil || repo.lastSignal.CallID != "" {
+		t.Fatalf("ringing call signal = %#v, error = %v; want rejected", repo.lastSignal, err)
+	}
+
+	repo.call.Status = "accepted"
+	_, err = service.SendSignal(context.Background(), SignalInput{
+		ActorUserID: "user-2",
+		WorkspaceID: "workspace-1",
+		CallID:      "call-1",
+		SignalType:  "offer",
+		Payload:     json.RawMessage(`{"sdp":{"type":"offer","sdp":"v=0"}}`),
+	})
+	if err == nil || repo.lastSignal.CallID != "" {
+		t.Fatalf("target offer = %#v, error = %v; want rejected", repo.lastSignal, err)
+	}
+}
+
+func TestSendSignalPublishesValidatedOffer(t *testing.T) {
+	repo := &fakeCallRepo{call: callsdomain.Call{
+		ID:              "call-1",
+		WorkspaceID:     "workspace-1",
+		ChannelID:       "channel-1",
+		InitiatorUserID: "user-1",
+		TargetUserID:    "user-2",
+		Mode:            "video",
+		Status:          "accepted",
+	}}
+	realtime := &fakeRealtime{}
+	service := NewService(repo, fakeCallChecker{allowed: true}, realtime)
+
+	_, err := service.SendSignal(context.Background(), SignalInput{
+		ActorUserID: "user-1",
+		WorkspaceID: "workspace-1",
+		CallID:      "call-1",
+		SignalType:  "offer",
+		Payload:     json.RawMessage(`{"sdp":{"type":"offer","sdp":"v=0"}}`),
+	})
+	if err != nil {
+		t.Fatalf("SendSignal() error = %v", err)
+	}
+	if repo.lastSignal.SignalType != "offer" || len(realtime.events) != 1 {
+		t.Fatalf("signal = %#v, events = %#v", repo.lastSignal, realtime.events)
+	}
+	if realtime.events[0].Type != "CallOffer" || realtime.events[0].TargetUserID != "user-2" {
+		t.Fatalf("unexpected realtime event: %#v", realtime.events[0])
+	}
+
+	_, err = service.SendSignal(context.Background(), SignalInput{
+		ActorUserID: "user-2",
+		WorkspaceID: "workspace-1",
+		CallID:      "call-1",
+		SignalType:  "ready",
+		Payload:     json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("SendSignal(ready) error = %v", err)
+	}
+	if len(realtime.events) != 2 || realtime.events[1].Type != "CallReady" ||
+		realtime.events[1].TargetUserID != "user-1" {
+		t.Fatalf("unexpected ready event: %#v", realtime.events)
+	}
+}
+
+func TestSendSignalReportsRealtimeDeliveryFailure(t *testing.T) {
+	repo := &fakeCallRepo{call: callsdomain.Call{
+		ID:              "call-1",
+		WorkspaceID:     "workspace-1",
+		ChannelID:       "channel-1",
+		InitiatorUserID: "user-1",
+		TargetUserID:    "user-2",
+		Mode:            "video",
+		Status:          "accepted",
+	}}
+	realtime := &fakeRealtime{err: errors.New("realtime unavailable")}
+	service := NewService(repo, fakeCallChecker{allowed: true}, realtime)
+
+	_, err := service.SendSignal(context.Background(), SignalInput{
+		ActorUserID: "user-1",
+		WorkspaceID: "workspace-1",
+		CallID:      "call-1",
+		SignalType:  "offer",
+		Payload:     json.RawMessage(`{"sdp":{"type":"offer","sdp":"v=0"}}`),
+	})
+	if err == nil {
+		t.Fatal("SendSignal() must report realtime delivery failure")
 	}
 }
 

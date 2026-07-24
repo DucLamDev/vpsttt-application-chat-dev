@@ -2,12 +2,19 @@
 
 Thư mục `deploy/` chứa cấu hình vận hành cho môi trường dev, staging và production.
 
+Kiến trúc mặc định là `self_hosted`: mỗi customer vận hành một stack vật lý
+riêng trong `deploy/self-hosted`. Các cấu hình dynamic domain/shared zone bên
+dưới chỉ còn phục vụ migration của deployment SaaS cũ.
+
 ## Thành phần
 
-- `docker`: Dockerfile, compose fragment hoặc image config.
-- `caddy`: reverse proxy mặc định cho custom domain và on-demand TLS.
-- `nginx/templates`: reverse proxy/certbot tĩnh cho deployment legacy.
-- `.env.example`: mẫu biến môi trường production, không chứa secret thật.
+- `self-hosted`: stack chuẩn cho customer, gồm Compose, Caddy TLS tĩnh, coturn,
+  installer và công cụ backup/restore/update.
+- `docker`: Dockerfile, compose fragment hoặc image config dùng chung.
+- `caddy`: reverse proxy on-demand TLS của deployment SaaS cũ.
+- `nginx/templates`: reverse proxy/certbot tĩnh của deployment SaaS cũ.
+- `.env.example`: mẫu biến môi trường của deployment SaaS cũ; bản customer dùng
+  `self-hosted/.env.example`.
 - `postgres`: cấu hình PostgreSQL, backup và restore.
 - `redis`: cấu hình Redis.
 - `rabbitmq`: production dùng CloudAMQP qua `RABBITMQ_URL=amqps://...`.
@@ -24,6 +31,13 @@ Thư mục `deploy/` chứa cấu hình vận hành cho môi trường dev, stag
 - Cấu hình production phải có backup và monitoring.
 - Deploy phải có health check sau khi restart.
 - Migration phải có đường rollback hoặc kế hoạch khôi phục dữ liệu.
+
+## Tương thích SaaS cũ
+
+Các mục từ phần này đến trước phần `Shared và dedicated` chỉ mô tả deployment SaaS
+cũ. Chúng không được đăng ký khi backend chạy mặc định với
+`DEPLOYMENT_MODE=self_hosted`.
+
 - Custom domain chỉ được Caddy cấp TLS khi internal ask endpoint xác nhận domain
   active trong `zone_domains`.
 - API phải resolve zone từ Host và đối chiếu với zone trong token trước khi truy
@@ -45,6 +59,28 @@ secret sai, domain không hợp lệ, chưa verify hoặc đã suspend.
 
 Mode `TLS_PROXY_MODE=nginx` chỉ dành cho cấu hình certificate tĩnh hiện có.
 
+## Routing cùng domain
+
+Mỗi domain active là một zone logic độc lập nhưng dùng cùng edge. Browser luôn gọi cùng
+origin để không phải tạo subdomain API riêng:
+
+| URL | Upstream |
+| --- | --- |
+| `https://customer.example/` | Web |
+| `https://customer.example/api` và `/api/*` | API |
+| `https://customer.example/.well-known/vpsttt-chat` | Discovery |
+| `wss://customer.example/ws` | Realtime API |
+| `https://customer.example/admin` | Admin |
+
+Khi tạo domain claim, API trả hai nhóm bản ghi:
+
+1. A/AAAA `customer.example` trỏ tới `CUSTOM_DOMAIN_DNS_TARGET`.
+2. TXT `_vpsttt-chat.customer.example` chứa challenge xác minh ownership.
+
+Chỉ sau khi TXT hợp lệ, zone/domain mới active. Caddy hỏi API trước khi xin certificate,
+do đó hostname chưa active không thể làm phát sinh certificate. Nginx giữ vai trò proxy
+dự phòng cho các hostname có certificate tĩnh và dùng cùng quy tắc route `/api`.
+
 ## OIDC SSO theo zone
 
 Runtime OIDC cần:
@@ -60,10 +96,12 @@ là `https://<zone-domain>/api/v1/auth/oidc/callback`.
 
 ## Shared và dedicated
 
-- `shared`: mọi customer dùng cùng app/database, tách logic bằng `zone_id`,
-  storage bucket và Redis prefix.
-- `dedicated_compose` và `dedicated_k8s`: mới là metadata contract ở Phase 4;
-  cần provisioning worker ở phase hạ tầng tiếp theo trước khi dùng production.
+- `self_hosted`/`dedicated_compose`: mode mặc định và đã có stack production.
+  Mỗi instance có database, cache, queue, storage, TLS và TURN riêng.
+- `shared`: mode tương thích deployment SaaS cũ, không dùng để onboard customer
+  mới.
+- `dedicated_k8s`: contract mở rộng cho operator cần Kubernetes; không phải
+  dependency của bản cài Compose.
 
 Backend đăng ký cả `/ws` và `/api/v1/ws`. Caddy/Nginx vẫn rewrite `/ws` để
 tương thích, nhưng deploy trực tiếp API không còn phụ thuộc reverse-proxy rewrite.

@@ -228,7 +228,11 @@ func TestDiscoverBuildsRuntimeFromDeployment(t *testing.T) {
 			Workspace: &tenancydomain.WorkspaceRef{ID: "workspace-1", Slug: "abc", Name: "ABC Chat"},
 		},
 	}
-	service := NewService(repo, Options{AppName: "VPSTTT Chat", AppVersion: "0.9.0"})
+	service := NewService(repo, Options{
+		AppName:        "VPSTTT Chat",
+		AppVersion:     "0.9.0",
+		DeploymentMode: "self_hosted",
+	})
 
 	discovery, err := service.Discover(context.Background(), "HTTPS://CHAT.ABC.COM")
 	if err != nil {
@@ -241,7 +245,8 @@ func TestDiscoverBuildsRuntimeFromDeployment(t *testing.T) {
 		t.Fatalf("api base = %q", discovery.Runtime.APIBaseURL)
 	}
 	if discovery.Capabilities.Federation || !discovery.Capabilities.Dedicated ||
-		!discovery.Capabilities.OIDCConfiguration {
+		!discovery.Capabilities.OIDCConfiguration || !discovery.Capabilities.SelfHosted ||
+		discovery.Capabilities.CustomDomain {
 		t.Fatalf("capabilities = %+v", discovery.Capabilities)
 	}
 	if discovery.Workspace == nil || discovery.Workspace.ID != "workspace-1" {
@@ -350,11 +355,12 @@ func TestCreateDomainClaimNormalizesAndSetsExpiry(t *testing.T) {
 		VerificationTTL: 2 * time.Hour,
 	})
 
-	if _, err := service.CreateDomainClaim(context.Background(), CreateDomainClaimInput{
+	claim, err := service.CreateDomainClaim(context.Background(), CreateDomainClaimInput{
 		ActorUserID: "user-1",
 		Domain:      "HTTPS://CHAT.Customer.Example/path",
 		ZoneName:    "Customer Chat",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateDomainClaim() error = %v", err)
 	}
 	if repo.createdClaimParams.Domain != "chat.customer.example" {
@@ -365,6 +371,40 @@ func TestCreateDomainClaimNormalizesAndSetsExpiry(t *testing.T) {
 	}
 	if !repo.createdClaimParams.ExpiresAt.Equal(now.Add(2 * time.Hour)) {
 		t.Fatalf("expires at = %s", repo.createdClaimParams.ExpiresAt)
+	}
+	if claim.RoutingDNSType != "" || claim.RoutingDNSName != "" || claim.RoutingDNSValue != "" {
+		t.Fatalf("routing DNS should be omitted when not configured: %+v", claim)
+	}
+}
+
+func TestCreateDomainClaimReturnsVPSRoutingRecord(t *testing.T) {
+	repo := &fakeRepo{
+		claim: tenancydomain.DomainClaim{
+			Zone: tenancydomain.Zone{ID: "zone-1", Name: "Customer Chat"},
+			Domain: tenancydomain.Domain{
+				ID:                "domain-1",
+				Domain:            "duclam.com",
+				VerificationToken: "token-123",
+			},
+		},
+	}
+	service := NewService(repo, Options{
+		RoutingDNSType:   "A",
+		RoutingDNSTarget: "160.191.55.144",
+	})
+
+	claim, err := service.CreateDomainClaim(context.Background(), CreateDomainClaimInput{
+		ActorUserID: "user-1",
+		Domain:      "duclam.com",
+		ZoneName:    "Duclam Chat",
+	})
+	if err != nil {
+		t.Fatalf("CreateDomainClaim() error = %v", err)
+	}
+	if claim.RoutingDNSType != "A" ||
+		claim.RoutingDNSName != "duclam.com" ||
+		claim.RoutingDNSValue != "160.191.55.144" {
+		t.Fatalf("routing DNS = %s %s %s", claim.RoutingDNSType, claim.RoutingDNSName, claim.RoutingDNSValue)
 	}
 }
 

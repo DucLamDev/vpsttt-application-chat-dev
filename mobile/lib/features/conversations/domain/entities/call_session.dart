@@ -14,6 +14,7 @@ enum CallSignalType {
   offer,
   answer,
   iceCandidate,
+  ready,
   ringing,
   accepted,
   rejected,

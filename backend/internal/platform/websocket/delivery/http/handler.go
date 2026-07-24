@@ -38,19 +38,6 @@ type clientCommand struct {
 	Payload map[string]any `json:"payload"`
 }
 
-var callSignalTypes = map[string]struct{}{
-	"CallOffer":        {},
-	"CallAnswer":       {},
-	"CallIceCandidate": {},
-	"CallInvited":      {},
-	"CallRinging":      {},
-	"CallAccepted":     {},
-	"CallRejected":     {},
-	"CallCancelled":    {},
-	"CallEnded":        {},
-	"CallMissed":       {},
-}
-
 func NewHandler(manager *platformws.Manager, tokens *sharedauth.Manager, authorizers ...RoomAuthorizer) *Handler {
 	handler := &Handler{manager: manager, tokens: tokens}
 	if len(authorizers) > 0 {
@@ -240,41 +227,6 @@ func (h *Handler) handleCommand(client *platformws.Client, command clientCommand
 				"user_id": client.UserID,
 			},
 		})
-	default:
-		eventType := strings.TrimSpace(command.Type)
-		if _, ok := callSignalTypes[eventType]; !ok {
-			return
-		}
-		if !h.manager.IsMember(room, client.ID) {
-			return
-		}
-		payload := command.Payload
-		if payload == nil {
-			payload = map[string]any{}
-		}
-		payload["user_id"] = client.UserID
-		_ = h.manager.Broadcast(context.Background(), room, platformws.Event{
-			Type:    eventType,
-			Room:    room,
-			UserID:  client.UserID,
-			Payload: payload,
-		})
-		if targetUserID, ok := payload["target_user_id"].(string); ok {
-			targetUserID = strings.TrimSpace(targetUserID)
-			if targetUserID == "" || targetUserID == client.UserID || h.manager.IsUserMember(room, targetUserID) {
-				return
-			}
-			targetCanJoin := h.authorizer == nil || h.authorizer.CanJoinRoom(context.Background(), targetUserID, room)
-			if targetCanJoin {
-				targetRoom := platformws.UserRoom(client.ZoneID, targetUserID)
-				_ = h.manager.Broadcast(context.Background(), targetRoom, platformws.Event{
-					Type:    eventType,
-					Room:    room,
-					UserID:  client.UserID,
-					Payload: payload,
-				})
-			}
-		}
 	}
 }
 

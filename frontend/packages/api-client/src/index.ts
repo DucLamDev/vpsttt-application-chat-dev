@@ -49,10 +49,9 @@ export { createTenancyClient } from "./tenancy-client";
 export {
   isLocalHostname,
   localizeZoneRuntime,
+  serverDiscoveryBaseUrl,
   zoneWebNavigationTarget
 } from "./zone-runtime";
 export { collectionFrom, itemFrom } from "./response-utils";
 export { createUsersClient } from "./users-client";
-export { createVideoClient } from "./video-client";
-export type { ZegoCallCredentials } from "./video-client";
 export { createWorkspacesClient } from "./workspaces-client";

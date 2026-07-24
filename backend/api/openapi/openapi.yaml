@@ -139,6 +139,14 @@ paths:
             text/plain:
               schema:
                 type: string
+  /api:
+    get:
+      security: []
+      summary: Entry point API tren cung domain voi web
+      description: Tra thong tin API; cac endpoint nghiep vu nam duoi `/api/v1`.
+      responses:
+        "200":
+          description: API hoat dong
   /api/v1:
     get:
       security: []
@@ -552,30 +560,6 @@ paths:
       responses:
         "101":
           description: Nâng cấp kết nối WebSocket thành công
-  /api/v1/video/zego-token:
-    get:
-      summary: Lấy credential ZEGOCLOUD cho cuộc gọi
-      description: >-
-        Trả token04 do backend sinh bằng ZEGO_SERVER_SECRET. Client dùng
-        `user_id` và `token` này để join ZEGOCLOUD room/call; không bao giờ
-        trả `ZEGO_SERVER_SECRET` về client.
-      responses:
-        "200":
-          description: Credential ZEGOCLOUD của user hiện tại
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiResponse"
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        properties:
-                          zego_call:
-                            $ref: "#/components/schemas/ZegoCallCredentials"
-        "503":
-          description: ZEGOCLOUD chưa được cấu hình trên server
   /api/v1/auth/register:
     post:
       security: []
@@ -2661,6 +2645,22 @@ components:
         admin_base_url:
           type: string
           format: uri
+        rtc_ice_servers:
+          type: array
+          items:
+            type: object
+            required: [urls]
+            properties:
+              urls:
+                oneOf:
+                  - type: string
+                  - type: array
+                    items:
+                      type: string
+              username:
+                type: string
+              credential:
+                type: string
     ZoneCapabilities:
       type: object
       properties:
@@ -2688,6 +2688,9 @@ components:
           type: boolean
         dedicated:
           type: boolean
+        self_hosted:
+          type: boolean
+          description: Instance này do customer tự vận hành trên hạ tầng riêng.
     ZoneDeployment:
       type: object
       properties:
@@ -2725,6 +2728,16 @@ components:
         status:
           type: string
           enum: [pending, verified, active, suspended]
+        routing_dns_type:
+          type: string
+          enum: [A, AAAA]
+          description: DNS record type used to route the customer domain to the VPSTTT edge.
+        routing_dns_name:
+          type: string
+          description: DNS host that the customer must route to the VPSTTT edge.
+        routing_dns_value:
+          type: string
+          description: IPv4 or IPv6 address of the VPSTTT edge.
         verification_method:
           type: string
           enum: [dns_txt]
@@ -3517,29 +3530,6 @@ components:
         acked_at:
           type: string
           format: date-time
-    ZegoCallCredentials:
-      type: object
-      required: [app_id, app_sign, user_id, user_name, token]
-      properties:
-        app_id:
-          type: integer
-          format: uint32
-        app_sign:
-          type: string
-          description: AppSign từ ZEGOCLOUD Console, dùng cho SDK/UIKit khi cần.
-        user_id:
-          type: string
-          maxLength: 32
-          pattern: "^[A-Za-z0-9_]+$"
-          description: UserID đã chuẩn hóa để hợp lệ với ZEGOCLOUD.
-        user_name:
-          type: string
-        token:
-          type: string
-          description: Token04 do backend sinh từ ZEGO_SERVER_SECRET.
-        expires_at:
-          type: string
-          format: date-time
     CreateCallRequest:
       type: object
       required: [channel_id, target_user_id, mode]
@@ -3606,7 +3596,7 @@ components:
       properties:
         signal_type:
           type: string
-          enum: [offer, answer, ice_candidate, ringing, accepted, rejected, cancelled, ended, missed]
+          enum: [offer, answer, ice_candidate, ready]
         payload:
           type: object
           additionalProperties: true

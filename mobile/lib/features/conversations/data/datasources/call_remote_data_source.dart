@@ -134,6 +134,7 @@ CallSignalType _signalFromApi(String value) {
   return switch (value.trim().toLowerCase()) {
     'answer' => CallSignalType.answer,
     'ice_candidate' || 'icecandidate' => CallSignalType.iceCandidate,
+    'ready' => CallSignalType.ready,
     'ringing' => CallSignalType.ringing,
     'accepted' => CallSignalType.accepted,
     'rejected' => CallSignalType.rejected,
@@ -149,6 +150,7 @@ String _signalToApi(CallSignalType signalType) {
     CallSignalType.offer => 'offer',
     CallSignalType.answer => 'answer',
     CallSignalType.iceCandidate => 'ice_candidate',
+    CallSignalType.ready => 'ready',
     CallSignalType.ringing => 'ringing',
     CallSignalType.accepted => 'accepted',
     CallSignalType.rejected => 'rejected',

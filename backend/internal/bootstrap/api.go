@@ -2,11 +2,13 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/duclamdev/application-chat/backend/internal/config"
+	tenancypostgres "github.com/duclamdev/application-chat/backend/internal/modules/tenancy/infrastructure/postgres"
 	sharedauth "github.com/duclamdev/application-chat/backend/internal/shared/auth"
 	"github.com/duclamdev/application-chat/backend/internal/shared/middleware"
 	"github.com/gin-gonic/gin"
@@ -27,6 +29,25 @@ func NewAPI(cfg *config.Config) (*API, error) {
 	resources, err := NewResources(context.Background(), cfg)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Deployment.IsSelfHosted() {
+		if resources.Database == nil {
+			resources.Close()
+			return nil, fmt.Errorf("self-hosted mode requires DATABASE_ENABLED=true")
+		}
+		workspaceID, bootstrapErr := tenancypostgres.EnsureSelfHostedInstance(
+			context.Background(),
+			resources.Database.Pool(),
+			tenancypostgres.SelfHostedInstanceParams{
+				Domain: cfg.Deployment.InstanceDomain,
+				Name:   cfg.Deployment.InstanceName,
+			},
+		)
+		if bootstrapErr != nil {
+			resources.Close()
+			return nil, fmt.Errorf("bootstrap self-hosted instance: %w", bootstrapErr)
+		}
+		cfg.Registration.DefaultWorkspaceID = workspaceID
 	}
 	tokenManager := sharedauth.NewManager(
 		cfg.Security.JWTAccessSecret,

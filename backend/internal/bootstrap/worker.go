@@ -102,7 +102,7 @@ func (w *Worker) tasks() []workerTask {
 	notificationsService := notificationsapp.NewService(notificationsRepo)
 	callsRepo := callspostgres.NewRepository(pool)
 	callsService := callsapp.NewService(callsRepo, nil, nil, notificationsService)
-	callsService.SetRingTimeout(w.cfg.ZegoCloud.RingTimeout)
+	callsService.SetRingTimeout(w.cfg.Calls.RingTimeout)
 	apiTokensRepo := aptokenspostgres.NewRepository(pool)
 	apiTokensService := aptokensapp.NewService(apiTokensRepo, nil)
 	webhooksRepo := webhookspostgres.NewRepository(pool)

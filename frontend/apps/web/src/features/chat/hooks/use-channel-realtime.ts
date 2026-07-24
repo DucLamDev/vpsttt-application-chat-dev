@@ -15,6 +15,7 @@ import {
 
 type RealtimeMessagePayload = {
   call?: CallSignalPayload;
+  signal?: Pick<CallSignalPayload, "candidate" | "sdp">;
   actor_user_id?: string;
   call_id?: string;
   candidate?: RTCIceCandidateInit;
@@ -38,6 +39,7 @@ export type CallSignalType =
   | "CallInvited"
   | "CallRinging"
   | "CallAccepted"
+  | "CallReady"
   | "CallOffer"
   | "CallAnswer"
   | "CallIceCandidate"
@@ -453,28 +455,9 @@ export function useChannelRealtime({
     [gateway, room]
   );
 
-  const publishCallSignal = useCallback(
-    (type: CallSignalType, payload: CallSignalPayload) => {
-      const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN || !room) {
-        return false;
-      }
-      return gateway.send(socket, {
-        payload: {
-          ...payload,
-          channel_id: payload.channel_id || channelId
-        },
-        room,
-        type
-      });
-    },
-    [channelId, gateway, room]
-  );
-
   return {
     lastEventAt,
     lastCallSignal,
-    publishCallSignal,
     publishTyping,
     retryAttempt,
     room,
@@ -502,6 +485,7 @@ function isCallSignalType(type: string): type is CallSignalType {
     type === "CallInvited" ||
     type === "CallRinging" ||
     type === "CallAccepted" ||
+    type === "CallReady" ||
     type === "CallOffer" ||
     type === "CallAnswer" ||
     type === "CallIceCandidate" ||
@@ -518,18 +502,19 @@ function normalizeCallSignalPayload(payload: RealtimeMessagePayload | undefined)
   }
   const nested = payload.call;
   const source = nested?.call_id ? nested : payload;
+  const signal = payload.signal;
   if (!source.call_id) {
     return null;
   }
   return {
     actor_user_id: source.actor_user_id,
     call_id: source.call_id,
-    candidate: source.candidate,
+    candidate: signal?.candidate ?? source.candidate,
     channel_id: source.channel_id,
     initiator_user_id: source.initiator_user_id,
     mode: source.mode,
     reason: source.reason,
-    sdp: source.sdp,
+    sdp: signal?.sdp ?? source.sdp,
     status: source.status,
     target_user_id: source.target_user_id,
     workspace_id: source.workspace_id

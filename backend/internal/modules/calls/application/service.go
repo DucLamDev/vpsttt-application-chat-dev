@@ -291,6 +291,21 @@ func (s *Service) SendSignal(ctx context.Context, input SignalInput) (SignalDTO,
 	if signalType == "" {
 		return SignalDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Loại tín hiệu cuộc gọi không hợp lệ.")
 	}
+	if call.Status != "accepted" {
+		return SignalDTO{}, apperrors.Conflict(
+			"CALL_INVALID_TRANSITION",
+			"Chỉ gửi tín hiệu media sau khi cuộc gọi được chấp nhận.",
+		)
+	}
+	if signalType == "offer" && actorID != call.InitiatorUserID {
+		return SignalDTO{}, apperrors.Forbidden("Chỉ người khởi tạo được gửi SDP offer.")
+	}
+	if signalType == "answer" && actorID != call.TargetUserID {
+		return SignalDTO{}, apperrors.Forbidden("Chỉ người nhận được gửi SDP answer.")
+	}
+	if signalType == "ready" && actorID != call.TargetUserID {
+		return SignalDTO{}, apperrors.Forbidden("Chỉ người nhận được báo media đã sẵn sàng.")
+	}
 	payload, err := normalizeJSON(input.Payload, "Payload tín hiệu cuộc gọi không phải JSON hợp lệ.")
 	if err != nil {
 		return SignalDTO{}, err
@@ -309,7 +324,11 @@ func (s *Service) SendSignal(ctx context.Context, input SignalInput) (SignalDTO,
 	if actorID == call.TargetUserID {
 		targetUserID = call.InitiatorUserID
 	}
-	_ = s.publish(ctx, signalEventType(signalType), call, actorID, targetUserID, map[string]any{"signal": toSignalDTO(signal).Payload})
+	if err := s.publish(ctx, signalEventType(signalType), call, actorID, targetUserID, map[string]any{
+		"signal": toSignalDTO(signal).Payload,
+	}); err != nil {
+		return SignalDTO{}, err
+	}
 	return toSignalDTO(signal), nil
 }
 
@@ -475,7 +494,7 @@ func normalizeMode(value string) string {
 
 func normalizeSignalType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "offer", "answer", "ice_candidate", "ringing", "accepted", "rejected", "cancelled", "ended", "missed":
+	case "offer", "answer", "ice_candidate", "ready":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
@@ -490,18 +509,10 @@ func signalEventType(signalType string) string {
 		return "CallAnswer"
 	case "ice_candidate":
 		return "CallIceCandidate"
-	case "ringing":
-		return "CallRinging"
-	case "accepted":
-		return "CallAccepted"
-	case "rejected":
-		return "CallRejected"
-	case "cancelled":
-		return "CallCancelled"
-	case "missed":
-		return "CallMissed"
+	case "ready":
+		return "CallReady"
 	default:
-		return "CallEnded"
+		return ""
 	}
 }
 

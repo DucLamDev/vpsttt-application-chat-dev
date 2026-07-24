@@ -22,7 +22,6 @@ import { createRbacClient } from "./rbac-client";
 import { createTicketsClient } from "./tickets-client";
 import { createTenancyClient } from "./tenancy-client";
 import { createUsersClient } from "./users-client";
-import { createVideoClient } from "./video-client";
 import { createWorkspacesClient } from "./workspaces-client";
 
 export function createWebTuiApiClient(options: HttpClientOptions) {
@@ -50,7 +49,6 @@ export function createWebTuiApiClient(options: HttpClientOptions) {
     tenancy: createTenancyClient(http),
     tickets: createTicketsClient(http),
     users: createUsersClient(http),
-    video: createVideoClient(http),
     webhooks: createWebhooksClient(http),
     workspaces: createWorkspacesClient(http)
   };

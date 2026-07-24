@@ -71,9 +71,9 @@ riêng cho từng khách hàng vẫn thuộc phase dedicated infrastructure.
    `GET /api/v1/discovery?domain=chat.abc.com`.
 3. Nếu domain chưa tồn tại, client đăng ký identity ở control plane.
 4. Client gọi `POST /api/v1/zones/claims`.
-5. Backend trả TXT name `_vpsttt-chat.chat.abc.com` và value có prefix
-   `vpsttt-chat-verification=`.
-6. Chủ domain tạo TXT và gọi endpoint verify.
+5. Backend trả bản ghi định tuyến A/AAAA tới edge VPSTTT và TXT name
+   `_vpsttt-chat.chat.abc.com` có value bắt đầu bằng `vpsttt-chat-verification=`.
+6. Chủ domain tạo cả bản ghi định tuyến và TXT, sau đó gọi endpoint verify.
 7. Backend kiểm tra TXT, sau đó trong một transaction:
    - kích hoạt zone và domain;
    - tạo workspace mặc định, owner membership và role;
@@ -298,6 +298,8 @@ Biến bắt buộc:
 TLS_PROXY_MODE=caddy
 LETSENCRYPT_EMAIL=admin@example.com
 CADDY_ASK_SECRET=<random-secret>
+CUSTOM_DOMAIN_DNS_TYPE=A
+CUSTOM_DOMAIN_DNS_TARGET=<public-ip-of-edge>
 WEBHOOK_SIGNING_SECRET=<random-secret-at-least-32-characters>
 OIDC_STATE_SECRET=<random-secret-at-least-32-characters>
 OIDC_CLIENT_SECRETS=company-sso=<oidc-client-secret>;partner-sso=<oidc-client-secret>

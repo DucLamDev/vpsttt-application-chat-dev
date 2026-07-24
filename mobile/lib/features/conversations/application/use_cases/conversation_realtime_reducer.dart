@@ -75,6 +75,10 @@ final class ConversationRealtimeReducer {
       ),
       ConversationRealtimeEventType.callInvited ||
       ConversationRealtimeEventType.callAccepted ||
+      ConversationRealtimeEventType.callReady ||
+      ConversationRealtimeEventType.callOffer ||
+      ConversationRealtimeEventType.callAnswer ||
+      ConversationRealtimeEventType.callIceCandidate ||
       ConversationRealtimeEventType.callRejected ||
       ConversationRealtimeEventType.callCancelled ||
       ConversationRealtimeEventType.callEnded ||

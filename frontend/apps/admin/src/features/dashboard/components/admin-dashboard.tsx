@@ -1122,7 +1122,7 @@ function RolesSection({
 
   return (
     <section className="admin-content-stack">
-      <ZoneControlPlane data={data} showToast={showToast} />
+      <InstanceAdministration data={data} showToast={showToast} />
       <article className="admin-panel">
         <header>
           <div>
@@ -2670,7 +2670,7 @@ function SystemSettingsSection({
   );
 }
 
-function ZoneControlPlane({
+function InstanceAdministration({
   data,
   showToast
 }: {
@@ -2852,6 +2852,8 @@ function ZoneControlPlane({
     );
   }
 
+  const isSelfHosted = zoneOverview.zone.kind === "customer_dedicated";
+
   return (
     <>
       <section className="admin-split-grid">
@@ -2885,26 +2887,28 @@ function ZoneControlPlane({
               Lưu zone
             </Button>
           </form>
-          <form className="admin-form admin-form--inline" onSubmit={(event) => void changeLifecycle(event)}>
-            <label>
-              Vòng đời
-              <select
-                defaultValue={zoneOverview.zone.status === "suspended" ? "resume" : "suspend"}
-                name="action"
-              >
-                <option value="suspend">Suspend</option>
-                <option value="resume">Resume</option>
-                <option value="archive">Archive</option>
-              </select>
-            </label>
-            <label>
-              Lý do
-              <input name="reason" placeholder="Thay đổi vận hành" />
-            </label>
-            <Button disabled={data.setZoneLifecycleMutation.isPending} type="submit" variant="secondary">
-              Áp dụng
-            </Button>
-          </form>
+          {!isSelfHosted ? (
+            <form className="admin-form admin-form--inline" onSubmit={(event) => void changeLifecycle(event)}>
+              <label>
+                Vòng đời
+                <select
+                  defaultValue={zoneOverview.zone.status === "suspended" ? "resume" : "suspend"}
+                  name="action"
+                >
+                  <option value="suspend">Suspend</option>
+                  <option value="resume">Resume</option>
+                  <option value="archive">Archive</option>
+                </select>
+              </label>
+              <label>
+                Lý do
+                <input name="reason" placeholder="Thay đổi vận hành" />
+              </label>
+              <Button disabled={data.setZoneLifecycleMutation.isPending} type="submit" variant="secondary">
+                Áp dụng
+              </Button>
+            </form>
+          ) : null}
         </article>
 
         <article className="admin-panel">
@@ -2914,24 +2918,26 @@ function ZoneControlPlane({
               <p>{zoneOverview.domains.length} domain</p>
             </div>
           </header>
-          <form className="admin-form admin-form--inline" onSubmit={(event) => void addDomain(event)}>
-            <label>
-              Domain
-              <input name="domain" placeholder="chat.example.com" required />
-            </label>
-            <label>
-              Loại
-              <select defaultValue="alias" name="kind">
-                <option value="alias">Alias</option>
-                <option value="web">Web</option>
-                <option value="api">API</option>
-              </select>
-            </label>
-            <Button disabled={data.createAdditionalDomainMutation.isPending} type="submit">
-              <Plus size={16} />
-              Thêm
-            </Button>
-          </form>
+          {!isSelfHosted ? (
+            <form className="admin-form admin-form--inline" onSubmit={(event) => void addDomain(event)}>
+              <label>
+                Domain
+                <input name="domain" placeholder="chat.example.com" required />
+              </label>
+              <label>
+                Loại
+                <select defaultValue="alias" name="kind">
+                  <option value="alias">Alias</option>
+                  <option value="web">Web</option>
+                  <option value="api">API</option>
+                </select>
+              </label>
+              <Button disabled={data.createAdditionalDomainMutation.isPending} type="submit">
+                <Plus size={16} />
+                Thêm
+              </Button>
+            </form>
+          ) : null}
           <div className="mini-list">
             {zoneOverview.domains.map((domain) => (
               <div key={domain.id}>
@@ -2945,7 +2951,7 @@ function ZoneControlPlane({
                   ) : null}
                 </span>
                 <span className="row-actions">
-                  {domain.status === "pending" ? (
+                  {!isSelfHosted && domain.status === "pending" ? (
                     <Button
                       onClick={() => void data.verifyZoneDomainMutation.mutateAsync(domain.id)}
                       size="sm"
@@ -2954,7 +2960,7 @@ function ZoneControlPlane({
                       Xác minh
                     </Button>
                   ) : null}
-                  {domain.status === "active" && domain.kind !== "primary" ? (
+                  {!isSelfHosted && domain.status === "active" && domain.kind !== "primary" ? (
                     <Button
                       onClick={() => void data.setPrimaryDomainMutation.mutateAsync(domain.id)}
                       size="sm"
@@ -2963,7 +2969,7 @@ function ZoneControlPlane({
                       Primary
                     </Button>
                   ) : null}
-                  {domain.kind !== "primary" ? (
+                  {!isSelfHosted && domain.kind !== "primary" ? (
                     <Button
                       aria-label={`Xóa ${domain.domain}`}
                       onClick={() => void data.deleteZoneDomainMutation.mutateAsync(domain.id)}
@@ -2981,7 +2987,8 @@ function ZoneControlPlane({
       </section>
 
       <section className="admin-split-grid">
-        <article className="admin-panel">
+        {!isSelfHosted ? (
+          <article className="admin-panel">
           <header>
             <div>
               <h2>Deployment</h2>
@@ -3022,7 +3029,8 @@ function ZoneControlPlane({
               </div>
             ))}
           </div>
-        </article>
+          </article>
+        ) : null}
 
         <article className="admin-panel">
           <header>

@@ -2257,7 +2257,7 @@
   color: #ffffff;
 }
 
-.call-panel__zego {
+.call-panel__media {
   background: #07111f;
   border: 1px solid rgb(148 163 184 / 28%);
   border-radius: 14px;
@@ -2273,11 +2273,11 @@
   padding: 0;
 }
 
-.call-panel__zego--audio {
+.call-panel__media--audio {
   min-height: 184px;
 }
 
-.webtui-zego-call {
+.webtui-webrtc-call {
   background: #07111f;
   color: #f8fafc;
   height: 100%;
@@ -2285,15 +2285,42 @@
   position: relative;
 }
 
-.webtui-zego-call > div {
+.webtui-webrtc-call__remote-video {
   height: 100%;
-  min-height: inherit;
+  object-fit: cover;
+  width: 100%;
 }
 
-.webtui-zego-call--loading::before {
+.webtui-webrtc-call__local-video {
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: 8px;
+  bottom: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  height: 30%;
+  max-height: 120px;
+  object-fit: cover;
+  position: absolute;
+  right: 12px;
+  width: 28%;
+}
+
+.webtui-webrtc-call__remote-audio {
+  display: none;
+}
+
+.webtui-webrtc-call__audio-state {
   align-items: center;
   color: #dbeafe;
-  content: "Đang mở ZEGOCLOUD...";
+  display: flex;
+  font-weight: 700;
+  height: 100%;
+  justify-content: center;
+}
+
+.webtui-webrtc-call--loading::before {
+  align-items: center;
+  color: #dbeafe;
+  content: "Đang kết nối media...";
   display: flex;
   font-weight: 700;
   height: 100%;
@@ -4276,7 +4303,7 @@
     justify-content: flex-start;
   }
 
-  .call-panel__zego {
+  .call-panel__media {
     min-height: 220px;
   }
 

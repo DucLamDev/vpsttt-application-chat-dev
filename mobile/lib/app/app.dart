@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:zego_uikit_prebuilt_call/zego_uikit_prebuilt_call.dart';
 
 import '../core/privacy/background_privacy.dart';
 import '../design_system/components/webtui_avatar.dart';
@@ -17,6 +16,7 @@ class WebTuiChatApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final config = ref.watch(appConfigProvider);
+    final activeServerUri = ref.watch(activeServerUriProvider);
     final router = ref.watch(appRouterProvider);
     final tokenRepository = ref.read(authTokenRepositoryProvider);
 
@@ -49,18 +49,11 @@ class WebTuiChatApp extends ConsumerWidget {
                 ? null
                 : {'Authorization': 'Bearer $token'};
             final appContent = WebTuiAvatarNetworkScope(
-              apiBaseUri: config.apiBaseUri,
+              apiBaseUri: activeServerUri,
               headers: headers,
               child: MobileUpdateGate(child: PrivacyGuard(child: scaledChild)),
             );
-            return Stack(
-              children: [
-                ZegoUIKitPrebuiltCallMiniPopScope(child: appContent),
-                ZegoUIKitPrebuiltCallMiniOverlayPage(
-                  contextQuery: () => rootNavigatorKey.currentState!.context,
-                ),
-              ],
-            );
+            return appContent;
           },
         );
       },

@@ -51,7 +51,6 @@ import '../../features/conversations/data/datasources/conversation_cache_data_so
 import '../../features/conversations/data/datasources/conversation_remote_data_source.dart';
 import '../../features/conversations/data/datasources/message_attachment_remote_data_source.dart';
 import '../../features/conversations/data/datasources/message_outbox_data_source.dart';
-import '../../features/conversations/data/datasources/zego_call_remote_data_source.dart';
 import '../../features/conversations/data/repositories/audio_message_attachment_repository.dart';
 import '../../features/conversations/data/repositories/caching_conversation_repository.dart';
 import '../../features/conversations/data/repositories/call_repository_impl.dart';
@@ -108,14 +107,18 @@ final requestIdGeneratorProvider = Provider<RequestIdGenerator>((_) {
   return const UuidRequestIdGenerator();
 });
 
+final activeServerUriProvider = StateProvider<Uri>((ref) {
+  return ref.watch(appConfigProvider).apiBaseUri;
+});
+
 final dioProvider = Provider<Dio>((ref) {
-  final config = ref.watch(appConfigProvider);
+  final activeServerUri = ref.watch(activeServerUriProvider);
   final logger = ref.watch(redactingLoggerProvider);
   final requestIds = ref.watch(requestIdGeneratorProvider);
   final tokenRepository = ref.watch(authTokenRepositoryProvider);
   final refreshUseCase = ref.watch(refreshAccessTokenUseCaseProvider);
 
-  final dio = _configuredDio(config);
+  final dio = _configuredDio(activeServerUri);
 
   dio.interceptors.addAll([
     RequestIdInterceptor(requestIds),
@@ -131,11 +134,11 @@ final dioProvider = Provider<Dio>((ref) {
 });
 
 final authDioProvider = Provider<Dio>((ref) {
-  final config = ref.watch(appConfigProvider);
+  final activeServerUri = ref.watch(activeServerUriProvider);
   final logger = ref.watch(redactingLoggerProvider);
   final requestIds = ref.watch(requestIdGeneratorProvider);
 
-  final dio = _configuredDio(config);
+  final dio = _configuredDio(activeServerUri);
   dio.interceptors.addAll([
     RequestIdInterceptor(requestIds),
     RedactingDioLogInterceptor(logger),
@@ -519,12 +522,6 @@ final callRemoteDataSourceProvider = Provider<CallRemoteDataSource>((ref) {
   return CallRemoteDataSource(ref.watch(apiTransportProvider));
 });
 
-final zegoCallRemoteDataSourceProvider = Provider<ZegoCallRemoteDataSource>((
-  ref,
-) {
-  return ZegoCallRemoteDataSource(ref.watch(apiTransportProvider));
-});
-
 final callRepositoryProvider = Provider<CallRepository>((ref) {
   return CallRepositoryImpl(ref.watch(callRemoteDataSourceProvider));
 });
@@ -570,9 +567,12 @@ final catchUpWorkspaceSyncUseCaseProvider =
 final conversationRealtimeRepositoryProvider =
     Provider<ConversationRealtimeRepository>((ref) {
       final config = ref.watch(appConfigProvider);
+      final activeServerUri = ref.watch(activeServerUriProvider);
       final repository = WebSocketConversationRealtimeRepository(
-        apiBaseUri: config.apiBaseUri,
-        wsBaseUri: config.wsBaseUri,
+        apiBaseUri: activeServerUri,
+        wsBaseUri: activeServerUri == config.apiBaseUri
+            ? config.wsBaseUri
+            : defaultConversationRealtimeWsUri(activeServerUri),
         tokenRepository: ref.watch(authTokenRepositoryProvider),
       );
       ref.onDispose(() {
@@ -923,10 +923,10 @@ String _mobileReleasePlatform() {
   };
 }
 
-Dio _configuredDio(AppConfig config) {
+Dio _configuredDio(Uri activeServerUri) {
   return Dio(
     BaseOptions(
-      baseUrl: config.apiBaseUri.toString(),
+      baseUrl: activeServerUri.toString(),
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 30),
       sendTimeout: const Duration(seconds: 30),

@@ -136,6 +136,44 @@ void main() {
     expect(event?.messageId, 'm-image');
   });
 
+  test('maps validated call signaling payloads from the backend', () {
+    final offer = ConversationRealtimeEventMapper.fromSocketData(
+      jsonEncode({
+        'type': 'CallOffer',
+        'user_id': 'u1',
+        'payload': {
+          'call_id': 'call-1',
+          'workspace_id': 'w1',
+          'channel_id': 'c1',
+          'signal': {
+            'sdp': {'type': 'offer', 'sdp': 'v=0'},
+          },
+        },
+      }),
+      fallbackWorkspaceId: 'w1',
+      fallbackChannelId: 'c1',
+    );
+    final ready = ConversationRealtimeEventMapper.fromSocketData(
+      jsonEncode({
+        'type': 'CallReady',
+        'user_id': 'u2',
+        'payload': {
+          'call_id': 'call-1',
+          'workspace_id': 'w1',
+          'channel_id': 'c1',
+          'signal': {},
+        },
+      }),
+      fallbackWorkspaceId: 'w1',
+      fallbackChannelId: 'c1',
+    );
+
+    expect(offer?.type, ConversationRealtimeEventType.callOffer);
+    expect(offer?.callSdp, {'type': 'offer', 'sdp': 'v=0'});
+    expect(ready?.type, ConversationRealtimeEventType.callReady);
+    expect(ready?.callId, 'call-1');
+  });
+
   test('builds websocket URL from public realtime endpoint', () {
     final base = defaultConversationRealtimeWsUri(
       Uri.parse('https://chat.vpsttt.com'),

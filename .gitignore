@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 !deploy/.env.example
+!deploy/self-hosted/.env.example
+deploy/self-hosted/backups/
 vps-info.md
 
 # Log
@@ -47,6 +49,7 @@ deploy/download/**/*.aab
 .env.example
 !deploy/.env.example
 !frontend/.env.example
+!deploy/self-hosted/.env.example
 Task_list.md
 backend/ARCHITECTURE.md
 backend/db/schema/erd.mmd

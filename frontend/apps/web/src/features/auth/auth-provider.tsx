@@ -2,24 +2,24 @@
 
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AuthScreen, Button, Input, Skeleton } from "@webtui/ui";
+import { AuthScreen, Skeleton } from "@webtui/ui";
 import type {
   AuthUser,
-  DomainClaim,
   GoogleLoginInput,
   LoginInput,
   RegisterInput,
   ZoneRuntime
 } from "@webtui/types";
 import {
-  ApiClientError,
+  createWebTuiApiClient,
   isLocalHostname,
   localizeZoneRuntime,
   queryKeys,
+  serverDiscoveryBaseUrl,
   zoneWebNavigationTarget
 } from "@webtui/api-client";
 import { getPlatformServices } from "@webtui/chat-core";
-import { api, controlPlaneApi, runtimeEnvironment } from "@/lib/api";
+import { api, runtimeEnvironment } from "@/lib/api";
 import { useAuthStore } from "./auth-store";
 import { clearMediaObjectUrlCache } from "@/features/chat/model/media-cache";
 import { isLikelyOfflineError } from "@/features/chat/model/offline-cache";
@@ -36,16 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((state) => state.accessToken);
   const hydrated = useAuthStore((state) => state.hydrated);
-  const pendingDomainClaim = useAuthStore((state) => state.pendingDomainClaim);
   const refreshToken = useAuthStore((state) => state.refreshToken);
   const user = useAuthStore((state) => state.user);
   const zoneDomain = useAuthStore((state) => state.zoneDomain);
   const clearSession = useAuthStore((state) => state.clearSession);
   const setSession = useAuthStore((state) => state.setSession);
   const setRememberLogin = useAuthStore((state) => state.setRememberLogin);
-  const setPendingDomainClaim = useAuthStore(
-    (state) => state.setPendingDomainClaim
-  );
   const setUser = useAuthStore((state) => state.setUser);
   const setZoneRuntime = useAuthStore((state) => state.setZoneRuntime);
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -203,38 +199,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerMutation = useMutation({
     mutationFn: async (input: RegisterInput) => {
-      try {
-        const domain = await selectZone(input.domain, setZoneRuntime, true);
-        return api.auth.register({ ...input, domain });
-      } catch (error) {
-        if (!isZoneNotFound(error)) {
-          throw error;
-        }
-
-        const requestedDomain = input.domain;
-        const controlDomain = await selectZone(
-          controlPlaneDomain(),
-          setZoneRuntime
-        );
-        const result = await api.auth.register({
-          ...input,
-          domain: controlDomain,
-          invite_token: undefined
-        });
-        setSession(result);
-        try {
-          const claim = await api.tenancy.createClaim({
-            domain: requestedDomain,
-            registration_mode: "invite_only",
-            zone_name: `${input.display_name} Chat`
-          });
-          setPendingDomainClaim(claim);
-        } catch (claimError) {
-          clearSession();
-          throw claimError;
-        }
-        return result;
-      }
+      const domain = await selectZone(input.domain, setZoneRuntime, true);
+      return api.auth.register({ ...input, domain });
     },
     onError: (error) => {
       if (!isZoneNavigationStarted(error)) {
@@ -250,34 +216,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const googleMutation = useMutation({
     mutationFn: async (input: GoogleLoginInput) => {
-      try {
-        const domain = await selectZone(input.domain, setZoneRuntime, true);
-        return api.auth.google({ ...input, domain });
-      } catch (error) {
-        if (!isZoneNotFound(error)) {
-          throw error;
-        }
-
-        const requestedDomain = input.domain;
-        const controlDomain = await selectZone(
-          controlPlaneDomain(),
-          setZoneRuntime
-        );
-        const result = await api.auth.google({ ...input, domain: controlDomain });
-        setSession(result);
-        try {
-          const claim = await api.tenancy.createClaim({
-            domain: requestedDomain,
-            registration_mode: "invite_only",
-            zone_name: `${requestedDomain} Chat`
-          });
-          setPendingDomainClaim(claim);
-        } catch (claimError) {
-          clearSession();
-          throw claimError;
-        }
-        return result;
-      }
+      const domain = await selectZone(input.domain, setZoneRuntime, true);
+      return api.auth.google({ ...input, domain });
     },
     onError: (error) => {
       if (!isZoneNavigationStarted(error)) {
@@ -304,23 +244,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  const verifyDomainMutation = useMutation({
-    mutationFn: (domainId: string) => api.tenancy.verifyClaim(domainId),
-    onError: (error) =>
-      setFormError(
-        error instanceof Error ? error.message : "Xác minh domain không thành công."
-      ),
-    onMutate: () => setFormError(null),
-    onSuccess: (discovery) => {
-      clearSession();
-      const runtime = runtimeForCurrentBrowser(discovery.runtime);
-      setZoneRuntime(discovery.domain, runtime);
-      setMode("login");
-      queryClient.clear();
-      navigateToZoneWeb(runtime.web_base_url);
-    }
-  });
-
   const value = useMemo<AuthContextValue>(
     () => ({
       isAuthenticated: Boolean(accessToken),
@@ -332,18 +255,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   if (!hydrated || isRestoringSession) {
     return <AuthLoadingState label="Đang khởi tạo phiên làm việc..." />;
-  }
-
-  if (accessToken && pendingDomainClaim) {
-    return (
-      <DomainVerificationScreen
-        claim={pendingDomainClaim}
-        error={formError}
-        isPending={verifyDomainMutation.isPending}
-        onCancel={() => setPendingDomainClaim(null)}
-        onVerify={() => verifyDomainMutation.mutate(pendingDomainClaim.id)}
-      />
-    );
   }
 
   if (!accessToken) {
@@ -446,24 +357,26 @@ function browserOIDCReturnTo() {
   return isLocal ? `${window.location.origin}${window.location.pathname}` : window.location.pathname;
 }
 
-function controlPlaneDomain() {
-  try {
-    return new URL(runtimeEnvironment.apiBaseUrl).hostname;
-  } catch {
-    return "chat.vpsttt.com";
-  }
-}
-
-function isZoneNotFound(error: unknown) {
-  return error instanceof ApiClientError && error.code === "ZONE_NOT_FOUND";
-}
-
 async function selectZone(
   rawDomain: string,
   setZoneRuntime: ReturnType<typeof useAuthStore.getState>["setZoneRuntime"],
   navigateToWeb = false
 ) {
-  const discovery = await controlPlaneApi.tenancy.discover(rawDomain);
+  const serverBaseUrl = serverDiscoveryBaseUrl(rawDomain, runtimeEnvironment.apiBaseUrl);
+  if (
+    typeof window !== "undefined" &&
+    !getPlatformServices().lifecycle.isDesktop &&
+    (navigateToWeb || !isLocalHostname(window.location.hostname)) &&
+    navigateToZoneWeb(serverBaseUrl)
+  ) {
+    throw new ZoneNavigationStartedError();
+  }
+  const discoveryApi = createWebTuiApiClient({
+    baseUrl: serverBaseUrl,
+    fetcher: getPlatformServices().fetcher
+  });
+  const discoveryDomain = new URL(serverBaseUrl).hostname;
+  const discovery = await discoveryApi.tenancy.discover(discoveryDomain);
   const runtime = runtimeForCurrentBrowser(discovery.runtime);
   setZoneRuntime(discovery.domain, runtime);
   if (navigateToWeb && navigateToZoneWeb(runtime.web_base_url)) {
@@ -523,74 +436,6 @@ function AuthLoadingState({ label }: { label: string }) {
       <Skeleton style={{ height: 64, width: 64 }} />
       <Skeleton style={{ height: 24, width: 260 }} />
       <Skeleton style={{ height: 18, width: 360 }} />
-    </main>
-  );
-}
-
-function DomainVerificationScreen({
-  claim,
-  error,
-  isPending,
-  onCancel,
-  onVerify
-}: {
-  claim: DomainClaim;
-  error: string | null;
-  isPending: boolean;
-  onCancel: () => void;
-  onVerify: () => void;
-}) {
-  return (
-    <main className="auth-screen auth-screen--register" aria-label="Xác minh domain">
-      <section className="auth-hero">
-        <div className="auth-hero__copy">
-          <h1>
-            {claim.zone.name}
-            <span>{claim.domain}</span>
-          </h1>
-        </div>
-      </section>
-      <section className="auth-panel">
-        <div className="auth-panel__product-logo">
-          <img alt="WebTui Chat" src="/brand/logo_webtui.png" />
-        </div>
-        <div className="auth-panel__header">
-          <h2>Xác minh domain</h2>
-        </div>
-        <div className="auth-form">
-          <label>
-            DNS TXT host
-            <Input readOnly value={claim.verification_dns_name} />
-          </label>
-          <label>
-            DNS TXT value
-            <Input readOnly value={claim.verification_dns_value} />
-          </label>
-          {claim.verification_expires_at ? (
-            <p>
-              Hết hạn:{" "}
-              {new Date(claim.verification_expires_at).toLocaleString("vi-VN")}
-            </p>
-          ) : null}
-          {error ? <p className="auth-error">{error}</p> : null}
-          <Button
-            className="auth-submit"
-            disabled={isPending}
-            onClick={onVerify}
-            type="button"
-          >
-            {isPending ? "Đang kiểm tra DNS..." : "Kiểm tra và tạo workspace"}
-          </Button>
-          <Button
-            disabled={isPending}
-            onClick={onCancel}
-            type="button"
-            variant="secondary"
-          >
-            Để sau
-          </Button>
-        </div>
-      </section>
     </main>
   );
 }

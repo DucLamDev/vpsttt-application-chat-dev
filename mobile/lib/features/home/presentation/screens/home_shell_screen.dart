@@ -18,7 +18,7 @@ import '../../../conversations/domain/entities/call_session.dart';
 import '../../../conversations/domain/entities/conversation_summary.dart';
 import '../../../conversations/presentation/controllers/chat_room_controller.dart';
 import '../../../conversations/presentation/controllers/conversation_home_controller.dart';
-import '../../../conversations/presentation/screens/zego_call_screen.dart';
+import '../../../conversations/presentation/screens/webrtc_call_screen.dart';
 import '../../../conversations/presentation/widgets/conversation_home_views.dart';
 import '../../../notifications/domain/entities/mobile_notification.dart';
 import '../../../notifications/presentation/controllers/notification_center_controller.dart';
@@ -429,10 +429,13 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
         return;
       }
       await NativeIncomingCallService.markConnected(callId);
+      if (!mounted) {
+        return;
+      }
       await Navigator.of(context, rootNavigator: true).push<void>(
         MaterialPageRoute<void>(
           fullscreenDialog: true,
-          builder: (_) => ZegoCallScreen(
+          builder: (_) => WebRtcCallScreen(
             workspaceId: acceptedCall.workspaceId,
             channelId: acceptedCall.channelId,
             callId: acceptedCall.id,
@@ -505,10 +508,13 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen>
       }
 
       await NativeIncomingCallService.markConnected(callId);
+      if (!mounted) {
+        return;
+      }
       await Navigator.of(context, rootNavigator: true).push<void>(
         MaterialPageRoute<void>(
           fullscreenDialog: true,
-          builder: (_) => ZegoCallScreen(
+          builder: (_) => WebRtcCallScreen(
             workspaceId: acceptedCall.workspaceId,
             channelId: acceptedCall.channelId,
             callId: acceptedCall.id,

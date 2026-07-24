@@ -13,6 +13,10 @@ enum ConversationRealtimeEventType {
   typingStopped,
   callInvited,
   callAccepted,
+  callReady,
+  callOffer,
+  callAnswer,
+  callIceCandidate,
   callRejected,
   callCancelled,
   callEnded,
@@ -35,6 +39,8 @@ final class ConversationRealtimeEvent {
     this.callInitiatorUserId,
     this.callTargetUserId,
     this.reason,
+    this.callSdp = const {},
+    this.callCandidate = const {},
   });
 
   final ConversationRealtimeEventType type;
@@ -50,10 +56,16 @@ final class ConversationRealtimeEvent {
   final String? callInitiatorUserId;
   final String? callTargetUserId;
   final String? reason;
+  final Map<String, dynamic> callSdp;
+  final Map<String, dynamic> callCandidate;
 
   bool get isCallEvent => switch (type) {
     ConversationRealtimeEventType.callInvited ||
     ConversationRealtimeEventType.callAccepted ||
+    ConversationRealtimeEventType.callReady ||
+    ConversationRealtimeEventType.callOffer ||
+    ConversationRealtimeEventType.callAnswer ||
+    ConversationRealtimeEventType.callIceCandidate ||
     ConversationRealtimeEventType.callRejected ||
     ConversationRealtimeEventType.callCancelled ||
     ConversationRealtimeEventType.callEnded ||

@@ -22,11 +22,6 @@ export const runtimeEnvironment = createRuntimeEnvironment({
 
 let refreshRequest: Promise<string | null> | null = null;
 
-export const controlPlaneApi = createWebTuiApiClient({
-  baseUrl: discoveryBaseUrl,
-  fetcher: getPlatformServices().fetcher
-});
-
 export const api = createWebTuiApiClient({
   baseUrl: () =>
     useAuthStore.getState().zoneRuntime?.api_base_url ??
@@ -67,19 +62,3 @@ export const api = createWebTuiApiClient({
     return refreshRequest;
   }
 });
-
-function discoveryBaseUrl() {
-  if (typeof window === "undefined") {
-    return runtimeEnvironment.apiBaseUrl;
-  }
-  const { hostname, origin, protocol } = window.location;
-  const isLocal =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname.endsWith(".localhost");
-  if (!isLocal && (protocol === "https:" || protocol === "http:")) {
-    return origin;
-  }
-  return runtimeEnvironment.apiBaseUrl;
-}

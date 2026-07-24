@@ -20,7 +20,7 @@ import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/conversation_summary.dart';
 import '../controllers/chat_room_controller.dart';
 import '../widgets/message_media_widgets.dart';
-import 'zego_call_screen.dart';
+import 'webrtc_call_screen.dart';
 
 final _forwardChannelsProvider = FutureProvider.autoDispose
     .family<List<ConversationSummary>, String>((ref, workspaceId) async {
@@ -401,7 +401,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen>
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
-        builder: (_) => ZegoCallScreen(
+        builder: (_) => WebRtcCallScreen(
           workspaceId: call.workspaceId,
           channelId: call.channelId,
           callId: call.id,

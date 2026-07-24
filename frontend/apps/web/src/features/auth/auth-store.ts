@@ -3,7 +3,6 @@
 import type {
   AuthResult,
   AuthUser,
-  DomainClaim,
   ZoneRuntime
 } from "@webtui/types";
 import { getPlatformServices } from "@webtui/chat-core";
@@ -13,7 +12,6 @@ import { createJSONStorage, persist, type StateStorage } from "zustand/middlewar
 type AuthState = {
   accessToken: string | null;
   hydrated: boolean;
-  pendingDomainClaim: DomainClaim | null;
   refreshToken: string | null;
   rememberLogin: boolean;
   sessionId: string | null;
@@ -22,7 +20,6 @@ type AuthState = {
   zoneRuntime: ZoneRuntime | null;
   clearSession: () => void;
   setHydrated: (hydrated: boolean) => void;
-  setPendingDomainClaim: (claim: DomainClaim | null) => void;
   setRememberLogin: (remember: boolean) => void;
   setSession: (result: AuthResult) => void;
   setUser: (user: AuthUser | null) => void;
@@ -34,7 +31,6 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       accessToken: null,
       hydrated: false,
-      pendingDomainClaim: null,
       refreshToken: null,
       rememberLogin: true,
       sessionId: null,
@@ -44,7 +40,6 @@ export const useAuthStore = create<AuthState>()(
       clearSession: () =>
         set({
           accessToken: null,
-          pendingDomainClaim: null,
           refreshToken: null,
           sessionId: null,
           user: null,
@@ -52,7 +47,6 @@ export const useAuthStore = create<AuthState>()(
           zoneRuntime: null
         }),
       setHydrated: (hydrated) => set({ hydrated }),
-      setPendingDomainClaim: (pendingDomainClaim) => set({ pendingDomainClaim }),
       setRememberLogin: (rememberLogin) => set({ rememberLogin }),
       setSession: (result) =>
         set((state) => {
@@ -77,7 +71,6 @@ export const useAuthStore = create<AuthState>()(
       },
       partialize: (state) => ({
         accessToken: getPlatformServices().lifecycle.isDesktop ? null : state.accessToken,
-        pendingDomainClaim: state.pendingDomainClaim,
         refreshToken: state.refreshToken,
         rememberLogin: state.rememberLogin,
         sessionId: state.sessionId,

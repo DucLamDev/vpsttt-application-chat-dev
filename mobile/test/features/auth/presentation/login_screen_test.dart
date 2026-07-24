@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:webtui_chat/app/flavor/app_config.dart';
+import 'package:webtui_chat/app/flavor/app_flavor.dart';
 import 'package:webtui_chat/app/providers/foundation_providers.dart';
 import 'package:webtui_chat/core/error/failure.dart';
 import 'package:webtui_chat/core/result/result.dart';
@@ -16,6 +18,7 @@ import 'package:webtui_chat/features/auth/domain/entities/user_session.dart';
 import 'package:webtui_chat/features/auth/domain/repositories/auth_repository.dart';
 import 'package:webtui_chat/features/auth/domain/repositories/auth_token_repository.dart';
 import 'package:webtui_chat/features/auth/domain/repositories/device_identity_repository.dart';
+import 'package:webtui_chat/features/auth/presentation/controllers/login_controller.dart';
 import 'package:webtui_chat/features/auth/presentation/screens/login_screen.dart';
 
 void main() {
@@ -89,7 +92,7 @@ void main() {
 
     expect(find.text('Tạo tài khoản mới'), findsOneWidget);
     expect(find.text('Xác nhận mật khẩu'), findsOneWidget);
-    expect(find.text('Domain công ty (không bắt buộc)'), findsOneWidget);
+    expect(find.text('Domain server'), findsOneWidget);
     expect(find.byKey(const Key('register_submit_button')), findsOneWidget);
   });
 }
@@ -102,6 +105,14 @@ Future<void> _pumpLogin(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        appConfigProvider.overrideWithValue(
+          AppConfig(
+            flavor: AppFlavor.dev,
+            apiBaseUri: Uri.parse('http://localhost:8080'),
+            wsBaseUri: Uri.parse('ws://localhost:8080/ws'),
+          ),
+        ),
+        serverConnectorProvider.overrideWithValue((_) async {}),
         loginUseCaseProvider.overrideWithValue(
           LoginUseCase(
             authRepository: authRepository,

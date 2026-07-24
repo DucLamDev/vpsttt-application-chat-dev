@@ -199,6 +199,8 @@ final class ConversationRealtimeEventMapper {
       return null;
     }
     final payload = jsonMap(field(map, const ['payload']));
+    final signal = jsonMap(field(payload, const ['signal']));
+    final signalPayload = signal.isEmpty ? payload : signal;
     final messageMap = jsonMap(field(payload, const ['message']));
     final message = messageMap.isEmpty
         ? null
@@ -240,6 +242,8 @@ final class ConversationRealtimeEventMapper {
         'targetUserId',
       ]),
       reason: nullableStringField(payload, const ['reason']),
+      callSdp: jsonMap(field(signalPayload, const ['sdp'])),
+      callCandidate: jsonMap(field(signalPayload, const ['candidate'])),
     );
   }
 }
@@ -257,6 +261,10 @@ ConversationRealtimeEventType _eventType(String value) {
     'TypingStopped' => ConversationRealtimeEventType.typingStopped,
     'CallInvited' => ConversationRealtimeEventType.callInvited,
     'CallAccepted' => ConversationRealtimeEventType.callAccepted,
+    'CallReady' => ConversationRealtimeEventType.callReady,
+    'CallOffer' => ConversationRealtimeEventType.callOffer,
+    'CallAnswer' => ConversationRealtimeEventType.callAnswer,
+    'CallIceCandidate' => ConversationRealtimeEventType.callIceCandidate,
     'CallRejected' => ConversationRealtimeEventType.callRejected,
     'CallCancelled' => ConversationRealtimeEventType.callCancelled,
     'CallEnded' => ConversationRealtimeEventType.callEnded,

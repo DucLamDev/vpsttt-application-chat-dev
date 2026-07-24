@@ -1081,7 +1081,6 @@ export function ChatWorkspace() {
     peerName: selectedChatChannel?.name,
     peerUserId: selectedChatChannel?.peerUserId,
     resolvePeerName: resolveCallPeerName,
-    sendSignal: data.realtime.publishCallSignal,
     workspaceId: data.workspaceId
   });
   useIncomingCallRingtone(callControls.callState.status === "incoming");
@@ -3095,11 +3094,11 @@ export function ChatWorkspace() {
 
       <CallPanel
         callState={callControls.callState}
-        hasZegoCall={callControls.hasZegoCall}
+        hasMediaSession={callControls.hasMediaSession}
         onAccept={() => void callControls.acceptCall()}
         onEnd={callControls.endCall}
         onReject={callControls.rejectCall}
-        zegoContainerRef={callControls.zegoContainerRef}
+        mediaContainerRef={callControls.mediaContainerRef}
       />
 
       {forwardingMessageId ? (
@@ -6006,18 +6005,18 @@ function useIncomingCallRingtone(active: boolean) {
 
 function CallPanel({
   callState,
-  hasZegoCall,
+  hasMediaSession,
+  mediaContainerRef,
   onAccept,
   onEnd,
-  onReject,
-  zegoContainerRef
+  onReject
 }: {
   callState: WebRtcCallState;
-  hasZegoCall: boolean;
+  hasMediaSession: boolean;
+  mediaContainerRef: RefObject<HTMLDivElement | null>;
   onAccept: () => void;
   onEnd: () => void;
   onReject: () => void;
-  zegoContainerRef: RefObject<HTMLDivElement | null>;
 }) {
   const [minimized, setMinimized] = useState(false);
 
@@ -6033,7 +6032,7 @@ function CallPanel({
 
   const canControlCall = callState.status === "outgoing" || callState.status === "connecting" || callState.status === "active";
   const isVideo = callState.mode === "video";
-  const showZegoCall = canControlCall;
+  const showMediaSession = canControlCall;
 
   return (
     <section className={`call-panel call-panel--floating call-panel--${callState.status}${minimized ? " call-panel--minimized" : ""}`} role="status">
@@ -6046,13 +6045,16 @@ function CallPanel({
           <small>{callPanelSubtitle(callState)}</small>
         </div>
       </div>
-      {showZegoCall && !minimized ? (
-        <div className={`call-panel__zego call-panel__zego--${callState.mode}`}>
-          <div className={hasZegoCall ? "webtui-zego-call" : "webtui-zego-call webtui-zego-call--loading"} ref={zegoContainerRef} />
+      {showMediaSession && !minimized ? (
+        <div className={`call-panel__media call-panel__media--${callState.mode}`}>
+          <div
+            className={hasMediaSession ? "webtui-webrtc-call" : "webtui-webrtc-call webtui-webrtc-call--loading"}
+            ref={mediaContainerRef}
+          />
         </div>
       ) : null}
       <div className="call-panel__actions">
-        {showZegoCall ? (
+        {showMediaSession ? (
           <Tooltip label={minimized ? "Mở cửa sổ cuộc gọi" : "Thu nhỏ cuộc gọi"}>
             <Button
               aria-label={minimized ? "Mở cửa sổ cuộc gọi" : "Thu nhỏ cuộc gọi"}
@@ -6077,7 +6079,7 @@ function CallPanel({
             </Button>
           </>
         ) : null}
-        {showZegoCall ? (
+        {showMediaSession ? (
           <Button className="call-panel__button call-panel__button--end" onClick={onEnd} size="sm" variant="secondary">
             <PhoneOff size={16} />
             Kết thúc

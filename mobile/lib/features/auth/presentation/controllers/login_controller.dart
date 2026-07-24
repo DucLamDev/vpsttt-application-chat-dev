@@ -1,18 +1,30 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/providers/foundation_providers.dart';
+import '../../../../core/network/self_hosted_server_uri.dart';
 import '../../../../core/result/result.dart';
+import '../../../../core/security/secure_key_value_store.dart';
 import '../../application/use_cases/login_use_case.dart';
 import '../../application/use_cases/register_use_case.dart';
 import '../../domain/entities/auth_session.dart';
 
 enum AuthFormMode { login, register }
 
+typedef ServerConnector = Future<void> Function(String domain);
+
+final serverConnectorProvider = Provider<ServerConnector>((ref) {
+  return (domain) => _connectToServer(ref, domain);
+});
+
 final loginControllerProvider =
     StateNotifierProvider.autoDispose<LoginController, LoginState>((ref) {
       return LoginController(
-        loginUseCase: ref.watch(loginUseCaseProvider),
-        registerUseCase: ref.watch(registerUseCaseProvider),
+        initialDomain: ref.read(activeServerUriProvider).host,
+        connectToServer: ref.read(serverConnectorProvider),
+        login: (command) => ref.read(loginUseCaseProvider).execute(command),
+        register: (command) =>
+            ref.read(registerUseCaseProvider).execute(command),
         googleLogin: () => ref.read(googleLoginUseCaseProvider).execute(),
       );
     });
@@ -59,9 +71,12 @@ final class LoginState {
       return false;
     }
     if (isLogin) {
-      return identifier.trim().isNotEmpty && password.trim().isNotEmpty;
+      return domain.trim().isNotEmpty &&
+          identifier.trim().isNotEmpty &&
+          password.trim().isNotEmpty;
     }
-    return displayName.trim().isNotEmpty &&
+    return domain.trim().isNotEmpty &&
+        displayName.trim().isNotEmpty &&
         email.trim().isNotEmpty &&
         username.trim().isNotEmpty &&
         password.trim().isNotEmpty &&
@@ -108,16 +123,21 @@ final class LoginState {
 
 final class LoginController extends StateNotifier<LoginState> {
   LoginController({
-    required LoginUseCase loginUseCase,
-    required RegisterUseCase registerUseCase,
+    required String initialDomain,
+    required Future<void> Function(String domain) connectToServer,
+    required Future<Result<AuthSession>> Function(LoginCommand command) login,
+    required Future<Result<AuthSession>> Function(RegisterCommand command)
+    register,
     required Future<Result<AuthSession>> Function() googleLogin,
-  }) : _loginUseCase = loginUseCase,
-       _registerUseCase = registerUseCase,
+  }) : _connectToServer = connectToServer,
+       _login = login,
+       _register = register,
        _googleLogin = googleLogin,
-       super(const LoginState());
+       super(LoginState(domain: initialDomain));
 
-  final LoginUseCase _loginUseCase;
-  final RegisterUseCase _registerUseCase;
+  final Future<void> Function(String domain) _connectToServer;
+  final Future<Result<AuthSession>> Function(LoginCommand command) _login;
+  final Future<Result<AuthSession>> Function(RegisterCommand command) _register;
   final Future<Result<AuthSession>> Function() _googleLogin;
 
   void showLogin() => _setMode(AuthFormMode.login);
@@ -188,14 +208,24 @@ final class LoginController extends StateNotifier<LoginState> {
     }
 
     state = state.copyWith(isLoading: true, clearError: true, succeeded: false);
+    try {
+      await _connectToServer(state.domain);
+    } on Object catch (error) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: _serverError(error),
+        succeeded: false,
+      );
+      return;
+    }
     final result = state.isLogin
-        ? await _loginUseCase.execute(
+        ? await _login(
             LoginCommand(
               identifier: state.identifier,
               password: state.password,
             ),
           )
-        : await _registerUseCase.execute(
+        : await _register(
             RegisterCommand(
               displayName: state.displayName,
               email: state.email,
@@ -229,6 +259,17 @@ final class LoginController extends StateNotifier<LoginState> {
       clearError: true,
       succeeded: false,
     );
+    try {
+      await _connectToServer(state.domain);
+    } on Object catch (error) {
+      state = state.copyWith(
+        isLoading: false,
+        isGoogleLoading: false,
+        errorMessage: _serverError(error),
+        succeeded: false,
+      );
+      return;
+    }
     final result = await _googleLogin();
     switch (result) {
       case Success<AuthSession>():
@@ -246,4 +287,41 @@ final class LoginController extends StateNotifier<LoginState> {
         );
     }
   }
+}
+
+Future<void> _connectToServer(Ref ref, String rawDomain) async {
+  final uri = parseSelfHostedServerUri(rawDomain);
+  final response =
+      await Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 10),
+          followRedirects: true,
+        ),
+      ).getUri<Object>(
+        uri
+            .resolve('/api/v1/discovery')
+            .replace(queryParameters: {'domain': uri.host}),
+      );
+  final body = response.data;
+  if (response.statusCode != 200 ||
+      body is! Map ||
+      body['data'] is! Map ||
+      (body['data'] as Map)['discovery'] is! Map) {
+    throw StateError('Server không trả discovery VPSTTT Chat hợp lệ.');
+  }
+  await ref
+      .read(secureKeyValueStoreProvider)
+      .write(SecureStoreKey.instanceBaseUrl, uri.toString());
+  ref.read(activeServerUriProvider.notifier).state = uri;
+}
+
+String _serverError(Object error) {
+  if (error is DioException) {
+    return 'Không thể kết nối tới server. Hãy kiểm tra domain, DNS và TLS.';
+  }
+  return error
+      .toString()
+      .replaceFirst(RegExp(r'^(StateError|FormatException):\s*'), '')
+      .trim();
 }

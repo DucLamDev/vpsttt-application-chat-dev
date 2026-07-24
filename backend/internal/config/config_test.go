@@ -114,6 +114,8 @@ func TestValidateRejectsInvalidOIDCClientSecretAlias(t *testing.T) {
 func TestLoadReadsRegistrationDefaultWorkspaceID(t *testing.T) {
 	t.Setenv("APP_ENV", "dev")
 	t.Setenv("REGISTRATION_DEFAULT_WORKSPACE_ID", "3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c")
+	t.Setenv("CUSTOM_DOMAIN_DNS_TYPE", "a")
+	t.Setenv("CUSTOM_DOMAIN_DNS_TARGET", "160.191.55.144")
 
 	cfg, err := Load()
 	if err != nil {
@@ -121,6 +123,61 @@ func TestLoadReadsRegistrationDefaultWorkspaceID(t *testing.T) {
 	}
 	if cfg.Registration.DefaultWorkspaceID != "3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c" {
 		t.Fatalf("Registration.DefaultWorkspaceID = %q", cfg.Registration.DefaultWorkspaceID)
+	}
+	if cfg.Registration.CustomDomainDNSType != "A" {
+		t.Fatalf("Registration.CustomDomainDNSType = %q", cfg.Registration.CustomDomainDNSType)
+	}
+	if cfg.Registration.CustomDomainDNSTarget != "160.191.55.144" {
+		t.Fatalf("Registration.CustomDomainDNSTarget = %q", cfg.Registration.CustomDomainDNSTarget)
+	}
+}
+
+func TestLoadReadsSelfHostedDeployment(t *testing.T) {
+	t.Setenv("APP_ENV", "dev")
+	t.Setenv("DEPLOYMENT_MODE", "self_hosted")
+	t.Setenv("INSTANCE_DOMAIN", "Chat.Company.Example")
+	t.Setenv("INSTANCE_NAME", "Company Chat")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.Deployment.IsSelfHosted() {
+		t.Fatalf("Deployment.Mode = %q, want self_hosted", cfg.Deployment.Mode)
+	}
+	if cfg.Deployment.InstanceDomain != "chat.company.example" {
+		t.Fatalf("Deployment.InstanceDomain = %q", cfg.Deployment.InstanceDomain)
+	}
+	if cfg.Deployment.InstanceName != "Company Chat" {
+		t.Fatalf("Deployment.InstanceName = %q", cfg.Deployment.InstanceName)
+	}
+}
+
+func TestValidateRequiresPublicDomainForProductionSelfHosted(t *testing.T) {
+	cfg := validConfigForTest()
+	cfg.App.Env = "production"
+	cfg.Deployment = DeploymentConfig{
+		Mode:           "self_hosted",
+		InstanceDomain: "localhost",
+		InstanceName:   "Local Chat",
+	}
+
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "INSTANCE_DOMAIN") {
+		t.Fatalf("Validate() error = %v, want invalid production instance domain", err)
+	}
+}
+
+func TestValidateAllowsLocalSelfHostedDevelopment(t *testing.T) {
+	cfg := validConfigForTest()
+	cfg.App.Env = "dev"
+	cfg.Deployment = DeploymentConfig{
+		Mode:           "self_hosted",
+		InstanceDomain: "localhost",
+		InstanceName:   "Local Chat",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
 	}
 }
 
@@ -181,6 +238,25 @@ func TestValidateRejectsInvalidRegistrationDefaultWorkspaceID(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidCustomDomainDNSTarget(t *testing.T) {
+	cfg := &Config{
+		App:      AppConfig{Name: "webtui-chat", Env: "dev"},
+		HTTP:     HTTPConfig{Host: "0.0.0.0", Port: 8080},
+		Worker:   WorkerConfig{Concurrency: 1},
+		Backup:   BackupConfig{PGDumpPath: "pg_dump", Timeout: time.Minute},
+		Database: DatabaseConfig{Enabled: true, URL: "postgres://user:pass@localhost:5432/app?sslmode=disable"},
+		Order:    OrderConfig{Timeout: time.Second},
+		Registration: RegistrationConfig{
+			CustomDomainDNSType:   "A",
+			CustomDomainDNSTarget: "not-an-ip",
+		},
+	}
+
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "CUSTOM_DOMAIN_DNS_TARGET") {
+		t.Fatalf("Validate() error = %v, want invalid custom-domain DNS target rejection", err)
+	}
+}
+
 func assertContains(t *testing.T, values []string, expected string) {
 	t.Helper()
 
@@ -191,4 +267,16 @@ func assertContains(t *testing.T, values []string, expected string) {
 	}
 
 	t.Fatalf("%q không có trong %v", expected, values)
+}
+
+func validConfigForTest() *Config {
+	return &Config{
+		App:        AppConfig{Name: "webtui-chat", Env: "dev"},
+		HTTP:       HTTPConfig{Host: "0.0.0.0", Port: 8080},
+		Worker:     WorkerConfig{Concurrency: 1},
+		Backup:     BackupConfig{PGDumpPath: "pg_dump", Timeout: time.Minute},
+		Deployment: DeploymentConfig{Mode: "saas"},
+		Order:      OrderConfig{Timeout: time.Second},
+		Calls:      CallsConfig{RingTimeout: 30 * time.Second},
+	}
 }

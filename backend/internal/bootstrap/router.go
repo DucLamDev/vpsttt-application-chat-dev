@@ -79,7 +79,6 @@ import (
 	usersapp "github.com/duclamdev/application-chat/backend/internal/modules/users/application"
 	usershttp "github.com/duclamdev/application-chat/backend/internal/modules/users/delivery/http"
 	userspostgres "github.com/duclamdev/application-chat/backend/internal/modules/users/infrastructure/postgres"
-	videohttp "github.com/duclamdev/application-chat/backend/internal/modules/video/delivery/http"
 	webhooksapp "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/application"
 	webhookshttp "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/delivery/http"
 	webhooksender "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/infrastructure/httpclient"
@@ -119,14 +118,18 @@ func (a *API) registerRoutes() {
 }
 
 func (a *API) registerAPIV1() {
-	v1 := a.engine.Group("/api/v1")
-	v1.GET("", func(c *gin.Context) {
+	apiInfo := func(c *gin.Context) {
 		response.OK(c, nethttp.StatusOK, gin.H{
-			"name":    a.cfg.App.Name,
-			"version": a.cfg.App.Version,
-			"status":  "ok",
+			"name":            a.cfg.App.Name,
+			"version":         a.cfg.App.Version,
+			"status":          "ok",
+			"api_version":     "v1",
+			"deployment_mode": a.cfg.Deployment.Mode,
 		})
-	})
+	}
+	a.engine.GET("/api", apiInfo)
+	v1 := a.engine.Group("/api/v1")
+	v1.GET("", apiInfo)
 
 	if a.resources.Database == nil {
 		v1.Any("/*path", func(c *gin.Context) {
@@ -144,14 +147,19 @@ func (a *API) registerAPIV1() {
 		AppVersion:           a.cfg.App.Version,
 		DefaultLocale:        "vi-VN",
 		ReleaseChannel:       a.cfg.App.Env,
+		DeploymentMode:       a.cfg.Deployment.Mode,
+		RTCICEServers:        a.cfg.Calls.ICEServers,
 		WebhookSigningSecret: a.cfg.Security.WebhookSigningSecret,
 		OIDCEnabled:          len(a.cfg.Security.OIDCStateSecret) >= 32,
 		OIDCClientSecrets:    a.cfg.Security.OIDCClientSecrets,
+		RoutingDNSType:       a.cfg.Registration.CustomDomainDNSType,
+		RoutingDNSTarget:     a.cfg.Registration.CustomDomainDNSTarget,
 	})
 	v1.Use(tenancyhttp.OptionalZoneContext(tenancyService))
 	authMiddleware := middleware.Auth(tokenManager, tenancyService)
 	zoneRecoveryAuthMiddleware := middleware.AuthForZoneRecovery(tokenManager, tenancyService)
 	tenancyHandler := tenancyhttp.NewHandler(tenancyService, a.cfg.Security.CaddyAskSecret)
+	tenancyHandler.SetSaaSProvisioningEnabled(!a.cfg.Deployment.IsSelfHosted())
 	tenancyHandler.RegisterRoutes(a.engine, v1, authMiddleware, zoneRecoveryAuthMiddleware)
 
 	authRepo := authpostgres.NewRepository(pool, a.cfg.Registration.DefaultWorkspaceID)
@@ -269,17 +277,9 @@ func (a *API) registerAPIV1() {
 		callsRealtime = callsws.NewPublisher(a.resources.WebSocket)
 	}
 	callsService := callsapp.NewService(callsRepo, rbacService, callsRealtime, notificationsService)
-	callsService.SetRingTimeout(a.cfg.ZegoCloud.RingTimeout)
+	callsService.SetRingTimeout(a.cfg.Calls.RingTimeout)
 	callsHandler := callshttp.NewHandler(callsService)
 	callsHandler.RegisterRoutes(v1, authMiddleware)
-
-	videoHandler := videohttp.NewHandler(
-		a.cfg.ZegoCloud.AppID,
-		a.cfg.ZegoCloud.AppSign,
-		a.cfg.ZegoCloud.ServerSecret,
-		a.cfg.ZegoCloud.TokenTTL,
-	)
-	videoHandler.RegisterRoutes(v1, authMiddleware)
 
 	orderRepo := orderpostgres.NewRepository(pool)
 	orderAPIClient := orderclient.New(orderclient.Config{

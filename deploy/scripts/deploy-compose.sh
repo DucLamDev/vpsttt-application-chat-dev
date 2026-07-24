@@ -42,10 +42,12 @@ case "$TLS_PROXY_MODE" in
   caddy)
     PROXY_PROFILE="dynamic-tls"
     PROXY_SERVICE="caddy"
+    FALLBACK_PROXY_SERVICE="nginx"
     ;;
   nginx)
     PROXY_PROFILE="static-tls"
     PROXY_SERVICE="nginx"
+    FALLBACK_PROXY_SERVICE="caddy"
     ;;
   *)
     echo "TLS_PROXY_MODE must be caddy or nginx." >&2
@@ -100,6 +102,15 @@ compose() {
   docker compose --profile "$PROXY_PROFILE" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+compose_all_proxies() {
+  docker compose \
+    --profile dynamic-tls \
+    --profile static-tls \
+    --env-file "$COMPOSE_ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    "$@"
+}
+
 wait_for_public_health() {
   if ! command -v curl >/dev/null 2>&1; then
     return 0
@@ -122,14 +133,28 @@ wait_for_public_health() {
 }
 
 AUTO_INIT_TLS="${AUTO_INIT_TLS:-$(read_env_value AUTO_INIT_TLS)}"
+SKIP_PULL="${SKIP_PULL:-false}"
 
 if [ "$TLS_PROXY_MODE" = "nginx" ] && [ "$AUTO_INIT_TLS" = "true" ]; then
   COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" sh deploy/scripts/init-letsencrypt.sh
 fi
 
-compose pull
+if [ "$SKIP_PULL" != "true" ]; then
+  compose pull
+fi
 compose --profile migration run --rm migrate
-compose up -d --remove-orphans
-compose up -d --force-recreate "$PROXY_SERVICE"
+compose up -d postgres redis api worker web admin
+compose_all_proxies stop "$FALLBACK_PROXY_SERVICE"
+if ! compose up -d --force-recreate "$PROXY_SERVICE"; then
+  echo "Failed to start $PROXY_SERVICE. Restoring $FALLBACK_PROXY_SERVICE." >&2
+  compose_all_proxies stop "$PROXY_SERVICE" || true
+  compose_all_proxies up -d "$FALLBACK_PROXY_SERVICE"
+  exit 1
+fi
 compose ps
-wait_for_public_health
+if ! wait_for_public_health; then
+  echo "Public health failed with $PROXY_SERVICE. Restoring $FALLBACK_PROXY_SERVICE." >&2
+  compose_all_proxies stop "$PROXY_SERVICE" || true
+  compose_all_proxies up -d "$FALLBACK_PROXY_SERVICE"
+  exit 1
+fi

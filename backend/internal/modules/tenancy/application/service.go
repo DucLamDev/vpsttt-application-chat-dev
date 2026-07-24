@@ -71,6 +71,10 @@ type Options struct {
 	AppVersion           string
 	DefaultLocale        string
 	ReleaseChannel       string
+	DeploymentMode       string
+	RTCICEServers        []map[string]any
+	RoutingDNSType       string
+	RoutingDNSTarget     string
 	VerificationTTL      time.Duration
 	TXTResolver          TXTResolver
 	Now                  func() time.Time
@@ -250,14 +254,15 @@ type WorkspaceRefDTO struct {
 }
 
 type RuntimeDTO struct {
-	AppName        string `json:"app_name"`
-	AppVersion     string `json:"app_version"`
-	ReleaseChannel string `json:"release_channel"`
-	Locale         string `json:"locale"`
-	WebBaseURL     string `json:"web_base_url"`
-	APIBaseURL     string `json:"api_base_url"`
-	WSBaseURL      string `json:"ws_base_url"`
-	AdminBaseURL   string `json:"admin_base_url,omitempty"`
+	AppName        string           `json:"app_name"`
+	AppVersion     string           `json:"app_version"`
+	ReleaseChannel string           `json:"release_channel"`
+	Locale         string           `json:"locale"`
+	WebBaseURL     string           `json:"web_base_url"`
+	APIBaseURL     string           `json:"api_base_url"`
+	WSBaseURL      string           `json:"ws_base_url"`
+	AdminBaseURL   string           `json:"admin_base_url,omitempty"`
+	RTCICEServers  []map[string]any `json:"rtc_ice_servers,omitempty"`
 }
 
 type CapabilitiesDTO struct {
@@ -272,6 +277,7 @@ type CapabilitiesDTO struct {
 	OIDCConfiguration bool `json:"oidc_configuration"`
 	CustomDomain      bool `json:"custom_domain"`
 	Dedicated         bool `json:"dedicated"`
+	SelfHosted        bool `json:"self_hosted"`
 }
 
 type DeploymentDTO struct {
@@ -292,6 +298,9 @@ type DomainClaimDTO struct {
 	ID                    string           `json:"id"`
 	Domain                string           `json:"domain"`
 	Status                string           `json:"status"`
+	RoutingDNSType        string           `json:"routing_dns_type,omitempty"`
+	RoutingDNSName        string           `json:"routing_dns_name,omitempty"`
+	RoutingDNSValue       string           `json:"routing_dns_value,omitempty"`
 	VerificationMethod    string           `json:"verification_method"`
 	VerificationDNSName   string           `json:"verification_dns_name"`
 	VerificationDNSValue  string           `json:"verification_dns_value"`
@@ -475,7 +484,7 @@ func (s *Service) CreateDomainClaim(ctx context.Context, input CreateDomainClaim
 		}
 		return DomainClaimDTO{}, err
 	}
-	return toDomainClaimDTO(claim), nil
+	return toDomainClaimDTO(claim, s.options), nil
 }
 
 func (s *Service) GetDomainClaim(ctx context.Context, actorUserID string, domainID string) (DomainClaimDTO, error) {
@@ -483,7 +492,7 @@ func (s *Service) GetDomainClaim(ctx context.Context, actorUserID string, domain
 	if err != nil {
 		return DomainClaimDTO{}, mapClaimError(err)
 	}
-	return toDomainClaimDTO(claim), nil
+	return toDomainClaimDTO(claim, s.options), nil
 }
 
 func (s *Service) VerifyDomainClaim(ctx context.Context, actorUserID string, domainID string) (DiscoveryDTO, error) {
@@ -863,7 +872,8 @@ func (s *Service) toDiscovery(
 	if resolved.Zone.Kind == "customer_dedicated" || deploymentMode(resolved.Deployment) != "shared" {
 		capabilities.Dedicated = true
 	}
-	capabilities.CustomDomain = true
+	capabilities.SelfHosted = strings.EqualFold(strings.TrimSpace(s.options.DeploymentMode), "self_hosted")
+	capabilities.CustomDomain = !capabilities.SelfHosted
 
 	var workspace *WorkspaceRefDTO
 	if resolved.Workspace != nil {
@@ -947,7 +957,23 @@ func (s *Service) runtime(domain string, deployment *tenancydomain.Deployment) R
 		APIBaseURL:     strings.TrimRight(apiURL, "/"),
 		WSBaseURL:      strings.TrimRight(wsURL, "/"),
 		AdminBaseURL:   strings.TrimRight(adminURL, "/"),
+		RTCICEServers:  cloneJSONMapList(s.options.RTCICEServers),
 	}
+}
+
+func cloneJSONMapList(source []map[string]any) []map[string]any {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make([]map[string]any, 0, len(source))
+	for _, item := range source {
+		copy := make(map[string]any, len(item))
+		for key, value := range item {
+			copy[key] = value
+		}
+		cloned = append(cloned, copy)
+	}
+	return cloned
 }
 
 func capabilitiesFromMetadata(metadata map[string]any) CapabilitiesDTO {
@@ -1016,7 +1042,7 @@ func firstNonEmpty(value string, fallback string) string {
 	return strings.TrimSpace(value)
 }
 
-func toDomainClaimDTO(claim tenancydomain.DomainClaim) DomainClaimDTO {
+func toDomainClaimDTO(claim tenancydomain.DomainClaim, options Options) DomainClaimDTO {
 	var workspace *WorkspaceRefDTO
 	if claim.Workspace != nil {
 		workspace = &WorkspaceRefDTO{
@@ -1029,6 +1055,9 @@ func toDomainClaimDTO(claim tenancydomain.DomainClaim) DomainClaimDTO {
 		ID:                    claim.Domain.ID,
 		Domain:                claim.Domain.Domain,
 		Status:                claim.Domain.Status,
+		RoutingDNSType:        strings.ToUpper(strings.TrimSpace(options.RoutingDNSType)),
+		RoutingDNSName:        routingDNSName(claim.Domain.Domain, options),
+		RoutingDNSValue:       strings.TrimSpace(options.RoutingDNSTarget),
 		VerificationMethod:    claim.Domain.VerificationMethod,
 		VerificationDNSName:   verificationDNSName(claim.Domain.Domain),
 		VerificationDNSValue:  verificationDNSValue(claim.Domain.VerificationToken),
@@ -1046,6 +1075,13 @@ func toDomainClaimDTO(claim tenancydomain.DomainClaim) DomainClaimDTO {
 		},
 		Workspace: workspace,
 	}
+}
+
+func routingDNSName(domain string, options Options) string {
+	if strings.TrimSpace(options.RoutingDNSTarget) == "" {
+		return ""
+	}
+	return domain
 }
 
 func mapClaimError(err error) error {

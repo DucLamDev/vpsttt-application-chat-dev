@@ -20,6 +20,7 @@ Tài liệu dự án WebTui Chat được viết bằng tiếng Việt có dấu
 
 ## Kế hoạch triển khai
 
+- [Cài đặt self-hosted cho customer](../deploy/self-hosted/README.md)
 - [Kế hoạch hoàn thiện backend](planning/backend-roadmap.md)
 - [Kế hoạch Desktop App Tauri](planning/desktop-tauri-roadmap.md)
 - [Desktop App Phase D0 Completion](planning/desktop-phase-d0-completion.md)
@@ -33,7 +34,6 @@ Tài liệu dự án WebTui Chat được viết bằng tiếng Việt có dấu
 - [Desktop App Phase D10 Completion](planning/desktop-phase-d10-completion.md)
 - [Deploy production lên VPS](deploy/vps-production.md)
 - [CI/CD từng bước với GitHub Actions và Docker Compose](deploy/cicd.md)
-- [Cấu hình ZEGOCLOUD và Firebase push](deploy/zegocloud-firebase.md)
 
 ## Backend contract
 

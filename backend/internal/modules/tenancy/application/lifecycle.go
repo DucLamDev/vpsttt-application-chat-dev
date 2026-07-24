@@ -187,7 +187,7 @@ func (s *Service) CreateAdditionalDomain(
 		}
 		return DomainClaimDTO{}, mapClaimError(err)
 	}
-	return toDomainClaimDTO(claim), nil
+	return toDomainClaimDTO(claim, s.options), nil
 }
 
 func (s *Service) SetPrimaryDomain(

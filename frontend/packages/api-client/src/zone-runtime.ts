@@ -58,6 +58,51 @@ export function zoneWebNavigationTarget(
   return target.toString();
 }
 
+export function serverDiscoveryBaseUrl(
+  rawServer: string,
+  fallbackApiBaseUrl: string
+): string {
+  const input = rawServer.trim();
+  if (!input) {
+    throw new Error("Server domain không được để trống.");
+  }
+
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(input);
+  let target: URL;
+  try {
+    target = new URL(hasScheme ? input : `https://${input}`);
+  } catch {
+    throw new Error("Server domain không đúng định dạng.");
+  }
+  if (
+    !["http:", "https:"].includes(target.protocol) ||
+    target.username ||
+    target.password ||
+    (target.pathname !== "/" && target.pathname !== "")
+  ) {
+    throw new Error("Chỉ nhập domain hoặc URL gốc của server.");
+  }
+
+  if (isLocalHostname(target.hostname)) {
+    if (hasScheme) {
+      return target.origin;
+    }
+    try {
+      const fallback = new URL(fallbackApiBaseUrl);
+      if (fallback.hostname === target.hostname) {
+        return fallback.origin;
+      }
+    } catch {
+      // Fall through to the conventional local HTTP origin.
+    }
+    target.protocol = "http:";
+    return target.origin;
+  }
+
+  target.protocol = "https:";
+  return target.origin;
+}
+
 function trimTrailingSlash(value: string): string {
   const normalized = value.trim();
   return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;

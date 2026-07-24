@@ -28,6 +28,7 @@ export type ZoneRuntime = {
   api_base_url: string;
   ws_base_url: string;
   admin_base_url?: string;
+  rtc_ice_servers?: RuntimeIceServer[];
 };
 
 export type ZoneCapabilities = {
@@ -42,6 +43,7 @@ export type ZoneCapabilities = {
   oidc_configuration: boolean;
   custom_domain: boolean;
   dedicated: boolean;
+  self_hosted: boolean;
 };
 
 export type ZoneDeployment = {
@@ -64,6 +66,9 @@ export type DomainClaim = {
   id: string;
   domain: string;
   status: "pending" | "verified" | "active" | "suspended" | string;
+  routing_dns_type?: "A" | "AAAA" | string;
+  routing_dns_name?: string;
+  routing_dns_value?: string;
   verification_method: "dns_txt" | "http_well_known" | "manual" | string;
   verification_dns_name: string;
   verification_dns_value: string;
@@ -220,3 +225,4 @@ export type CreateZoneOIDCProviderInput = {
 };
 
 export type UpdateZoneOIDCProviderInput = Partial<CreateZoneOIDCProviderInput>;
+import type { RuntimeIceServer } from "./domain";

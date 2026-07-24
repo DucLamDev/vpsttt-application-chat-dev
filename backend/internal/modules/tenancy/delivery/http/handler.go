@@ -12,16 +12,24 @@ import (
 )
 
 type Handler struct {
-	service        *tenancyapp.Service
-	caddyAskSecret string
+	service                 *tenancyapp.Service
+	caddyAskSecret          string
+	saasProvisioningEnabled bool
 }
 
 func NewHandler(service *tenancyapp.Service, caddyAskSecrets ...string) *Handler {
-	handler := &Handler{service: service}
+	handler := &Handler{
+		service:                 service,
+		saasProvisioningEnabled: true,
+	}
 	if len(caddyAskSecrets) > 0 {
 		handler.caddyAskSecret = strings.TrimSpace(caddyAskSecrets[0])
 	}
 	return handler
+}
+
+func (h *Handler) SetSaaSProvisioningEnabled(enabled bool) {
+	h.saasProvisioningEnabled = enabled
 }
 
 type createDomainClaimRequest struct {
@@ -106,22 +114,16 @@ func (h *Handler) RegisterRoutes(
 	recoveryAuthMiddleware ...gin.HandlerFunc,
 ) {
 	engine.GET("/.well-known/vpsttt-chat", h.WellKnown)
-	engine.GET("/internal/tenancy/caddy-ask", h.CaddyAsk)
+	if h.saasProvisioningEnabled {
+		engine.GET("/internal/tenancy/caddy-ask", h.CaddyAsk)
+	}
 	v1.GET("/discovery", h.Discovery)
 	v1.GET("/capabilities", h.Capabilities)
 
 	private := v1.Group("/zones")
 	private.Use(authMiddleware)
-	private.POST("/claims", h.CreateDomainClaim)
-	private.GET("/claims/:domain_id", h.GetDomainClaim)
-	private.POST("/claims/:domain_id/verify", h.VerifyDomainClaim)
 	private.GET("/current", h.GetCurrentZone)
 	private.PATCH("/current", h.UpdateCurrentZone)
-	private.POST("/current/domains", h.CreateAdditionalDomain)
-	private.POST("/current/domains/:domain_id/primary", h.SetPrimaryDomain)
-	private.DELETE("/current/domains/:domain_id", h.DeleteCurrentZoneDomain)
-	private.GET("/current/deployment-requests", h.ListDeploymentRequests)
-	private.POST("/current/deployment-requests", h.CreateDeploymentRequest)
 	private.GET("/current/quota", h.GetZoneQuota)
 	private.PUT("/current/quota", h.UpdateZoneQuota)
 	private.GET("/current/oidc-providers", h.ListOIDCProviders)
@@ -133,6 +135,16 @@ func (h *Handler) RegisterRoutes(
 	private.POST("/current/automation-installations", h.CreateAutomationInstallation)
 	private.PATCH("/current/automation-installations/:installation_id", h.UpdateAutomationInstallation)
 	private.DELETE("/current/automation-installations/:installation_id", h.DeleteAutomationInstallation)
+	if h.saasProvisioningEnabled {
+		private.POST("/claims", h.CreateDomainClaim)
+		private.GET("/claims/:domain_id", h.GetDomainClaim)
+		private.POST("/claims/:domain_id/verify", h.VerifyDomainClaim)
+		private.POST("/current/domains", h.CreateAdditionalDomain)
+		private.POST("/current/domains/:domain_id/primary", h.SetPrimaryDomain)
+		private.DELETE("/current/domains/:domain_id", h.DeleteCurrentZoneDomain)
+		private.GET("/current/deployment-requests", h.ListDeploymentRequests)
+		private.POST("/current/deployment-requests", h.CreateDeploymentRequest)
+	}
 
 	recoveryAuth := authMiddleware
 	if len(recoveryAuthMiddleware) > 0 && recoveryAuthMiddleware[0] != nil {

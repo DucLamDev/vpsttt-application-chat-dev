@@ -287,7 +287,12 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
   });
 
   const deploymentRequestsQuery = useQuery({
-    enabled: Boolean(workspaceId && canManageWorkspace),
+    enabled: Boolean(
+      workspaceId &&
+      canManageWorkspace &&
+      currentZoneQuery.data &&
+      currentZoneQuery.data?.zone.kind !== "customer_dedicated"
+    ),
     queryFn: () => api.tenancy.deploymentRequests(),
     queryKey: queryKeys.tenancy.deploymentRequests,
     retry: false
