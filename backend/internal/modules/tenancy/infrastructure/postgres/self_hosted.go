@@ -63,7 +63,7 @@ SELECT
     zone.id::text,
     workspace.id::text,
     workspace.owner_id IS NOT NULL,
-    zone.metadata->>'deployment_model' = 'self_hosted'
+    COALESCE(zone.metadata->>'deployment_model' = 'self_hosted', false)
 FROM zones zone
 JOIN workspaces workspace
   ON workspace.id = zone.primary_workspace_id
@@ -97,7 +97,7 @@ SET slug = $2,
     kind = 'customer_dedicated',
     status = 'active',
     registration_mode = $4,
-    metadata = (metadata - 'template_key') || jsonb_build_object(
+    metadata = (COALESCE(metadata, '{}'::jsonb) - 'template_key') || jsonb_build_object(
         'deployment_model', 'self_hosted',
         'managed_by', 'customer',
         'capabilities', jsonb_build_object(
@@ -215,7 +215,7 @@ SET domain = $2,
     tls_status = 'ready',
     verification_expires_at = NULL,
     last_verification_error = NULL,
-    metadata = metadata || '{"managed_by":"self_hosted_config"}'::jsonb
+    metadata = COALESCE(metadata, '{}'::jsonb) || '{"managed_by":"self_hosted_config"}'::jsonb
 WHERE id = $1::uuid
 `, primaryDomainID, domain)
 	}
@@ -253,7 +253,7 @@ SET mode = 'dedicated_compose',
     storage_bucket = 'webtui-chat',
     redis_prefix = 'instance',
     status = 'ready',
-    metadata = metadata || '{"deployment_model":"self_hosted"}'::jsonb
+    metadata = COALESCE(metadata, '{}'::jsonb) || '{"deployment_model":"self_hosted"}'::jsonb
 FROM selected
 WHERE deployment.id = selected.id
 `, zoneID, baseURL, "wss://"+domain+"/ws", baseURL+"/admin"); err != nil {
@@ -319,7 +319,7 @@ WHERE zone_id = $1::uuid
 
 	if _, err := tx.Exec(ctx, `
 UPDATE channels
-SET settings = (settings - 'template_key') || '{"template_key":"customer_standard"}'::jsonb
+SET settings = (COALESCE(settings, '{}'::jsonb) - 'template_key') || '{"template_key":"customer_standard"}'::jsonb
 WHERE workspace_id = $1::uuid
   AND deleted_at IS NULL
 `, workspaceID); err != nil {
