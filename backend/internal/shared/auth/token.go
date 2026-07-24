@@ -34,12 +34,15 @@ type Manager struct {
 }
 
 type AccessClaims struct {
-	Subject   string `json:"sub"`
-	Email     string `json:"email,omitempty"`
-	Username  string `json:"username,omitempty"`
-	Type      string `json:"typ"`
-	IssuedAt  int64  `json:"iat"`
-	ExpiresAt int64  `json:"exp"`
+	Subject     string `json:"sub"`
+	Email       string `json:"email,omitempty"`
+	Username    string `json:"username,omitempty"`
+	ZoneID      string `json:"zone_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Domain      string `json:"domain,omitempty"`
+	Type        string `json:"typ"`
+	IssuedAt    int64  `json:"iat"`
+	ExpiresAt   int64  `json:"exp"`
 }
 
 func NewManager(accessSecret string, refreshSecret string, accessTTL time.Duration, refreshTTL time.Duration) *Manager {
@@ -66,15 +69,29 @@ func NewManager(accessSecret string, refreshSecret string, accessTTL time.Durati
 }
 
 func (m *Manager) CreateAccessToken(userID string, email string, username string) (string, time.Time, error) {
+	return m.CreateZoneAccessToken(userID, email, username, "", "", "")
+}
+
+func (m *Manager) CreateZoneAccessToken(
+	userID string,
+	email string,
+	username string,
+	zoneID string,
+	workspaceID string,
+	domain string,
+) (string, time.Time, error) {
 	now := m.now().UTC()
 	expiresAt := now.Add(m.accessTTL)
 	claims := AccessClaims{
-		Subject:   userID,
-		Email:     email,
-		Username:  username,
-		Type:      tokenTypeAccess,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: expiresAt.Unix(),
+		Subject:     userID,
+		Email:       email,
+		Username:    username,
+		ZoneID:      strings.TrimSpace(zoneID),
+		WorkspaceID: strings.TrimSpace(workspaceID),
+		Domain:      strings.ToLower(strings.TrimSpace(domain)),
+		Type:        tokenTypeAccess,
+		IssuedAt:    now.Unix(),
+		ExpiresAt:   expiresAt.Unix(),
 	}
 
 	token, err := m.sign(claims)

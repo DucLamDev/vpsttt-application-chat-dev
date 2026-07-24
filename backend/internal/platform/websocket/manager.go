@@ -19,6 +19,7 @@ type Event struct {
 type Client struct {
 	ID     string
 	UserID string
+	ZoneID string
 	Send   chan Event
 }
 
@@ -47,8 +48,7 @@ func (m *Manager) Register(client *Client) error {
 	defer m.mu.Unlock()
 
 	m.clients[client.ID] = client
-	if client.UserID != "" {
-		room := "user:" + client.UserID
+	if room := UserRoom(client.ZoneID, client.UserID); room != "" {
 		if _, ok := m.rooms[room]; !ok {
 			m.rooms[room] = make(map[string]struct{})
 		}
@@ -78,7 +78,11 @@ func (m *Manager) Join(room string, clientID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if client, ok := m.clients[clientID]; !ok || (strings.HasPrefix(room, "user:") && room != "user:"+client.UserID) {
+	client, ok := m.clients[clientID]
+	if !ok {
+		return
+	}
+	if strings.HasPrefix(room, "zone:") && strings.Contains(room, ":user:") && room != UserRoom(client.ZoneID, client.UserID) {
 		return
 	}
 
@@ -86,6 +90,15 @@ func (m *Manager) Join(room string, clientID string) {
 		m.rooms[room] = make(map[string]struct{})
 	}
 	m.rooms[room][clientID] = struct{}{}
+}
+
+func UserRoom(zoneID string, userID string) string {
+	zoneID = strings.TrimSpace(zoneID)
+	userID = strings.TrimSpace(userID)
+	if zoneID == "" || userID == "" {
+		return ""
+	}
+	return "zone:" + zoneID + ":user:" + userID
 }
 
 func (m *Manager) Leave(room string, clientID string) {

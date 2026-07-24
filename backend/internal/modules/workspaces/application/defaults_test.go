@@ -31,3 +31,22 @@ func TestDefaultWorkspaceCatalogue(t *testing.T) {
 		botSlugs[bot.Slug] = true
 	}
 }
+
+func TestCustomerWorkspaceTemplateDoesNotInstallVPSTTTBots(t *testing.T) {
+	template := WorkspaceTemplateForZone("customer_saas")
+	if len(template.Bots) != 0 {
+		t.Fatalf("customer template bots = %#v, want none", template.Bots)
+	}
+	if len(template.Channels) != 2 ||
+		template.Channels[0].Slug != "general" ||
+		template.Channels[1].Slug != "announcements" {
+		t.Fatalf("customer template channels = %#v", template.Channels)
+	}
+}
+
+func TestVPSTTTWorkspaceTemplateKeepsInternalCatalogue(t *testing.T) {
+	template := WorkspaceTemplateForZone("vpsttt_internal")
+	if len(template.Bots) != 5 || len(template.Channels) != 9 {
+		t.Fatalf("VPSTTT template = %#v", template)
+	}
+}

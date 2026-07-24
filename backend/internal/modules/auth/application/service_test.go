@@ -15,13 +15,35 @@ type workspaceProvisioningRepo struct {
 	provisionedUserID string
 	provisioningErr   error
 	createdSessions   int
+	target            ZoneAccess
 }
 
 func (r *workspaceProvisioningRepo) CreateUser(context.Context, CreateUserParams) (authdomain.User, error) {
 	return r.user, nil
 }
 
-func (r *workspaceProvisioningRepo) EnsureDefaultWorkspaceMembership(_ context.Context, userID string) error {
+func (r *workspaceProvisioningRepo) ResolveZoneAccess(context.Context, string) (ZoneAccess, error) {
+	if r.target.ZoneID == "" {
+		r.target = testZoneAccess()
+	}
+	return r.target, nil
+}
+
+func testZoneAccess() ZoneAccess {
+	return ZoneAccess{
+		ZoneID:           "11111111-1111-4111-8111-111111111111",
+		ZoneSlug:         "vpsttt",
+		ZoneName:         "VPSTTT",
+		ZoneKind:         "vpsttt_internal",
+		ZoneStatus:       "active",
+		RegistrationMode: "open",
+		WorkspaceID:      "22222222-2222-4222-8222-222222222222",
+		WorkspaceSlug:    "vpsttt",
+		Domain:           "chat.vpsttt.com",
+	}
+}
+
+func (r *workspaceProvisioningRepo) EnsureZoneWorkspaceAccess(_ context.Context, userID string, _ ZoneAccess) error {
 	r.provisionedUserID = userID
 	return r.provisioningErr
 }
@@ -40,7 +62,14 @@ func (r *workspaceProvisioningRepo) UpdateLastLoginInfo(context.Context, UpdateL
 
 func (r *workspaceProvisioningRepo) CreateSession(_ context.Context, params CreateSessionParams) (authdomain.Session, error) {
 	r.createdSessions++
-	return authdomain.Session{ID: "session-1", UserID: params.UserID, ExpiresAt: params.ExpiresAt}, nil
+	return authdomain.Session{
+		ID:          "session-1",
+		UserID:      params.UserID,
+		ZoneID:      params.ZoneID,
+		WorkspaceID: params.WorkspaceID,
+		Domain:      params.Domain,
+		ExpiresAt:   params.ExpiresAt,
+	}, nil
 }
 
 func (r *workspaceProvisioningRepo) FindSessionByRefreshTokenHash(context.Context, string) (authdomain.Session, error) {
@@ -55,15 +84,15 @@ func (r *workspaceProvisioningRepo) RevokeSessionByRefreshTokenHash(context.Cont
 	return nil
 }
 
-func (r *workspaceProvisioningRepo) RevokeSessionByID(context.Context, string, string, time.Time) error {
+func (r *workspaceProvisioningRepo) RevokeSessionByID(context.Context, string, string, string, time.Time) error {
 	return nil
 }
 
-func (r *workspaceProvisioningRepo) RevokeAllSessions(context.Context, string, time.Time) error {
+func (r *workspaceProvisioningRepo) RevokeAllSessions(context.Context, string, string, time.Time) error {
 	return nil
 }
 
-func (r *workspaceProvisioningRepo) ListSessions(context.Context, string) ([]authdomain.Session, error) {
+func (r *workspaceProvisioningRepo) ListSessions(context.Context, string, string) ([]authdomain.Session, error) {
 	return nil, nil
 }
 
@@ -117,7 +146,7 @@ func TestNormalizeClientInfoKeepsExplicitDeviceName(t *testing.T) {
 	}
 }
 
-func TestNormalizeRegisterAcceptsOptionalCompanyDomain(t *testing.T) {
+func TestNormalizeRegisterRequiresValidServerDomain(t *testing.T) {
 	normalized, err := normalizeRegister(RegisterInput{
 		Email:       "member@example.com",
 		Username:    "member",
@@ -172,6 +201,7 @@ func TestLoginRepairsDefaultWorkspaceMembershipBeforeCreatingSession(t *testing.
 	result, err := service.Login(context.Background(), LoginInput{
 		Identifier: "member@example.com",
 		Password:   "password-123",
+		Domain:     "chat.vpsttt.com",
 	})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
@@ -181,6 +211,59 @@ func TestLoginRepairsDefaultWorkspaceMembershipBeforeCreatingSession(t *testing.
 	}
 	if repo.createdSessions != 1 || result.SessionID != "session-1" {
 		t.Fatalf("session was not created after provisioning: count=%d id=%q", repo.createdSessions, result.SessionID)
+	}
+	claims, err := service.tokens.VerifyAccessToken(result.Tokens.AccessToken)
+	if err != nil {
+		t.Fatalf("VerifyAccessToken() error = %v", err)
+	}
+	target := testZoneAccess()
+	if claims.ZoneID != target.ZoneID || claims.WorkspaceID != target.WorkspaceID || claims.Domain != target.Domain {
+		t.Fatalf("token zone claims = %+v", claims)
+	}
+	if result.Zone.ID != target.ZoneID || result.Zone.Domain != target.Domain {
+		t.Fatalf("auth result zone = %+v", result.Zone)
+	}
+}
+
+func TestSuspendedZoneAllowsExistingLoginOnlyForRecovery(t *testing.T) {
+	passwordHash, err := sharedauth.HashPassword("password-123")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	target := testZoneAccess()
+	target.ZoneStatus = "suspended"
+	repo := &workspaceProvisioningRepo{
+		target: target,
+		user: authdomain.User{
+			ID:           "6c8dd8dd-e7c3-4fa9-9f95-1cdf312587ba",
+			Email:        "member@example.com",
+			Username:     "member",
+			DisplayName:  "Member",
+			PasswordHash: passwordHash,
+			Status:       "active",
+		},
+	}
+	service := NewService(repo, sharedauth.NewManager("access-secret", "refresh-secret", time.Hour, 24*time.Hour))
+
+	if _, err := service.Login(context.Background(), LoginInput{
+		Identifier: "member@example.com",
+		Password:   "password-123",
+		Domain:     "chat.vpsttt.com",
+	}); err != nil {
+		t.Fatalf("Login() suspended recovery error = %v", err)
+	}
+	if repo.createdSessions != 1 {
+		t.Fatalf("recovery login sessions = %d, want 1", repo.createdSessions)
+	}
+
+	if _, err := service.Register(context.Background(), RegisterInput{
+		Email:       "new@example.com",
+		Username:    "new-user",
+		DisplayName: "New User",
+		Password:    "password-123",
+		Domain:      "chat.vpsttt.com",
+	}); err == nil {
+		t.Fatal("Register() expected suspended zone error")
 	}
 }
 
@@ -202,6 +285,7 @@ func TestLoginDoesNotProvisionWorkspaceForInvalidPassword(t *testing.T) {
 	if _, err := service.Login(context.Background(), LoginInput{
 		Identifier: "member@example.com",
 		Password:   "wrong-password",
+		Domain:     "chat.vpsttt.com",
 	}); err == nil {
 		t.Fatal("Login() expected invalid credentials error")
 	}
@@ -232,6 +316,7 @@ func TestLoginDoesNotCreateSessionWhenWorkspaceProvisioningFails(t *testing.T) {
 	_, err = service.Login(context.Background(), LoginInput{
 		Identifier: "member@example.com",
 		Password:   "password-123",
+		Domain:     "chat.vpsttt.com",
 	})
 	if !errors.Is(err, provisioningErr) {
 		t.Fatalf("Login() error = %v, want provisioning error", err)
@@ -251,7 +336,7 @@ func TestMeRepairsDefaultWorkspaceMembershipForExistingSession(t *testing.T) {
 	}}
 	service := NewService(repo, sharedauth.NewManager("access-secret", "refresh-secret", time.Hour, 24*time.Hour))
 
-	result, err := service.Me(context.Background(), repo.user.ID)
+	result, err := service.Me(context.Background(), repo.user.ID, "chat.vpsttt.com")
 	if err != nil {
 		t.Fatalf("Me() error = %v", err)
 	}

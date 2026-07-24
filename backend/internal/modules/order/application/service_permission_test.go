@@ -31,6 +31,10 @@ func (repo renewalPermissionRepo) UserEmailByID(context.Context, string) (string
 	return repo.email, nil
 }
 
+func (repo renewalPermissionRepo) WorkspaceSupportsOrderBot(context.Context, string) (bool, error) {
+	return true, nil
+}
+
 func TestEnsureRenewalPermissionAllowsMemberForMatchingEmail(t *testing.T) {
 	service := NewService(nil, renewalPermissionRepo{email: "khach@example.com"}, renewalPermissionChecker{
 		PermissionOrderPaymentRequest: true,

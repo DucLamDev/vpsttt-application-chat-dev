@@ -2,9 +2,12 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"strings"
 	"time"
 
@@ -85,13 +88,455 @@ RETURNING id::text, email::text, username::text, display_name, password_hash, av
 		}
 		return authdomain.User{}, err
 	}
-	if err := r.ensureDefaultWorkspaceMembership(ctx, tx, user.ID); err != nil {
+	if err := r.provisionRegistrationAccess(ctx, tx, user.ID, params.Email, params.InviteToken, params.Zone); err != nil {
 		return authdomain.User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return authdomain.User{}, err
 	}
 	return user, nil
+}
+
+func (r *Repository) ResolveZoneAccess(ctx context.Context, domain string) (authapp.ZoneAccess, error) {
+	target, err := r.resolveZoneAccessByDomain(ctx, domain)
+	if err == nil {
+		return target, nil
+	}
+	if !errors.Is(err, authdomain.ErrZoneNotFound) || (domain != "localhost" && net.ParseIP(domain) == nil) {
+		return authapp.ZoneAccess{}, err
+	}
+	return r.resolveLocalDevelopmentZone(ctx)
+}
+
+func (r *Repository) resolveZoneAccessByDomain(ctx context.Context, domain string) (authapp.ZoneAccess, error) {
+	var target authapp.ZoneAccess
+	err := r.pool.QueryRow(ctx, `
+SELECT
+    zone.id::text,
+    zone.slug::text,
+    zone.name,
+    zone.kind,
+    zone.status,
+    zone.registration_mode,
+    workspace.id::text,
+    workspace.slug::text,
+    domain.domain::text
+FROM zone_domains domain
+JOIN zones zone
+  ON zone.id = domain.zone_id
+ AND zone.status IN ('active', 'suspended')
+ AND zone.deleted_at IS NULL
+JOIN workspaces workspace
+  ON workspace.id = zone.primary_workspace_id
+ AND workspace.zone_id = zone.id
+ AND workspace.status IN ('active', 'suspended')
+ AND workspace.deleted_at IS NULL
+WHERE domain.domain = $1
+  AND domain.status IN ('verified', 'active')
+  AND domain.deleted_at IS NULL
+ORDER BY
+    CASE domain.kind WHEN 'primary' THEN 0 ELSE 1 END,
+    CASE domain.status WHEN 'active' THEN 0 ELSE 1 END
+LIMIT 1
+`, domain).Scan(
+		&target.ZoneID,
+		&target.ZoneSlug,
+		&target.ZoneName,
+		&target.ZoneKind,
+		&target.ZoneStatus,
+		&target.RegistrationMode,
+		&target.WorkspaceID,
+		&target.WorkspaceSlug,
+		&target.Domain,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authapp.ZoneAccess{}, authdomain.ErrZoneNotFound
+	}
+	return target, err
+}
+
+func (r *Repository) resolveLocalDevelopmentZone(ctx context.Context) (authapp.ZoneAccess, error) {
+	var target authapp.ZoneAccess
+	query := `
+SELECT
+    zone.id::text,
+    zone.slug::text,
+    zone.name,
+    zone.kind,
+    zone.status,
+    zone.registration_mode,
+    workspace.id::text,
+    workspace.slug::text,
+    domain.domain::text
+FROM zones zone
+JOIN workspaces workspace
+  ON workspace.id = zone.primary_workspace_id
+ AND workspace.zone_id = zone.id
+ AND workspace.status = 'active'
+ AND workspace.deleted_at IS NULL
+JOIN LATERAL (
+    SELECT zone_domain.domain
+    FROM zone_domains zone_domain
+    WHERE zone_domain.zone_id = zone.id
+      AND zone_domain.status IN ('verified', 'active')
+      AND zone_domain.deleted_at IS NULL
+    ORDER BY
+        CASE zone_domain.kind WHEN 'primary' THEN 0 ELSE 1 END,
+        CASE zone_domain.status WHEN 'active' THEN 0 ELSE 1 END
+    LIMIT 1
+) domain ON true
+WHERE zone.status = 'active'
+  AND zone.deleted_at IS NULL
+`
+	args := []any{}
+	if r.defaultWorkspaceID != "" {
+		query += " AND workspace.id = $1::uuid"
+		args = append(args, r.defaultWorkspaceID)
+	}
+	query += `
+ ORDER BY
+    CASE zone.kind WHEN 'vpsttt_internal' THEN 0 ELSE 1 END,
+    zone.created_at,
+    zone.id
+ LIMIT 2`
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return authapp.ZoneAccess{}, err
+	}
+	defer rows.Close()
+	targets := make([]authapp.ZoneAccess, 0, 2)
+	for rows.Next() {
+		if err := rows.Scan(
+			&target.ZoneID,
+			&target.ZoneSlug,
+			&target.ZoneName,
+			&target.ZoneKind,
+			&target.ZoneStatus,
+			&target.RegistrationMode,
+			&target.WorkspaceID,
+			&target.WorkspaceSlug,
+			&target.Domain,
+		); err != nil {
+			return authapp.ZoneAccess{}, err
+		}
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		return authapp.ZoneAccess{}, err
+	}
+	if r.defaultWorkspaceID == "" {
+		internalTargets := make([]authapp.ZoneAccess, 0, 1)
+		for _, candidate := range targets {
+			if candidate.ZoneKind == "vpsttt_internal" {
+				internalTargets = append(internalTargets, candidate)
+			}
+		}
+		if len(internalTargets) == 1 {
+			return internalTargets[0], nil
+		}
+	}
+	if len(targets) != 1 {
+		return authapp.ZoneAccess{}, authdomain.ErrZoneNotFound
+	}
+	return targets[0], nil
+}
+
+func (r *Repository) EnsureZoneWorkspaceAccess(ctx context.Context, userID string, target authapp.ZoneAccess) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	if err := r.ensureZoneWorkspaceAccess(ctx, tx, userID, target); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) provisionRegistrationAccess(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID string,
+	email string,
+	inviteToken string,
+	target authapp.ZoneAccess,
+) error {
+	if err := validateZoneTarget(ctx, tx, target); err != nil {
+		return err
+	}
+
+	var inviteID string
+	var inviteRoleID string
+	switch target.RegistrationMode {
+	case "open":
+	case "invite_only":
+		inviteToken = strings.TrimSpace(inviteToken)
+		if inviteToken == "" {
+			return authdomain.ErrInviteRequired
+		}
+		hash := sha256.Sum256([]byte(inviteToken))
+		err := tx.QueryRow(ctx, `
+SELECT id::text, role_id::text
+FROM workspace_invites
+WHERE workspace_id = $1::uuid
+  AND email = $2
+  AND token_hash = $3
+  AND accepted_at IS NULL
+  AND revoked_at IS NULL
+  AND expires_at > now()
+ORDER BY created_at DESC
+LIMIT 1
+FOR UPDATE
+`, target.WorkspaceID, strings.ToLower(strings.TrimSpace(email)), hex.EncodeToString(hash[:])).Scan(
+			&inviteID,
+			&inviteRoleID,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return authdomain.ErrInviteRequired
+		}
+		if err != nil {
+			return err
+		}
+	case "closed":
+		return authdomain.ErrRegistrationClosed
+	default:
+		return authdomain.ErrRegistrationClosed
+	}
+
+	if err := addWorkspaceMembership(ctx, tx, userID, target.WorkspaceID, inviteRoleID); err != nil {
+		return err
+	}
+	if target.ZoneKind == "vpsttt_internal" {
+		if err := claimInternalWorkspaceOwnership(ctx, tx, userID, target.WorkspaceID); err != nil {
+			return err
+		}
+	}
+	if inviteID != "" {
+		if _, err := tx.Exec(ctx, `
+UPDATE workspace_invites
+SET accepted_at = now()
+WHERE id = $1::uuid
+  AND accepted_at IS NULL
+`, inviteID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func claimInternalWorkspaceOwnership(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID string,
+	workspaceID string,
+) error {
+	tag, err := tx.Exec(ctx, `
+UPDATE workspaces
+SET owner_id = $2::uuid
+WHERE id = $1::uuid
+  AND owner_id IS NULL
+  AND deleted_at IS NULL
+`, workspaceID, userID)
+	if err != nil || tag.RowsAffected() == 0 {
+		return err
+	}
+
+	if _, err = tx.Exec(ctx, `
+INSERT INTO workspace_member_roles (workspace_id, user_id, role_id, assigned_by)
+SELECT $1::uuid, $2::uuid, role.id, $2::uuid
+FROM roles role
+WHERE role.workspace_id IS NULL
+  AND role.code = 'workspace_owner'
+  AND role.is_system = true
+  AND role.deleted_at IS NULL
+ORDER BY role.created_at
+LIMIT 1
+ON CONFLICT (workspace_id, user_id, role_id) DO NOTHING
+`, workspaceID, userID); err != nil {
+		return err
+	}
+
+	var hasOwnerRole bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM workspace_member_roles member_role
+    JOIN roles role
+      ON role.id = member_role.role_id
+     AND role.code = 'workspace_owner'
+     AND role.deleted_at IS NULL
+    WHERE member_role.workspace_id = $1::uuid
+      AND member_role.user_id = $2::uuid
+)
+`, workspaceID, userID).Scan(&hasOwnerRole); err != nil {
+		return err
+	}
+	if !hasOwnerRole {
+		return defaultWorkspaceUnavailable("workspace_owner_role_unavailable")
+	}
+	return nil
+}
+
+func (r *Repository) ensureZoneWorkspaceAccess(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID string,
+	target authapp.ZoneAccess,
+) error {
+	if err := validateZoneTarget(ctx, tx, target); err != nil {
+		return err
+	}
+
+	var membershipStatus string
+	err := tx.QueryRow(ctx, `
+SELECT status
+FROM workspace_members
+WHERE workspace_id = $1::uuid
+  AND user_id = $2::uuid
+FOR UPDATE
+`, target.WorkspaceID, userID).Scan(&membershipStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if target.ZoneStatus != "active" || target.RegistrationMode != "open" {
+			return authdomain.ErrZoneAccessDenied
+		}
+		return addWorkspaceMembership(ctx, tx, userID, target.WorkspaceID, "")
+	}
+	if err != nil {
+		return err
+	}
+	if membershipStatus != "active" {
+		return authdomain.ErrZoneAccessDenied
+	}
+	return repairWorkspaceAccess(ctx, tx, userID, target.WorkspaceID)
+}
+
+func validateZoneTarget(ctx context.Context, tx pgx.Tx, target authapp.ZoneAccess) error {
+	var valid bool
+	err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM zones zone
+    JOIN workspaces workspace
+     ON workspace.id = $2::uuid
+     AND workspace.zone_id = zone.id
+     AND workspace.status = CASE
+         WHEN zone.status = 'suspended' THEN 'suspended'
+         ELSE 'active'
+     END
+     AND workspace.deleted_at IS NULL
+    WHERE zone.id = $1::uuid
+      AND zone.status IN ('active', 'suspended')
+      AND zone.deleted_at IS NULL
+)
+`, target.ZoneID, target.WorkspaceID).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return authdomain.ErrZoneNotFound
+	}
+	return nil
+}
+
+func addWorkspaceMembership(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID string,
+	workspaceID string,
+	inviteRoleID string,
+) error {
+	if _, err := tx.Exec(ctx, `
+INSERT INTO workspace_members (workspace_id, user_id, status, joined_at)
+VALUES ($1::uuid, $2::uuid, 'active', now())
+ON CONFLICT (workspace_id, user_id)
+DO UPDATE SET status = 'active', joined_at = COALESCE(workspace_members.joined_at, now())
+WHERE workspace_members.status IN ('invited', 'left')
+`, workspaceID, userID); err != nil {
+		return err
+	}
+	var membershipActive bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM workspace_members
+    WHERE workspace_id = $1::uuid
+      AND user_id = $2::uuid
+      AND status = 'active'
+)
+`, workspaceID, userID).Scan(&membershipActive); err != nil {
+		return err
+	}
+	if !membershipActive {
+		return authdomain.ErrZoneAccessDenied
+	}
+
+	if inviteRoleID != "" {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO workspace_member_roles (workspace_id, user_id, role_id, assigned_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, NULL)
+ON CONFLICT (workspace_id, user_id, role_id) DO NOTHING
+`, workspaceID, userID, inviteRoleID); err != nil {
+			return err
+		}
+	}
+	return repairWorkspaceAccess(ctx, tx, userID, workspaceID)
+}
+
+func repairWorkspaceAccess(ctx context.Context, tx pgx.Tx, userID string, workspaceID string) error {
+	if _, err := tx.Exec(ctx, `
+INSERT INTO workspace_member_roles (workspace_id, user_id, role_id, assigned_by)
+SELECT $1::uuid, $2::uuid, role.id, NULL
+FROM roles role
+WHERE role.code = 'workspace_member'
+  AND role.workspace_id IS NULL
+  AND role.is_system = true
+  AND role.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM workspace_member_roles existing
+      WHERE existing.workspace_id = $1::uuid
+        AND existing.user_id = $2::uuid
+  )
+ORDER BY role.created_at
+LIMIT 1
+ON CONFLICT (workspace_id, user_id, role_id) DO NOTHING
+`, workspaceID, userID); err != nil {
+		return err
+	}
+
+	var hasRole bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM workspace_member_roles member_role
+    JOIN roles role
+      ON role.id = member_role.role_id
+     AND role.deleted_at IS NULL
+    WHERE member_role.workspace_id = $1::uuid
+      AND member_role.user_id = $2::uuid
+)
+`, workspaceID, userID).Scan(&hasRole); err != nil {
+		return err
+	}
+	if !hasRole {
+		return defaultWorkspaceUnavailable("default_member_role_unavailable")
+	}
+
+	_, err := tx.Exec(ctx, `
+INSERT INTO channel_members (channel_id, user_id, status)
+SELECT channel.id, $2::uuid, 'active'
+FROM channels channel
+WHERE channel.workspace_id = $1::uuid
+  AND channel.type = 'public'
+  AND channel.status = 'active'
+  AND channel.deleted_at IS NULL
+  AND COALESCE(channel.settings->>'bot_session_mode', '') <> 'private'
+ON CONFLICT (channel_id, user_id) DO NOTHING
+`, workspaceID, userID)
+	return err
 }
 
 // EnsureDefaultWorkspaceMembership provisions the baseline access required by
@@ -300,17 +745,26 @@ WHERE id = $1::uuid AND deleted_at IS NULL
 
 func (r *Repository) CreateSession(ctx context.Context, params authapp.CreateSessionParams) (authdomain.Session, error) {
 	row := r.pool.QueryRow(ctx, `
-INSERT INTO user_sessions (user_id, refresh_token_hash, device_name, ip_address, user_agent, expires_at)
-VALUES ($1::uuid, $2, NULLIF($3, ''), NULLIF($4, '')::inet, NULLIF($5, ''), $6)
-RETURNING id::text, user_id::text, refresh_token_hash, device_name, host(ip_address), user_agent,
+INSERT INTO user_sessions (
+    user_id, zone_id, workspace_id, domain, refresh_token_hash,
+    device_name, ip_address, user_agent, expires_at
+)
+VALUES (
+    $1::uuid, $2::uuid, $3::uuid, $4, $5,
+    NULLIF($6, ''), NULLIF($7, '')::inet, NULLIF($8, ''), $9
+)
+RETURNING id::text, user_id::text, zone_id::text, workspace_id::text, domain::text,
+          refresh_token_hash, device_name, host(ip_address), user_agent,
           expires_at, revoked_at, created_at, updated_at
-`, params.UserID, params.RefreshTokenHash, params.DeviceName, params.IPAddress, params.UserAgent, params.ExpiresAt)
+`, params.UserID, params.ZoneID, params.WorkspaceID, params.Domain, params.RefreshTokenHash,
+		params.DeviceName, params.IPAddress, params.UserAgent, params.ExpiresAt)
 	return scanSession(row)
 }
 
 func (r *Repository) FindSessionByRefreshTokenHash(ctx context.Context, hash string) (authdomain.Session, error) {
 	row := r.pool.QueryRow(ctx, `
-SELECT id::text, user_id::text, refresh_token_hash, device_name, host(ip_address), user_agent,
+SELECT id::text, user_id::text, zone_id::text, workspace_id::text, domain::text,
+       refresh_token_hash, device_name, host(ip_address), user_agent,
        expires_at, revoked_at, created_at, updated_at
 FROM user_sessions
 WHERE refresh_token_hash = $1
@@ -323,7 +777,8 @@ func (r *Repository) RotateSessionRefreshToken(ctx context.Context, params autha
 UPDATE user_sessions
 SET refresh_token_hash = $3, expires_at = $4, revoked_at = NULL
 WHERE id = $1::uuid AND user_id = $2::uuid AND revoked_at IS NULL
-RETURNING id::text, user_id::text, refresh_token_hash, device_name, host(ip_address), user_agent,
+RETURNING id::text, user_id::text, zone_id::text, workspace_id::text, domain::text,
+          refresh_token_hash, device_name, host(ip_address), user_agent,
           expires_at, revoked_at, created_at, updated_at
 `, params.SessionID, params.UserID, params.RefreshTokenHash, params.ExpiresAt)
 	return scanSession(row)
@@ -338,12 +793,15 @@ WHERE refresh_token_hash = $1 AND revoked_at IS NULL
 	return err
 }
 
-func (r *Repository) RevokeSessionByID(ctx context.Context, userID string, sessionID string, revokedAt time.Time) error {
+func (r *Repository) RevokeSessionByID(ctx context.Context, userID string, zoneID string, sessionID string, revokedAt time.Time) error {
 	command, err := r.pool.Exec(ctx, `
 UPDATE user_sessions
-SET revoked_at = $3
-WHERE id = $1::uuid AND user_id = $2::uuid AND revoked_at IS NULL
-`, sessionID, userID, revokedAt)
+SET revoked_at = $4
+WHERE id = $1::uuid
+  AND user_id = $2::uuid
+  AND zone_id = $3::uuid
+  AND revoked_at IS NULL
+`, sessionID, userID, zoneID, revokedAt)
 	if err != nil {
 		return err
 	}
@@ -353,23 +811,27 @@ WHERE id = $1::uuid AND user_id = $2::uuid AND revoked_at IS NULL
 	return nil
 }
 
-func (r *Repository) RevokeAllSessions(ctx context.Context, userID string, revokedAt time.Time) error {
+func (r *Repository) RevokeAllSessions(ctx context.Context, userID string, zoneID string, revokedAt time.Time) error {
 	_, err := r.pool.Exec(ctx, `
 UPDATE user_sessions
-SET revoked_at = $2
-WHERE user_id = $1::uuid AND revoked_at IS NULL
-`, userID, revokedAt)
+SET revoked_at = $3
+WHERE user_id = $1::uuid
+  AND zone_id = $2::uuid
+  AND revoked_at IS NULL
+`, userID, zoneID, revokedAt)
 	return err
 }
 
-func (r *Repository) ListSessions(ctx context.Context, userID string) ([]authdomain.Session, error) {
+func (r *Repository) ListSessions(ctx context.Context, userID string, zoneID string) ([]authdomain.Session, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT id::text, user_id::text, refresh_token_hash, device_name, host(ip_address), user_agent,
+SELECT id::text, user_id::text, zone_id::text, workspace_id::text, domain::text,
+       refresh_token_hash, device_name, host(ip_address), user_agent,
        expires_at, revoked_at, created_at, updated_at
 FROM user_sessions
 WHERE user_id = $1::uuid
+  AND zone_id = $2::uuid
 ORDER BY created_at DESC
-`, userID)
+`, userID, zoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -397,9 +859,16 @@ func (r *Repository) RecordAudit(ctx context.Context, event authapp.AuditEvent) 
 	}
 
 	_, err = r.pool.Exec(ctx, `
-INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, ip_address, user_agent, metadata)
-VALUES (NULLIF($1, '')::uuid, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, '')::inet, NULLIF($6, ''), $7::jsonb)
-	`, event.ActorUserID, event.Action, event.EntityType, event.EntityID, event.IPAddress, event.UserAgent, string(metadataBytes))
+INSERT INTO audit_logs (
+    zone_id, workspace_id, actor_user_id, action, entity_type, entity_id,
+    ip_address, user_agent, metadata
+)
+VALUES (
+    NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, NULLIF($3, '')::uuid,
+    $4, $5, NULLIF($6, '')::uuid, NULLIF($7, '')::inet, NULLIF($8, ''), $9::jsonb
+)
+	`, event.ZoneID, event.WorkspaceID, event.ActorUserID, event.Action, event.EntityType,
+		event.EntityID, event.IPAddress, event.UserAgent, string(metadataBytes))
 	return err
 }
 
@@ -463,6 +932,9 @@ func scanSession(row rowScanner) (authdomain.Session, error) {
 	err := row.Scan(
 		&session.ID,
 		&session.UserID,
+		&session.ZoneID,
+		&session.WorkspaceID,
+		&session.Domain,
 		&session.RefreshTokenHash,
 		&deviceName,
 		&ipAddress,

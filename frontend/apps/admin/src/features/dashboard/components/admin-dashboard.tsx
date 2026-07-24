@@ -44,6 +44,7 @@ import type {
   AdminStats,
   ApiScope,
   ApiToken,
+  AutomationInstallation,
   AuthUser,
   BackupJob,
   BackupRun,
@@ -59,7 +60,8 @@ import type {
   SaveCronJobInput,
   WebhookDelivery,
   WorkspaceMember,
-  WorkspaceSetting
+  WorkspaceSetting,
+  ZoneOIDCProvider
 } from "@webtui/types";
 import { useAuth } from "@/features/auth/auth-provider";
 import { useApiStatus } from "../../platform/hooks/use-api-status";
@@ -76,6 +78,7 @@ const navItems = [
   { id: "users", label: "Người dùng", icon: Users },
   { id: "roles", label: "Vai trò", icon: ShieldCheck },
   { id: "integrations", label: "Tích hợp", icon: Workflow },
+  { id: "automations", label: "Automation", icon: Zap },
   { id: "bots", label: "Bot", icon: Bot },
   { id: "cronjobs", label: "Cronjob", icon: CalendarClock },
   { id: "backups", label: "Backup", icon: Database },
@@ -108,6 +111,10 @@ const pageMeta: Record<AdminNavId, { description: string; title: string }> = {
   integrations: {
     description: "Quản lý API token, webhook và các kết nối dịch vụ bên ngoài.",
     title: "Tích hợp hệ thống"
+  },
+  automations: {
+    description: "Cài workflow, connector và bot theo cấu hình riêng của zone hiện tại.",
+    title: "Automation theo zone"
   },
   bots: {
     description: "Quản lý bot, cài đặt vào workspace và theo dõi hoạt động.",
@@ -469,6 +476,10 @@ function DashboardSection({
         showToast={showToast}
       />
     );
+  }
+
+  if (activeNavItem === "automations") {
+    return <AutomationsSection data={data} showToast={showToast} />;
   }
 
   if (activeNavItem === "bots") {
@@ -1111,6 +1122,7 @@ function RolesSection({
 
   return (
     <section className="admin-content-stack">
+      <ZoneControlPlane data={data} showToast={showToast} />
       <article className="admin-panel">
         <header>
           <div>
@@ -1491,6 +1503,254 @@ function IntegrationsSection({
 
       <DeliveryPanel deliveries={data.webhookDeliveries} isLoading={data.webhookDeliveriesQuery.isLoading} onTest={() => void testOutgoing()} testDisabled={!selectedOutgoingWebhookId || data.testOutgoingWebhookMutation.isPending} />
     </section>
+  );
+}
+
+function AutomationsSection({
+  data,
+  showToast
+}: {
+  data: DashboardData;
+  showToast: (message: string, tone?: ToastTone) => void;
+}) {
+  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const configResult = parseJsonObject(
+      formValue(form, "config"),
+      "Config automation phải là JSON object hợp lệ."
+    );
+    if (!configResult.ok) {
+      showToast(configResult.message, "danger");
+      return;
+    }
+
+    try {
+      await data.createAutomationInstallationMutation.mutateAsync({
+        config: configResult.value,
+        name: formValue(form, "name"),
+        secret_ref: formValue(form, "secret_ref") || undefined,
+        status: formValue(form, "status") as "enabled" | "disabled",
+        template_key: formValue(form, "template_key"),
+        workspace_id: data.workspaceId
+      });
+      formElement.reset();
+      showToast("Đã cài automation cho zone hiện tại.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  async function handleToggle(installation: AutomationInstallation) {
+    try {
+      await data.updateAutomationInstallationMutation.mutateAsync({
+        input: {
+          status: installation.status === "enabled" ? "disabled" : "enabled"
+        },
+        installationId: installation.id
+      });
+      showToast("Đã cập nhật trạng thái automation.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  async function handleDelete(installationId: string) {
+    try {
+      await data.deleteAutomationInstallationMutation.mutateAsync(installationId);
+      showToast("Đã gỡ automation khỏi zone.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  const isLoading =
+    data.automationTemplatesQuery.isLoading || data.automationInstallationsQuery.isLoading;
+  const queryError =
+    data.automationTemplatesQuery.error || data.automationInstallationsQuery.error;
+
+  return (
+    <section className="admin-content-stack">
+      {!data.canManageAutomation ? <PermissionNotice permission="workspace.manage" /> : null}
+      {queryError ? (
+        <ErrorState
+          description={errorMessage(queryError)}
+          title="Không tải được automation của zone"
+        />
+      ) : null}
+      <section className="admin-split-grid">
+        <article className="admin-panel">
+          <header>
+            <div>
+              <h2>Cài automation</h2>
+              <p>Template được lọc theo loại zone và domain đang đăng nhập.</p>
+            </div>
+            <Zap size={20} />
+          </header>
+          <form className="admin-form" onSubmit={(event) => void handleCreate(event)}>
+            <label>
+              Template
+              <select name="template_key" required>
+                <option value="">Chọn template</option>
+                {data.automationTemplates.map((template) => (
+                  <option key={template.id} value={template.key}>
+                    {template.name} ({template.template_type})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Tên cài đặt
+              <input name="name" placeholder="Cảnh báo vận hành" required />
+            </label>
+            <label>
+              Trạng thái
+              <select defaultValue="disabled" name="status">
+                <option value="disabled">Tắt</option>
+                <option value="enabled">Bật</option>
+              </select>
+            </label>
+            <label>
+              Config JSON
+              <textarea defaultValue="{}" name="config" rows={6} spellCheck={false} />
+            </label>
+            <label>
+              Secret reference
+              <input
+                name="secret_ref"
+                placeholder="vault://zones/customer/automation"
+              />
+            </label>
+            <Button
+              disabled={
+                data.createAutomationInstallationMutation.isPending ||
+                !data.canManageAutomation ||
+                !data.automationTemplates.length
+              }
+              type="submit"
+            >
+              <Plus size={16} />
+              Cài automation
+            </Button>
+          </form>
+          {data.createAutomationInstallationMutation.data?.runtime_secret ? (
+            <SecretBox
+              label="Signing secret automation (chi hien thi mot lan)"
+              value={data.createAutomationInstallationMutation.data.runtime_secret}
+            />
+          ) : null}
+        </article>
+
+        <article className="admin-panel">
+          <header>
+            <div>
+              <h2>Template khả dụng</h2>
+              <p>{data.automationTemplates.length} template phù hợp với zone.</p>
+            </div>
+          </header>
+          {data.automationTemplates.length ? (
+            <div className="mini-list">
+              {data.automationTemplates.map((template) => (
+                <div key={template.id}>
+                  <span>
+                    <strong>{template.name}</strong>
+                    <small>{template.key}</small>
+                  </span>
+                  <Badge tone="blue">{template.template_type}</Badge>
+                </div>
+              ))}
+            </div>
+          ) : isLoading ? (
+            <TableSkeleton />
+          ) : (
+            <EmptyState
+              description="Zone hiện tại chưa có template phù hợp."
+              title="Chưa có automation template"
+            />
+          )}
+        </article>
+      </section>
+
+      <article className="admin-panel">
+        <header>
+          <div>
+            <h2>Automation đã cài</h2>
+            <p>Mỗi cài đặt chỉ thuộc zone và workspace hiện tại.</p>
+          </div>
+        </header>
+        {isLoading ? (
+          <TableSkeleton />
+        ) : data.automationInstallations.length ? (
+          <AutomationInstallationTable
+            installations={data.automationInstallations}
+            onDelete={(id) => void handleDelete(id)}
+            onToggle={(installation) => void handleToggle(installation)}
+          />
+        ) : (
+          <EmptyState
+            description="Chưa có workflow, connector hoặc bot template nào được cài."
+            title="Chưa có automation"
+          />
+        )}
+      </article>
+    </section>
+  );
+}
+
+function AutomationInstallationTable({
+  installations,
+  onDelete,
+  onToggle
+}: {
+  installations: AutomationInstallation[];
+  onDelete: (installationId: string) => void;
+  onToggle: (installation: AutomationInstallation) => void;
+}) {
+  return (
+    <div className="data-table data-table--automations" role="table">
+      <div className="data-table__row data-table__row--head" role="row">
+        <span>Automation</span>
+        <span>Template</span>
+        <span>Runtime</span>
+        <span>Trạng thái</span>
+        <span>Thao tác</span>
+      </div>
+      {installations.map((installation) => (
+        <div className="data-table__row" key={installation.id} role="row">
+          <span>
+            <strong>{installation.name}</strong>
+            <small>{formatDateTime(installation.updated_at)}</small>
+          </span>
+          <span>{installation.template_key || "Template đã gỡ"}</span>
+          <span>
+            <Badge tone={installation.runtime_ready ? "green" : "slate"}>
+              {installation.runtime_ready ? "Sẵn sàng" : "Registry"}
+            </Badge>
+          </span>
+          <span>
+            <Badge tone={installation.status === "enabled" ? "green" : "slate"}>
+              {installation.status}
+            </Badge>
+          </span>
+          <span className="row-actions">
+            <Button onClick={() => onToggle(installation)} size="sm" variant="ghost">
+              {installation.status === "enabled" ? "Tắt" : "Bật"}
+            </Button>
+            <Tooltip label="Gỡ automation">
+              <Button
+                aria-label={`Gỡ ${installation.name}`}
+                onClick={() => onDelete(installation.id)}
+                size="sm"
+                variant="icon"
+              >
+                <Trash2 size={15} />
+              </Button>
+            </Tooltip>
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2410,6 +2670,527 @@ function SystemSettingsSection({
   );
 }
 
+function ZoneControlPlane({
+  data,
+  showToast
+}: {
+  data: DashboardData;
+  showToast: (message: string, tone?: ToastTone) => void;
+}) {
+  const zoneOverview = data.currentZone;
+  const quotaOverview = data.zoneQuota;
+  const [editingOIDCProviderID, setEditingOIDCProviderID] = useState<string | null>(null);
+
+  async function updateZone(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await data.updateCurrentZoneMutation.mutateAsync({
+        name: formValue(form, "name"),
+        registration_mode: formValue(form, "registration_mode") as
+          | "open"
+          | "invite_only"
+          | "closed"
+      });
+      showToast("Đã cập nhật zone.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  async function addDomain(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    try {
+      await data.createAdditionalDomainMutation.mutateAsync({
+        domain: formValue(form, "domain"),
+        kind: formValue(form, "kind") as "alias" | "api" | "web"
+      });
+      formElement.reset();
+      showToast("Đã tạo domain claim.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  async function changeLifecycle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await data.setZoneLifecycleMutation.mutateAsync({
+        action: formValue(form, "action") as "suspend" | "resume" | "archive",
+        reason: formValue(form, "reason") || undefined
+      });
+      showToast("Đã cập nhật vòng đời zone.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  async function requestDeployment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    try {
+      await data.createDeploymentRequestMutation.mutateAsync({
+        idempotency_key: crypto.randomUUID(),
+        requested_database_mode: formValue(form, "requested_database_mode"),
+        requested_mode: formValue(form, "requested_mode")
+      });
+      showToast("Đã gửi yêu cầu deployment.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  async function updateQuota(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await data.updateZoneQuotaMutation.mutateAsync({
+        enforcement_mode: formValue(form, "enforcement_mode") as "monitor" | "hard",
+        max_automation_installations: Number(formValue(form, "max_automation_installations")),
+        max_members: Number(formValue(form, "max_members")),
+        max_storage_bytes: Number(formValue(form, "max_storage_bytes")),
+        max_webhooks: Number(formValue(form, "max_webhooks")),
+        max_workspaces: Number(formValue(form, "max_workspaces"))
+      });
+      showToast("Đã cập nhật quota.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  async function createOIDCProvider(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    try {
+      await data.createOIDCProviderMutation.mutateAsync({
+        client_id: formValue(form, "client_id"),
+        client_secret_ref: formValue(form, "client_secret_ref") || undefined,
+        claim_mapping: oidcClaimMappingFromForm(form),
+        issuer_url: formValue(form, "issuer_url"),
+        jit_provisioning: form.has("jit_provisioning"),
+        name: formValue(form, "name"),
+        require_verified_email: form.has("require_verified_email"),
+        scopes: splitList(formValue(form, "scopes")),
+        status: "configured"
+      });
+      formElement.reset();
+      showToast("Đã lưu OIDC provider.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  async function updateOIDCProvider(
+    event: FormEvent<HTMLFormElement>,
+    provider: ZoneOIDCProvider
+  ) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const secretRef = formValue(form, "client_secret_ref");
+    try {
+      await data.updateOIDCProviderMutation.mutateAsync({
+        input: {
+          client_id: formValue(form, "client_id"),
+          claim_mapping: oidcClaimMappingFromForm(form),
+          issuer_url: formValue(form, "issuer_url"),
+          jit_provisioning: form.has("jit_provisioning"),
+          name: formValue(form, "name"),
+          require_verified_email: form.has("require_verified_email"),
+          scopes: splitList(formValue(form, "scopes")),
+          status: formValue(form, "status") as "configured" | "disabled",
+          ...(form.has("clear_client_secret_ref")
+            ? { client_secret_ref: "" }
+            : secretRef
+              ? { client_secret_ref: secretRef }
+              : {})
+        },
+        providerId: provider.id
+      });
+      setEditingOIDCProviderID(null);
+      showToast("Đã cập nhật OIDC provider.");
+    } catch (error) {
+      showToast(errorMessage(error), "danger");
+    }
+  }
+
+  if (!data.canManageWorkspace) {
+    return <PermissionNotice permission="workspace.manage" />;
+  }
+
+  if (data.currentZoneQuery.isLoading) {
+    return <TableSkeleton />;
+  }
+
+  if (!zoneOverview) {
+    return (
+      <article className="admin-panel">
+        <ErrorState
+          description={errorMessage(data.currentZoneQuery.error)}
+          title="Zone hiện tại không hoạt động"
+        />
+        <Button
+          disabled={data.setZoneLifecycleMutation.isPending}
+          onClick={async () => {
+            try {
+              await data.setZoneLifecycleMutation.mutateAsync({ action: "resume" });
+              await data.currentZoneQuery.refetch();
+              showToast("Đã resume zone.");
+            } catch (error) {
+              showToast(errorMessage(error), "danger");
+            }
+          }}
+          variant="secondary"
+        >
+          Resume zone
+        </Button>
+      </article>
+    );
+  }
+
+  return (
+    <>
+      <section className="admin-split-grid">
+        <article className="admin-panel">
+          <header>
+            <div>
+              <h2>Zone</h2>
+              <p>{zoneOverview.zone.slug}</p>
+            </div>
+            <Badge tone={zoneOverview.zone.status === "active" ? "green" : "slate"}>
+              {zoneOverview.zone.status}
+            </Badge>
+          </header>
+          <form className="admin-form" onSubmit={(event) => void updateZone(event)}>
+            <label>
+              Tên zone
+              <input defaultValue={zoneOverview.zone.name} name="name" required />
+            </label>
+            <label>
+              Đăng ký
+              <select
+                defaultValue={zoneOverview.zone.registration_mode}
+                name="registration_mode"
+              >
+                <option value="open">Open</option>
+                <option value="invite_only">Invite only</option>
+                <option value="closed">Closed</option>
+              </select>
+            </label>
+            <Button disabled={data.updateCurrentZoneMutation.isPending} type="submit">
+              Lưu zone
+            </Button>
+          </form>
+          <form className="admin-form admin-form--inline" onSubmit={(event) => void changeLifecycle(event)}>
+            <label>
+              Vòng đời
+              <select
+                defaultValue={zoneOverview.zone.status === "suspended" ? "resume" : "suspend"}
+                name="action"
+              >
+                <option value="suspend">Suspend</option>
+                <option value="resume">Resume</option>
+                <option value="archive">Archive</option>
+              </select>
+            </label>
+            <label>
+              Lý do
+              <input name="reason" placeholder="Thay đổi vận hành" />
+            </label>
+            <Button disabled={data.setZoneLifecycleMutation.isPending} type="submit" variant="secondary">
+              Áp dụng
+            </Button>
+          </form>
+        </article>
+
+        <article className="admin-panel">
+          <header>
+            <div>
+              <h2>Domain</h2>
+              <p>{zoneOverview.domains.length} domain</p>
+            </div>
+          </header>
+          <form className="admin-form admin-form--inline" onSubmit={(event) => void addDomain(event)}>
+            <label>
+              Domain
+              <input name="domain" placeholder="chat.example.com" required />
+            </label>
+            <label>
+              Loại
+              <select defaultValue="alias" name="kind">
+                <option value="alias">Alias</option>
+                <option value="web">Web</option>
+                <option value="api">API</option>
+              </select>
+            </label>
+            <Button disabled={data.createAdditionalDomainMutation.isPending} type="submit">
+              <Plus size={16} />
+              Thêm
+            </Button>
+          </form>
+          <div className="mini-list">
+            {zoneOverview.domains.map((domain) => (
+              <div key={domain.id}>
+                <span>
+                  <strong>{domain.domain}</strong>
+                  <small>
+                    {domain.kind} · {domain.status} · TLS {domain.tls_status}
+                  </small>
+                  {domain.verification_dns_value ? (
+                    <small>{domain.verification_dns_name}: {domain.verification_dns_value}</small>
+                  ) : null}
+                </span>
+                <span className="row-actions">
+                  {domain.status === "pending" ? (
+                    <Button
+                      onClick={() => void data.verifyZoneDomainMutation.mutateAsync(domain.id)}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      Xác minh
+                    </Button>
+                  ) : null}
+                  {domain.status === "active" && domain.kind !== "primary" ? (
+                    <Button
+                      onClick={() => void data.setPrimaryDomainMutation.mutateAsync(domain.id)}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      Primary
+                    </Button>
+                  ) : null}
+                  {domain.kind !== "primary" ? (
+                    <Button
+                      aria-label={`Xóa ${domain.domain}`}
+                      onClick={() => void data.deleteZoneDomainMutation.mutateAsync(domain.id)}
+                      size="sm"
+                      variant="icon"
+                    >
+                      <Trash2 size={15} />
+                    </Button>
+                  ) : null}
+                </span>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="admin-split-grid">
+        <article className="admin-panel">
+          <header>
+            <div>
+              <h2>Deployment</h2>
+              <p>{data.deploymentRequests.length} yêu cầu</p>
+            </div>
+          </header>
+          <form className="admin-form" onSubmit={(event) => void requestDeployment(event)}>
+            <label>
+              Runtime
+              <select defaultValue="shared" name="requested_mode">
+                <option value="shared">Shared</option>
+                <option value="dedicated_compose">Dedicated Compose</option>
+                <option value="dedicated_k8s">Dedicated Kubernetes</option>
+              </select>
+            </label>
+            <label>
+              Database
+              <select defaultValue="shared_schema" name="requested_database_mode">
+                <option value="shared_schema">Shared schema</option>
+                <option value="dedicated_schema">Dedicated schema</option>
+                <option value="dedicated_database">Dedicated database</option>
+              </select>
+            </label>
+            <Button disabled={data.createDeploymentRequestMutation.isPending} type="submit">
+              Gửi yêu cầu
+            </Button>
+          </form>
+          <div className="mini-list">
+            {data.deploymentRequests.map((request) => (
+              <div key={request.id}>
+                <span>
+                  <strong>{request.requested_mode}</strong>
+                  <small>{request.requested_database_mode}</small>
+                </span>
+                <Badge tone={request.status === "ready" ? "green" : "slate"}>
+                  {request.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="admin-panel">
+          <header>
+            <div>
+              <h2>Quota</h2>
+              <p>{quotaOverview?.quota.enforcement_mode ?? "..."}</p>
+            </div>
+          </header>
+          {quotaOverview ? (
+            <form
+              className="admin-form"
+              key={quotaOverview.quota.updated_at}
+              onSubmit={(event) => void updateQuota(event)}
+            >
+              <label>Workspace<input defaultValue={quotaOverview.quota.max_workspaces} min={1} name="max_workspaces" type="number" /></label>
+              <label>Thành viên<input defaultValue={quotaOverview.quota.max_members} min={1} name="max_members" type="number" /></label>
+              <label>Storage bytes<input defaultValue={quotaOverview.quota.max_storage_bytes} min={1} name="max_storage_bytes" type="number" /></label>
+              <label>Automation<input defaultValue={quotaOverview.quota.max_automation_installations} min={1} name="max_automation_installations" type="number" /></label>
+              <label>Webhook<input defaultValue={quotaOverview.quota.max_webhooks} min={1} name="max_webhooks" type="number" /></label>
+              <label>
+                Chế độ
+                <select defaultValue={quotaOverview.quota.enforcement_mode} name="enforcement_mode">
+                  <option value="hard">Hard</option>
+                  <option value="monitor">Monitor</option>
+                </select>
+              </label>
+              <Button disabled={data.updateZoneQuotaMutation.isPending} type="submit">
+                Lưu quota
+              </Button>
+            </form>
+          ) : (
+            <TableSkeleton />
+          )}
+          {quotaOverview ? (
+            <div className="mini-list">
+              <div><span>Workspace</span><strong>{quotaOverview.usage.workspaces}</strong></div>
+              <div><span>Thành viên</span><strong>{quotaOverview.usage.members}</strong></div>
+              <div><span>Storage</span><strong>{formatBytes(quotaOverview.usage.storage_bytes)}</strong></div>
+              <div><span>Automation</span><strong>{quotaOverview.usage.automation_installations}</strong></div>
+              <div><span>Webhook</span><strong>{quotaOverview.usage.webhooks}</strong></div>
+            </div>
+          ) : null}
+        </article>
+      </section>
+
+      <article className="admin-panel">
+        <header>
+          <div>
+            <h2>OIDC providers</h2>
+            <p>{data.oidcProviders.length} provider</p>
+          </div>
+          <KeyRound size={20} />
+        </header>
+        <form className="admin-form admin-form--inline" onSubmit={(event) => void createOIDCProvider(event)}>
+          <label>Tên<input name="name" placeholder="Company SSO" required /></label>
+          <label>Issuer URL<input name="issuer_url" placeholder="https://id.example.com" required type="url" /></label>
+          <label>Client ID<input name="client_id" required /></label>
+          <label>Secret ref<input name="client_secret_ref" placeholder="env://company-sso" /></label>
+          <label>Scopes<input defaultValue="openid,profile,email" name="scopes" /></label>
+          <details className="oidc-claim-editor">
+            <summary>Claim mapping</summary>
+            <div className="oidc-claim-grid">
+              <label>Subject<input defaultValue="sub" name="claim_subject" required /></label>
+              <label>Email<input defaultValue="email" name="claim_email" required /></label>
+              <label>Email verified<input defaultValue="email_verified" name="claim_email_verified" required /></label>
+              <label>Username<input defaultValue="preferred_username" name="claim_username" required /></label>
+              <label>Display name<input defaultValue="name" name="claim_display_name" required /></label>
+              <label>Groups<input defaultValue="groups" name="claim_groups" required /></label>
+            </div>
+          </details>
+          <label className="admin-check"><input defaultChecked name="jit_provisioning" type="checkbox" />JIT provisioning</label>
+          <label className="admin-check"><input defaultChecked name="require_verified_email" type="checkbox" />Email đã xác minh</label>
+          <Button disabled={data.createOIDCProviderMutation.isPending} type="submit">
+            <Plus size={16} />
+            Thêm provider
+          </Button>
+        </form>
+        <div className="mini-list">
+          {data.oidcProviders.map((provider) => (
+            <div className="oidc-provider-entry" key={provider.id}>
+              <div className="oidc-provider-summary">
+                <span>
+                  <strong>{provider.name}</strong>
+                  <small>{provider.issuer_url}</small>
+                  <small>{provider.status} · JIT {provider.jit_provisioning ? "bật" : "tắt"} · Verified email {provider.require_verified_email ? "bắt buộc" : "không bắt buộc"} · Secret ref {provider.has_client_secret_ref ? "đã cấu hình" : "không dùng"}</small>
+                </span>
+                <span className="row-actions">
+                  <Button
+                    onClick={() => setEditingOIDCProviderID(
+                      editingOIDCProviderID === provider.id ? null : provider.id
+                    )}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    {editingOIDCProviderID === provider.id ? "Đóng" : "Sửa"}
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      void data.updateOIDCProviderMutation.mutateAsync({
+                        input: { status: provider.status === "configured" ? "disabled" : "configured" },
+                        providerId: provider.id
+                      })
+                    }
+                    size="sm"
+                    variant="ghost"
+                  >
+                    {provider.status === "configured" ? "Tắt" : "Bật"}
+                  </Button>
+                  <Button
+                    aria-label={`Xóa ${provider.name}`}
+                    onClick={() => void data.deleteOIDCProviderMutation.mutateAsync(provider.id)}
+                    size="sm"
+                    variant="icon"
+                  >
+                    <Trash2 size={15} />
+                  </Button>
+                </span>
+              </div>
+              {editingOIDCProviderID === provider.id ? (
+                <form
+                  className="admin-form oidc-provider-form"
+                  key={provider.updated_at}
+                  onSubmit={(event) => void updateOIDCProvider(event, provider)}
+                >
+                  <label>Tên<input defaultValue={provider.name} name="name" required /></label>
+                  <label>Issuer URL<input defaultValue={provider.issuer_url} name="issuer_url" required type="url" /></label>
+                  <label>Client ID<input defaultValue={provider.client_id} name="client_id" required /></label>
+                  <label>Scopes<input defaultValue={provider.scopes.join(",")} name="scopes" required /></label>
+                  <label>
+                    Secret ref mới
+                    <input name="client_secret_ref" placeholder={provider.has_client_secret_ref ? "Giữ nguyên nếu để trống" : "env://company-sso"} />
+                  </label>
+                  <label>
+                    Trạng thái
+                    <select defaultValue={provider.status} name="status">
+                      <option value="configured">Configured</option>
+                      <option value="disabled">Disabled</option>
+                    </select>
+                  </label>
+                  <div className="oidc-claim-grid">
+                    <label>Subject<input defaultValue={oidcClaimName(provider, "subject", "sub")} name="claim_subject" required /></label>
+                    <label>Email<input defaultValue={oidcClaimName(provider, "email", "email")} name="claim_email" required /></label>
+                    <label>Email verified<input defaultValue={oidcClaimName(provider, "email_verified", "email_verified")} name="claim_email_verified" required /></label>
+                    <label>Username<input defaultValue={oidcClaimName(provider, "username", "preferred_username")} name="claim_username" required /></label>
+                    <label>Display name<input defaultValue={oidcClaimName(provider, "display_name", "name")} name="claim_display_name" required /></label>
+                    <label>Groups<input defaultValue={oidcClaimName(provider, "groups", "groups")} name="claim_groups" required /></label>
+                  </div>
+                  <div className="oidc-policy-row">
+                    <label className="admin-check"><input defaultChecked={provider.jit_provisioning} name="jit_provisioning" type="checkbox" />JIT provisioning</label>
+                    <label className="admin-check"><input defaultChecked={provider.require_verified_email} name="require_verified_email" type="checkbox" />Email đã xác minh</label>
+                    {provider.has_client_secret_ref ? (
+                      <label className="admin-check"><input name="clear_client_secret_ref" type="checkbox" />Xóa secret ref</label>
+                    ) : null}
+                  </div>
+                  <div className="row-actions">
+                    <Button disabled={data.updateOIDCProviderMutation.isPending} type="submit">Lưu provider</Button>
+                    <Button onClick={() => setEditingOIDCProviderID(null)} type="button" variant="secondary">Hủy</Button>
+                  </div>
+                </form>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </article>
+    </>
+  );
+}
+
 function ScopeSelector({ scopes }: { scopes: ApiScope[] }) {
   if (!scopes.length) {
     return <EmptyState description="Backend chưa trả về API scope." title="Chưa có scope" />;
@@ -3016,6 +3797,26 @@ function formValues(form: FormData, key: string): string[] {
 
 function splitList(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function oidcClaimMappingFromForm(form: FormData): Record<string, string> {
+  return {
+    subject: formValue(form, "claim_subject"),
+    email: formValue(form, "claim_email"),
+    email_verified: formValue(form, "claim_email_verified"),
+    username: formValue(form, "claim_username"),
+    display_name: formValue(form, "claim_display_name"),
+    groups: formValue(form, "claim_groups")
+  };
+}
+
+function oidcClaimName(
+  provider: ZoneOIDCProvider,
+  key: string,
+  fallback: string
+): string {
+  const value = provider.claim_mapping[key];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
 function errorMessage(error: unknown): string {

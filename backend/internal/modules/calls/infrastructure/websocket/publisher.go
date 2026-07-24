@@ -34,7 +34,10 @@ func (p *Publisher) Publish(ctx context.Context, event callsapp.RealtimeEvent) e
 			continue
 		}
 		seen[userID] = struct{}{}
-		room := "user:" + userID
+		room := platformws.UserRoom(event.ZoneID, userID)
+		if room == "" {
+			continue
+		}
 		if err := p.manager.Broadcast(ctx, room, platformws.Event{
 			Type:    event.Type,
 			Room:    room,

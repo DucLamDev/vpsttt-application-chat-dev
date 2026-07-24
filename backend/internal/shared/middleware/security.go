@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/duclamdev/application-chat/backend/internal/shared/response"
@@ -33,7 +34,7 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 			return
 		}
 
-		if !allowAll && !allowed[strings.ToLower(origin)] {
+		if !allowAll && !allowed[strings.ToLower(origin)] && !sameRequestOrigin(c, origin) {
 			response.Fail(c, http.StatusForbidden, "CORS_ORIGIN_DENIED", "Nguồn truy cập không được phép.", nil)
 			c.Abort()
 			return
@@ -60,6 +61,24 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func sameRequestOrigin(c *gin.Context, origin string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(origin))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	if !strings.EqualFold(parsed.Host, strings.TrimSpace(c.Request.Host)) {
+		return false
+	}
+	scheme := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))
+	if scheme == "" {
+		scheme = "http"
+		if c.Request.TLS != nil {
+			scheme = "https"
+		}
+	}
+	return strings.EqualFold(parsed.Scheme, scheme)
 }
 
 func buildAllowedOrigins(origins []string) (map[string]bool, bool) {

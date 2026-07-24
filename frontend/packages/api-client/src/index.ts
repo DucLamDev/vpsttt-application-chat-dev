@@ -45,6 +45,12 @@ export type {
   RealtimeServerEvent
 } from "./realtime-gateway";
 export { createTicketsClient } from "./tickets-client";
+export { createTenancyClient } from "./tenancy-client";
+export {
+  isLocalHostname,
+  localizeZoneRuntime,
+  zoneWebNavigationTarget
+} from "./zone-runtime";
 export { collectionFrom, itemFrom } from "./response-utils";
 export { createUsersClient } from "./users-client";
 export { createVideoClient } from "./video-client";

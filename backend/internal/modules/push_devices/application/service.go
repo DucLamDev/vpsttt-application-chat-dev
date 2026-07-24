@@ -12,12 +12,13 @@ import (
 
 type PermissionChecker interface {
 	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
+	WorkspaceBelongsToZone(ctx context.Context, workspaceID string, zoneID string) (bool, error)
 }
 
 type Repository interface {
 	Upsert(ctx context.Context, params UpsertParams) (devicesdomain.Device, error)
-	ListMine(ctx context.Context, userID string) ([]devicesdomain.Device, error)
-	Delete(ctx context.Context, userID string, deviceID string) error
+	ListMine(ctx context.Context, zoneID string, userID string) ([]devicesdomain.Device, error)
+	Delete(ctx context.Context, zoneID string, userID string, deviceID string) error
 }
 
 type Service struct {
@@ -27,6 +28,7 @@ type Service struct {
 
 type UpsertInput struct {
 	ActorUserID            string
+	ZoneID                 string
 	WorkspaceID            string
 	DeviceID               string
 	Platform               string
@@ -42,6 +44,7 @@ type UpsertInput struct {
 
 type UpsertParams struct {
 	UserID                 string
+	ZoneID                 string
 	WorkspaceID            string
 	DeviceID               string
 	Platform               string
@@ -82,17 +85,20 @@ func NewService(repo Repository, checker PermissionChecker) *Service {
 
 func (s *Service) RegisterOrUpdate(ctx context.Context, input UpsertInput) (DeviceDTO, error) {
 	userID := strings.TrimSpace(input.ActorUserID)
+	zoneID := strings.TrimSpace(input.ZoneID)
 	workspaceID := strings.TrimSpace(input.WorkspaceID)
-	if workspaceID != "" {
-		if err := s.ensureWorkspaceMember(ctx, userID, workspaceID); err != nil {
-			return DeviceDTO{}, err
-		}
+	if workspaceID == "" || zoneID == "" {
+		return DeviceDTO{}, apperrors.BadRequest("WORKSPACE_REQUIRED", "Workspace của zone hiện tại là bắt buộc.")
+	}
+	if err := s.ensureWorkspaceMember(ctx, zoneID, userID, workspaceID); err != nil {
+		return DeviceDTO{}, err
 	}
 	params, err := normalizeUpsert(input)
 	if err != nil {
 		return DeviceDTO{}, err
 	}
 	params.UserID = userID
+	params.ZoneID = zoneID
 	params.WorkspaceID = workspaceID
 	device, err := s.repo.Upsert(ctx, params)
 	if err != nil {
@@ -101,27 +107,34 @@ func (s *Service) RegisterOrUpdate(ctx context.Context, input UpsertInput) (Devi
 	return toDTO(device), nil
 }
 
-func (s *Service) ListMine(ctx context.Context, actorUserID string) ([]DeviceDTO, error) {
-	devices, err := s.repo.ListMine(ctx, strings.TrimSpace(actorUserID))
+func (s *Service) ListMine(ctx context.Context, zoneID string, actorUserID string) ([]DeviceDTO, error) {
+	devices, err := s.repo.ListMine(ctx, strings.TrimSpace(zoneID), strings.TrimSpace(actorUserID))
 	if err != nil {
 		return nil, err
 	}
 	return toDTOs(devices), nil
 }
 
-func (s *Service) Delete(ctx context.Context, actorUserID string, deviceID string) error {
+func (s *Service) Delete(ctx context.Context, zoneID string, actorUserID string, deviceID string) error {
 	if strings.TrimSpace(deviceID) == "" {
 		return apperrors.BadRequest("VALIDATION_ERROR", "Device ID không được để trống.")
 	}
-	if err := s.repo.Delete(ctx, strings.TrimSpace(actorUserID), strings.TrimSpace(deviceID)); err != nil {
+	if err := s.repo.Delete(ctx, strings.TrimSpace(zoneID), strings.TrimSpace(actorUserID), strings.TrimSpace(deviceID)); err != nil {
 		return mapDeviceError(err)
 	}
 	return nil
 }
 
-func (s *Service) ensureWorkspaceMember(ctx context.Context, userID string, workspaceID string) error {
+func (s *Service) ensureWorkspaceMember(ctx context.Context, zoneID string, userID string, workspaceID string) error {
 	if s.checker == nil {
 		return nil
+	}
+	matches, err := s.checker.WorkspaceBelongsToZone(ctx, workspaceID, zoneID)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return apperrors.Forbidden("Workspace không thuộc zone của phiên đăng nhập.")
 	}
 	allowed, err := s.checker.HasWorkspacePermission(ctx, userID, workspaceID, "workspace.view_members")
 	if err != nil {

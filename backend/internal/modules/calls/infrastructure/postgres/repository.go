@@ -22,6 +22,18 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+func (r *Repository) WorkspaceZoneID(ctx context.Context, workspaceID string) (string, error) {
+	var zoneID string
+	err := r.pool.QueryRow(ctx, `
+SELECT zone_id::text
+FROM workspaces
+WHERE id = $1::uuid
+  AND status = 'active'
+  AND deleted_at IS NULL
+`, workspaceID).Scan(&zoneID)
+	return zoneID, err
+}
+
 func (r *Repository) Create(ctx context.Context, params callsapp.CreateParams) (callsdomain.Call, error) {
 	row := r.pool.QueryRow(ctx, `
 INSERT INTO call_sessions (workspace_id, channel_id, initiator_user_id, target_user_id, client_call_id, mode, metadata)

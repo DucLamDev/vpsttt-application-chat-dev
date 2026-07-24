@@ -15,6 +15,7 @@ import (
 	aptokensapp "github.com/duclamdev/application-chat/backend/internal/modules/api_tokens/application"
 	outboxdomain "github.com/duclamdev/application-chat/backend/internal/modules/outbox/domain"
 	webhooksdomain "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/domain"
+	webhooksecurity "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/security"
 	apperrors "github.com/duclamdev/application-chat/backend/internal/shared/errors"
 )
 
@@ -52,10 +53,11 @@ type DeliverySender interface {
 }
 
 type Service struct {
-	repo      Repository
-	checker   PermissionChecker
-	tokenAuth TokenAuthenticator
-	sender    DeliverySender
+	repo                Repository
+	checker             PermissionChecker
+	tokenAuth           TokenAuthenticator
+	sender              DeliverySender
+	signingMasterSecret string
 }
 
 type CreateIncomingInput struct {
@@ -99,12 +101,12 @@ type CreateOutgoingInput struct {
 }
 
 type CreateOutgoingParams struct {
-	WorkspaceID string
-	Name        string
-	TargetURL   string
-	SecretHash  string
-	EventTypes  []string
-	CreatedBy   string
+	WorkspaceID            string
+	Name                   string
+	TargetURL              string
+	SigningSecretEncrypted string
+	EventTypes             []string
+	CreatedBy              string
 }
 
 type UpdateOutgoingInput struct {
@@ -135,33 +137,36 @@ type TestOutgoingInput struct {
 }
 
 type TestDeliveryParams struct {
-	WorkspaceID        string
+	WorkspaceID       string
 	OutgoingWebhookID string
 	EventType         string
 	RequestBody       []byte
 }
 
 type IncomingMessageInput struct {
-	WebhookID string
-	Secret    string
-	ChannelID string
-	Body      string
-	Metadata  json.RawMessage
+	ExpectedZoneID string
+	WebhookID      string
+	Secret         string
+	ChannelID      string
+	Body           string
+	Metadata       json.RawMessage
 }
 
 type IncomingMessageParams struct {
-	WebhookID  string
-	SecretHash string
-	ChannelID  string
-	Body       string
-	Metadata   []byte
+	ExpectedZoneID string
+	WebhookID      string
+	SecretHash     string
+	ChannelID      string
+	Body           string
+	Metadata       []byte
 }
 
 type TokenMessageInput struct {
-	Token     string
-	ChannelID string
-	Body      string
-	Metadata  json.RawMessage
+	ExpectedZoneID string
+	Token          string
+	ChannelID      string
+	Body           string
+	Metadata       json.RawMessage
 }
 
 type IntegrationMessageParams struct {
@@ -245,8 +250,20 @@ type IntegrationMessageDTO struct {
 	CreatedAt   string          `json:"created_at"`
 }
 
-func NewService(repo Repository, checker PermissionChecker, tokenAuth TokenAuthenticator, sender DeliverySender) *Service {
-	return &Service{repo: repo, checker: checker, tokenAuth: tokenAuth, sender: sender}
+func NewService(
+	repo Repository,
+	checker PermissionChecker,
+	tokenAuth TokenAuthenticator,
+	sender DeliverySender,
+	signingMasterSecret string,
+) *Service {
+	return &Service{
+		repo:                repo,
+		checker:             checker,
+		tokenAuth:           tokenAuth,
+		sender:              sender,
+		signingMasterSecret: signingMasterSecret,
+	}
 }
 
 func (s *Service) CreateIncoming(ctx context.Context, input CreateIncomingInput, appURL string) (CreatedIncomingWebhookDTO, error) {
@@ -269,7 +286,7 @@ func (s *Service) CreateIncoming(ctx context.Context, input CreateIncomingInput,
 		CreatedBy:   strings.TrimSpace(input.ActorUserID),
 	})
 	if err != nil {
-		return CreatedIncomingWebhookDTO{}, err
+		return CreatedIncomingWebhookDTO{}, mapWebhookError(err)
 	}
 	dto := CreatedIncomingWebhookDTO{
 		IncomingWebhookDTO: toIncomingDTO(webhook),
@@ -340,20 +357,24 @@ func (s *Service) CreateOutgoing(ctx context.Context, input CreateOutgoingInput)
 	if !validHTTPURL(targetURL) {
 		return CreatedOutgoingWebhookDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Target URL của outgoing webhook không hợp lệ.")
 	}
-	secret, secretHash, err := newSecret("wtow")
+	secret, _, err := newSecret("wtow")
 	if err != nil {
 		return CreatedOutgoingWebhookDTO{}, apperrors.Internal("Không tạo được secret webhook.")
 	}
+	secretEncrypted, err := webhooksecurity.EncryptSecret(s.signingMasterSecret, secret)
+	if err != nil {
+		return CreatedOutgoingWebhookDTO{}, apperrors.Internal("Không mã hóa được secret webhook. Kiểm tra WEBHOOK_SIGNING_SECRET.")
+	}
 	webhook, err := s.repo.CreateOutgoing(ctx, CreateOutgoingParams{
-		WorkspaceID: strings.TrimSpace(input.WorkspaceID),
-		Name:        name,
-		TargetURL:   targetURL,
-		SecretHash:  secretHash,
-		EventTypes:  normalizeEventTypes(input.EventTypes),
-		CreatedBy:   strings.TrimSpace(input.ActorUserID),
+		WorkspaceID:            strings.TrimSpace(input.WorkspaceID),
+		Name:                   name,
+		TargetURL:              targetURL,
+		SigningSecretEncrypted: secretEncrypted,
+		EventTypes:             normalizeEventTypes(input.EventTypes),
+		CreatedBy:              strings.TrimSpace(input.ActorUserID),
 	})
 	if err != nil {
-		return CreatedOutgoingWebhookDTO{}, err
+		return CreatedOutgoingWebhookDTO{}, mapWebhookError(err)
 	}
 	return CreatedOutgoingWebhookDTO{OutgoingWebhookDTO: toOutgoingDTO(webhook), Secret: secret}, nil
 }
@@ -444,7 +465,7 @@ func (s *Service) TestOutgoing(ctx context.Context, input TestOutgoingInput) (De
 		return DeliveryDTO{}, err
 	}
 	delivery, err := s.repo.CreateTestDelivery(ctx, TestDeliveryParams{
-		WorkspaceID:        strings.TrimSpace(input.WorkspaceID),
+		WorkspaceID:       strings.TrimSpace(input.WorkspaceID),
 		OutgoingWebhookID: strings.TrimSpace(input.WebhookID),
 		EventType:         eventType,
 		RequestBody:       requestBody,
@@ -487,6 +508,10 @@ func (s *Service) TestOutgoing(ctx context.Context, input TestOutgoingInput) (De
 }
 
 func (s *Service) DispatchIncoming(ctx context.Context, input IncomingMessageInput) (IntegrationMessageDTO, error) {
+	input.ExpectedZoneID = strings.TrimSpace(input.ExpectedZoneID)
+	if input.ExpectedZoneID == "" {
+		return IntegrationMessageDTO{}, apperrors.NotFound("ZONE_NOT_FOUND", "Domain hien tai khong thuoc zone chat dang hoat dong.")
+	}
 	body := strings.TrimSpace(input.Body)
 	if body == "" || len([]rune(body)) > 8000 {
 		return IntegrationMessageDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Nội dung incoming webhook phải dài từ 1 đến 8000 ký tự.")
@@ -496,11 +521,12 @@ func (s *Service) DispatchIncoming(ctx context.Context, input IncomingMessageInp
 		return IntegrationMessageDTO{}, err
 	}
 	message, err := s.repo.SendIncomingMessage(ctx, IncomingMessageParams{
-		WebhookID:  strings.TrimSpace(input.WebhookID),
-		SecretHash: hashSecret(strings.TrimSpace(input.Secret)),
-		ChannelID:  strings.TrimSpace(input.ChannelID),
-		Body:       body,
-		Metadata:   metadata,
+		ExpectedZoneID: input.ExpectedZoneID,
+		WebhookID:      strings.TrimSpace(input.WebhookID),
+		SecretHash:     hashSecret(strings.TrimSpace(input.Secret)),
+		ChannelID:      strings.TrimSpace(input.ChannelID),
+		Body:           body,
+		Metadata:       metadata,
 	})
 	if err != nil {
 		return IntegrationMessageDTO{}, mapWebhookError(err)
@@ -509,12 +535,19 @@ func (s *Service) DispatchIncoming(ctx context.Context, input IncomingMessageInp
 }
 
 func (s *Service) SendTokenMessage(ctx context.Context, input TokenMessageInput) (IntegrationMessageDTO, error) {
+	input.ExpectedZoneID = strings.TrimSpace(input.ExpectedZoneID)
+	if input.ExpectedZoneID == "" {
+		return IntegrationMessageDTO{}, apperrors.NotFound("ZONE_NOT_FOUND", "Domain hien tai khong thuoc zone chat dang hoat dong.")
+	}
 	if s.tokenAuth == nil {
 		return IntegrationMessageDTO{}, apperrors.Unauthorized("API token chưa được cấu hình.")
 	}
 	authenticated, err := s.tokenAuth.Authenticate(ctx, input.Token, "message.write")
 	if err != nil {
 		return IntegrationMessageDTO{}, err
+	}
+	if authenticated.ZoneID == "" || authenticated.ZoneID != input.ExpectedZoneID {
+		return IntegrationMessageDTO{}, apperrors.Forbidden("API token khong thuoc domain/zone hien tai.")
 	}
 	body := strings.TrimSpace(input.Body)
 	if body == "" || len([]rune(body)) > 8000 {
@@ -677,6 +710,9 @@ func stringPtr(value string) *string {
 }
 
 func mapWebhookError(err error) error {
+	if errors.Is(err, webhooksdomain.ErrWebhookQuotaExceeded) {
+		return apperrors.Conflict("ZONE_QUOTA_EXCEEDED", "Zone da dat gioi han webhook.")
+	}
 	if errors.Is(err, webhooksdomain.ErrIncomingWebhookNotFound) {
 		return apperrors.NotFound("INCOMING_WEBHOOK_NOT_FOUND", "Không tìm thấy incoming webhook hoặc secret không hợp lệ.")
 	}

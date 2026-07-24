@@ -77,3 +77,26 @@ func TestCORSDeniesUnknownOrigin(t *testing.T) {
 		t.Fatalf("status = %d, muốn %d", w.Code, http.StatusForbidden)
 	}
 }
+
+func TestCORSAllowsSameCustomDomainOrigin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(CORS([]string{"https://chat.vpsttt.com"}))
+	router.POST("/resource", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "http://chat.customer.example/resource", nil)
+	request.Host = "chat.customer.example"
+	request.Header.Set("Origin", "https://chat.customer.example")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "https://chat.customer.example" {
+		t.Fatalf("Access-Control-Allow-Origin = %q", got)
+	}
+}

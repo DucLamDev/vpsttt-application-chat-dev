@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,6 +17,8 @@ func TestLoadIncludesLocalFrontendCORSOrigins(t *testing.T) {
 
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3000")
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://localhost:3001")
+	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://127.0.0.1:3000")
+	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://127.0.0.1:3001")
 	assertContains(t, cfg.HTTP.CORSAllowedOrigins, "http://tauri.localhost")
 }
 
@@ -59,6 +62,52 @@ func TestValidateRejectsWeakProductionSecrets(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate() expected weak secret error")
+	}
+}
+
+func TestValidateRejectsUppercasePlaceholderOIDCSecret(t *testing.T) {
+	cfg := &Config{
+		App:    AppConfig{Name: "webtui-chat", Env: "dev"},
+		HTTP:   HTTPConfig{Host: "0.0.0.0", Port: 8080},
+		Worker: WorkerConfig{Concurrency: 1},
+		Security: SecurityConfig{
+			OIDCStateSecret: "CHANGE_ME_RANDOM_OIDC_STATE_SECRET",
+		},
+	}
+
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "OIDC_STATE_SECRET") {
+		t.Fatalf("Validate() error = %v, want OIDC_STATE_SECRET placeholder rejection", err)
+	}
+}
+
+func TestValidateRejectsOIDCClientSecretsWithoutStateSecret(t *testing.T) {
+	cfg := &Config{
+		App:    AppConfig{Name: "webtui-chat", Env: "dev"},
+		HTTP:   HTTPConfig{Host: "0.0.0.0", Port: 8080},
+		Worker: WorkerConfig{Concurrency: 1},
+		Security: SecurityConfig{
+			OIDCClientSecrets: map[string]string{"company-sso": "client-secret"},
+		},
+	}
+
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "OIDC_STATE_SECRET") {
+		t.Fatalf("Validate() error = %v, want missing OIDC_STATE_SECRET rejection", err)
+	}
+}
+
+func TestValidateRejectsInvalidOIDCClientSecretAlias(t *testing.T) {
+	cfg := &Config{
+		App:    AppConfig{Name: "webtui-chat", Env: "dev"},
+		HTTP:   HTTPConfig{Host: "0.0.0.0", Port: 8080},
+		Worker: WorkerConfig{Concurrency: 1},
+		Security: SecurityConfig{
+			OIDCStateSecret:   "valid-oidc-state-secret-at-least-32-bytes",
+			OIDCClientSecrets: map[string]string{"../../system": "client-secret"},
+		},
+	}
+
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "OIDC_CLIENT_SECRETS") {
+		t.Fatalf("Validate() error = %v, want invalid alias rejection", err)
 	}
 }
 

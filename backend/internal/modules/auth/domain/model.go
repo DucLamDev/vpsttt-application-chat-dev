@@ -12,6 +12,10 @@ var (
 	ErrSessionNotFound    = errors.New("không tìm thấy phiên đăng nhập")
 	ErrSessionExpired     = errors.New("phiên đăng nhập đã hết hạn")
 	ErrSessionRevoked     = errors.New("phiên đăng nhập đã bị thu hồi")
+	ErrZoneNotFound       = errors.New("khong tim thay auth zone")
+	ErrZoneAccessDenied   = errors.New("khong co quyen truy cap auth zone")
+	ErrRegistrationClosed = errors.New("zone khong cho phep dang ky")
+	ErrInviteRequired     = errors.New("can invite hop le de dang ky")
 )
 
 type User struct {
@@ -37,6 +41,9 @@ type User struct {
 type Session struct {
 	ID               string
 	UserID           string
+	ZoneID           string
+	WorkspaceID      string
+	Domain           string
 	RefreshTokenHash string
 	DeviceName       *string
 	IPAddress        *string

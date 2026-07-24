@@ -1,6 +1,6 @@
 # Ma trận chức năng WebTui Chat
 
-Cập nhật: 2026-07-10
+Cập nhật: 2026-07-23
 
 Quy ước:
 
@@ -14,7 +14,8 @@ Quy ước:
 | Chức năng | Trạng thái | Ghi chú |
 |---|---|---|
 | Đăng nhập Username/Email | Hoàn thành | `FindUserByIdentifier`, JWT access/refresh. |
-| SSO Google/Microsoft/LDAP | Chưa có | Cần đăng ký OAuth/OIDC và cấu hình LDAP thật. |
+| SSO OIDC theo zone | Hoàn thành | Authorization code + PKCE, nonce/state replay protection, JIT policy và UI web/admin; cần cấu hình IdP thật cho từng zone. |
+| LDAP | Chưa có | Cần directory connector, sync lifecycle và mapping group/role riêng. |
 | 2FA/MFA | Chưa có | Cần TOTP/WebAuthn, recovery code và quy trình khóa tài khoản. |
 | Remember Login | Hoàn thành | Có lựa chọn lưu lâu dài hoặc chỉ trong phiên tab/browser. |
 | CAPTCHA | Chưa có | Cần provider và site/secret key; nên kích hoạt theo rủi ro thay vì mọi lần đăng nhập. |
@@ -147,5 +148,5 @@ Tóm tắt, dịch, sinh nội dung, OCR, RAG và tra cứu tài liệu đều *
 3. File security: ClamAV quarantine, signed link TTL, preview video/PDF, UI version.
 4. Enterprise core: Ticket + Approval + Task trước Calendar/Knowledge Base.
 5. Observability: Prometheus, node-exporter, PostgreSQL/Redis exporters, dashboard CPU/RAM/Disk/top usage.
-6. SSO OIDC Google/Microsoft rồi mới LDAP; cần cấu hình tenant thật để kiểm thử.
+6. SSO tiếp theo: SCIM và group-to-role sync; LDAP là connector riêng sau OIDC.
 7. AI, desktop và mobile là các workstream độc lập sau khi security/audit/backup đạt production readiness.

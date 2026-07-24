@@ -16,6 +16,9 @@ var defaultCORSAllowedOrigins = []string{
 	"http://localhost:3000",
 	"http://localhost:3001",
 	"http://localhost:5173",
+	"http://127.0.0.1:3000",
+	"http://127.0.0.1:3001",
+	"http://127.0.0.1:5173",
 	"http://tauri.localhost",
 	"https://tauri.localhost",
 	"tauri://localhost",
@@ -23,6 +26,7 @@ var defaultCORSAllowedOrigins = []string{
 }
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var oidcSecretAliasPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 type Config struct {
 	App          AppConfig
@@ -131,6 +135,9 @@ type SecurityConfig struct {
 	JWTRefreshSecret     string
 	WebhookSigningSecret string
 	GoogleClientID       string
+	CaddyAskSecret       string
+	OIDCStateSecret      string
+	OIDCClientSecrets    map[string]string
 }
 
 type ZegoCloudConfig struct {
@@ -237,6 +244,9 @@ func Load() (*Config, error) {
 			JWTRefreshSecret:     getEnv("JWT_REFRESH_SECRET", "dev_refresh_secret_local_only_do_not_use_in_production"),
 			WebhookSigningSecret: getEnv("WEBHOOK_SIGNING_SECRET", ""),
 			GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
+			CaddyAskSecret:       getEnv("CADDY_ASK_SECRET", ""),
+			OIDCStateSecret:      getEnv("OIDC_STATE_SECRET", ""),
+			OIDCClientSecrets:    getEnvMap("OIDC_CLIENT_SECRETS"),
 		},
 		ZegoCloud: ZegoCloudConfig{
 			AppID:        getEnvUint32("ZEGO_APP_ID", 0),
@@ -383,6 +393,18 @@ func (c *Config) Validate() error {
 		}
 		if isWeakSecret(c.Security.WebhookSigningSecret) {
 			problems = append(problems, "WEBHOOK_SIGNING_SECRET chưa an toàn")
+		}
+	}
+	if c.Security.OIDCStateSecret != "" && isWeakSecret(c.Security.OIDCStateSecret) {
+		problems = append(problems, "OIDC_STATE_SECRET chua an toan")
+	}
+	if len(c.Security.OIDCClientSecrets) > 0 && strings.TrimSpace(c.Security.OIDCStateSecret) == "" {
+		problems = append(problems, "OIDC_STATE_SECRET bat buoc khi OIDC_CLIENT_SECRETS duoc cau hinh")
+	}
+	for alias := range c.Security.OIDCClientSecrets {
+		if !oidcSecretAliasPattern.MatchString(strings.ToLower(strings.TrimSpace(alias))) {
+			problems = append(problems, "OIDC_CLIENT_SECRETS chua alias khong hop le")
+			break
 		}
 	}
 
@@ -541,8 +563,9 @@ func getEnvMap(key string) map[string]string {
 
 func isWeakSecret(secret string) bool {
 	secret = strings.TrimSpace(secret)
+	normalized := strings.ToLower(secret)
 	return len(secret) < 32 ||
-		strings.Contains(secret, "change_me") ||
-		strings.Contains(secret, "local_only") ||
-		strings.Contains(secret, "do_not_use_in_production")
+		strings.Contains(normalized, "change_me") ||
+		strings.Contains(normalized, "local_only") ||
+		strings.Contains(normalized, "do_not_use_in_production")
 }

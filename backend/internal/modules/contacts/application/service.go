@@ -11,12 +11,12 @@ import (
 )
 
 type Repository interface {
-	AcceptRequest(ctx context.Context, actorUserID string, requestID string) (contactsdomain.ContactRequest, error)
-	CancelRequest(ctx context.Context, actorUserID string, requestID string) (contactsdomain.ContactRequest, error)
-	CreateRequest(ctx context.Context, actorUserID string, receiverID string) (contactsdomain.ContactRequest, error)
-	ListContacts(ctx context.Context, actorUserID string) ([]contactsdomain.ContactRequest, error)
-	ListRequests(ctx context.Context, actorUserID string, status string) ([]contactsdomain.ContactRequest, error)
-	RejectRequest(ctx context.Context, actorUserID string, requestID string) (contactsdomain.ContactRequest, error)
+	AcceptRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) (contactsdomain.ContactRequest, error)
+	CancelRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) (contactsdomain.ContactRequest, error)
+	CreateRequest(ctx context.Context, zoneID string, actorUserID string, receiverID string) (contactsdomain.ContactRequest, error)
+	ListContacts(ctx context.Context, zoneID string, actorUserID string) ([]contactsdomain.ContactRequest, error)
+	ListRequests(ctx context.Context, zoneID string, actorUserID string, status string) ([]contactsdomain.ContactRequest, error)
+	RejectRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) (contactsdomain.ContactRequest, error)
 }
 
 type RealtimePublisher interface {
@@ -25,6 +25,7 @@ type RealtimePublisher interface {
 
 type RealtimeEvent struct {
 	Type    string
+	ZoneID  string
 	UserID  string
 	Payload map[string]any
 }
@@ -35,16 +36,16 @@ type Service struct {
 }
 
 type ContactRequestDTO struct {
-	ID          string      `json:"id"`
-	Direction   string      `json:"direction"`
-	RequesterID string      `json:"requester_id"`
-	ReceiverID  string      `json:"receiver_id"`
-	Status      string      `json:"status"`
-	User        UserDTO     `json:"user"`
-	RequestedAt string      `json:"requested_at"`
-	RespondedAt *string     `json:"responded_at,omitempty"`
-	CreatedAt   string      `json:"created_at"`
-	UpdatedAt   string      `json:"updated_at"`
+	ID          string  `json:"id"`
+	Direction   string  `json:"direction"`
+	RequesterID string  `json:"requester_id"`
+	ReceiverID  string  `json:"receiver_id"`
+	Status      string  `json:"status"`
+	User        UserDTO `json:"user"`
+	RequestedAt string  `json:"requested_at"`
+	RespondedAt *string `json:"responded_at,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 type UserDTO struct {
@@ -65,75 +66,80 @@ func NewService(repo Repository, realtime ...RealtimePublisher) *Service {
 	return service
 }
 
-func (s *Service) ListContacts(ctx context.Context, actorUserID string) ([]ContactRequestDTO, error) {
-	items, err := s.repo.ListContacts(ctx, strings.TrimSpace(actorUserID))
+func (s *Service) ListContacts(ctx context.Context, zoneID string, actorUserID string) ([]ContactRequestDTO, error) {
+	items, err := s.repo.ListContacts(ctx, strings.TrimSpace(zoneID), strings.TrimSpace(actorUserID))
 	if err != nil {
 		return nil, mapContactError(err)
 	}
 	return toDTOs(actorUserID, items), nil
 }
 
-func (s *Service) ListRequests(ctx context.Context, actorUserID string, status string) ([]ContactRequestDTO, error) {
+func (s *Service) ListRequests(ctx context.Context, zoneID string, actorUserID string, status string) ([]ContactRequestDTO, error) {
 	status = strings.TrimSpace(status)
 	if status == "" {
 		status = "pending"
 	}
-	items, err := s.repo.ListRequests(ctx, strings.TrimSpace(actorUserID), status)
+	items, err := s.repo.ListRequests(ctx, strings.TrimSpace(zoneID), strings.TrimSpace(actorUserID), status)
 	if err != nil {
 		return nil, mapContactError(err)
 	}
 	return toDTOs(actorUserID, items), nil
 }
 
-func (s *Service) SendRequest(ctx context.Context, actorUserID string, receiverID string) (ContactRequestDTO, error) {
-	item, err := s.repo.CreateRequest(ctx, strings.TrimSpace(actorUserID), strings.TrimSpace(receiverID))
+func (s *Service) SendRequest(ctx context.Context, zoneID string, actorUserID string, receiverID string) (ContactRequestDTO, error) {
+	zoneID = strings.TrimSpace(zoneID)
+	item, err := s.repo.CreateRequest(ctx, zoneID, strings.TrimSpace(actorUserID), strings.TrimSpace(receiverID))
 	if err != nil {
 		return ContactRequestDTO{}, mapContactError(err)
 	}
 	dto := toDTO(actorUserID, item)
-	s.publishContactRealtime(ctx, "ContactRequestCreated", item.ReceiverID, dto)
+	s.publishContactRealtime(ctx, zoneID, "ContactRequestCreated", item.ReceiverID, dto)
 	return dto, nil
 }
 
-func (s *Service) AcceptRequest(ctx context.Context, actorUserID string, requestID string) (ContactRequestDTO, error) {
-	item, err := s.repo.AcceptRequest(ctx, strings.TrimSpace(actorUserID), strings.TrimSpace(requestID))
+func (s *Service) AcceptRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) (ContactRequestDTO, error) {
+	zoneID = strings.TrimSpace(zoneID)
+	item, err := s.repo.AcceptRequest(ctx, zoneID, strings.TrimSpace(actorUserID), strings.TrimSpace(requestID))
 	if err != nil {
 		return ContactRequestDTO{}, mapContactError(err)
 	}
 	dto := toDTO(actorUserID, item)
-	s.publishContactRealtime(ctx, "ContactRequestUpdated", item.RequesterID, dto)
-	s.publishContactRealtime(ctx, "ContactRequestUpdated", item.ReceiverID, dto)
+	s.publishContactRealtime(ctx, zoneID, "ContactRequestUpdated", item.RequesterID, dto)
+	s.publishContactRealtime(ctx, zoneID, "ContactRequestUpdated", item.ReceiverID, dto)
 	return dto, nil
 }
 
-func (s *Service) RejectRequest(ctx context.Context, actorUserID string, requestID string) (ContactRequestDTO, error) {
-	item, err := s.repo.RejectRequest(ctx, strings.TrimSpace(actorUserID), strings.TrimSpace(requestID))
+func (s *Service) RejectRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) (ContactRequestDTO, error) {
+	zoneID = strings.TrimSpace(zoneID)
+	item, err := s.repo.RejectRequest(ctx, zoneID, strings.TrimSpace(actorUserID), strings.TrimSpace(requestID))
 	if err != nil {
 		return ContactRequestDTO{}, mapContactError(err)
 	}
 	dto := toDTO(actorUserID, item)
-	s.publishContactRealtime(ctx, "ContactRequestUpdated", item.RequesterID, dto)
-	s.publishContactRealtime(ctx, "ContactRequestUpdated", item.ReceiverID, dto)
+	s.publishContactRealtime(ctx, zoneID, "ContactRequestUpdated", item.RequesterID, dto)
+	s.publishContactRealtime(ctx, zoneID, "ContactRequestUpdated", item.ReceiverID, dto)
 	return dto, nil
 }
 
-func (s *Service) CancelRequest(ctx context.Context, actorUserID string, requestID string) error {
-	item, err := s.repo.CancelRequest(ctx, strings.TrimSpace(actorUserID), strings.TrimSpace(requestID))
+func (s *Service) CancelRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) error {
+	zoneID = strings.TrimSpace(zoneID)
+	item, err := s.repo.CancelRequest(ctx, zoneID, strings.TrimSpace(actorUserID), strings.TrimSpace(requestID))
 	if err != nil {
 		return mapContactError(err)
 	}
 	dto := toDTO(actorUserID, item)
-	s.publishContactRealtime(ctx, "ContactRequestCancelled", item.RequesterID, dto)
-	s.publishContactRealtime(ctx, "ContactRequestCancelled", item.ReceiverID, dto)
+	s.publishContactRealtime(ctx, zoneID, "ContactRequestCancelled", item.RequesterID, dto)
+	s.publishContactRealtime(ctx, zoneID, "ContactRequestCancelled", item.ReceiverID, dto)
 	return nil
 }
 
-func (s *Service) publishContactRealtime(ctx context.Context, eventType string, userID string, request ContactRequestDTO) {
+func (s *Service) publishContactRealtime(ctx context.Context, zoneID string, eventType string, userID string, request ContactRequestDTO) {
 	if s.realtime == nil || strings.TrimSpace(userID) == "" {
 		return
 	}
 	_ = s.realtime.Publish(ctx, RealtimeEvent{
 		Type:   eventType,
+		ZoneID: strings.TrimSpace(zoneID),
 		UserID: strings.TrimSpace(userID),
 		Payload: map[string]any{
 			"contact_request": request,

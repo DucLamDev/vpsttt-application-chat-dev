@@ -37,6 +37,12 @@ type DefaultBotDefinition struct {
 	ChannelSlug string
 }
 
+type WorkspaceTemplate struct {
+	Key      string
+	Channels []DefaultChannelDefinition
+	Bots     []DefaultBotDefinition
+}
+
 func DefaultWorkspaceChannels() []DefaultChannelDefinition {
 	return []DefaultChannelDefinition{
 		{Slug: "thong-bao", Name: "Thông báo", Description: "Thông báo chung của workspace", Type: "public"},
@@ -61,15 +67,38 @@ func DefaultWorkspaceBots() []DefaultBotDefinition {
 	}
 }
 
+func CustomerWorkspaceChannels() []DefaultChannelDefinition {
+	return []DefaultChannelDefinition{
+		{Slug: "general", Name: "General", Description: "Trao doi chung trong workspace", Type: "public"},
+		{Slug: "announcements", Name: "Announcements", Description: "Thong bao noi bo cua workspace", Type: "public"},
+	}
+}
+
+func WorkspaceTemplateForZone(zoneKind string) WorkspaceTemplate {
+	if strings.TrimSpace(zoneKind) == "vpsttt_internal" {
+		return WorkspaceTemplate{
+			Key:      "vpsttt_services",
+			Channels: DefaultWorkspaceChannels(),
+			Bots:     DefaultWorkspaceBots(),
+		}
+	}
+	return WorkspaceTemplate{
+		Key:      "customer_standard",
+		Channels: CustomerWorkspaceChannels(),
+		Bots:     []DefaultBotDefinition{},
+	}
+}
+
 type PermissionChecker interface {
 	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
 	HasAnyWorkspacePermission(ctx context.Context, userID string, permissionCode string) (bool, error)
+	HasAnyZonePermission(ctx context.Context, userID string, zoneID string, permissionCode string) (bool, error)
 }
 
 type Repository interface {
 	CreateWorkspace(ctx context.Context, params CreateWorkspaceParams) (workspacesdomain.Workspace, error)
 	FindWorkspace(ctx context.Context, workspaceID string) (workspacesdomain.Workspace, error)
-	ListWorkspacesForUser(ctx context.Context, userID string) ([]workspacesdomain.Workspace, error)
+	ListWorkspacesForUser(ctx context.Context, userID string, zoneID string) ([]workspacesdomain.Workspace, error)
 	UpdateWorkspace(ctx context.Context, params UpdateWorkspaceParams) (workspacesdomain.Workspace, error)
 	ArchiveWorkspace(ctx context.Context, workspaceID string) error
 	ListMembers(ctx context.Context, workspaceID string) ([]workspacesdomain.Member, error)
@@ -90,6 +119,7 @@ type Service struct {
 
 type CreateWorkspaceInput struct {
 	ActorUserID string
+	ZoneID      string
 	Slug        string
 	Name        string
 	Description string
@@ -97,6 +127,7 @@ type CreateWorkspaceInput struct {
 
 type CreateWorkspaceParams struct {
 	OwnerID     string
+	ZoneID      string
 	Slug        string
 	Name        string
 	Description string
@@ -190,6 +221,7 @@ type AuditEvent struct {
 
 type WorkspaceDTO struct {
 	ID          string  `json:"id"`
+	ZoneID      string  `json:"zone_id"`
 	Slug        string  `json:"slug"`
 	Name        string  `json:"name"`
 	Description *string `json:"description,omitempty"`
@@ -246,7 +278,11 @@ func NewService(repo Repository, checker PermissionChecker) *Service {
 
 func (s *Service) Create(ctx context.Context, input CreateWorkspaceInput) (WorkspaceDTO, error) {
 	input.ActorUserID = strings.TrimSpace(input.ActorUserID)
-	allowed, err := s.checker.HasAnyWorkspacePermission(ctx, input.ActorUserID, "workspace.manage")
+	input.ZoneID = strings.TrimSpace(input.ZoneID)
+	if input.ZoneID == "" {
+		return WorkspaceDTO{}, apperrors.BadRequest("ZONE_REQUIRED", "Khong xac dinh duoc zone hien tai.")
+	}
+	allowed, err := s.checker.HasAnyZonePermission(ctx, input.ActorUserID, input.ZoneID, "workspace.manage")
 	if err != nil {
 		return WorkspaceDTO{}, err
 	}
@@ -265,11 +301,15 @@ func (s *Service) Create(ctx context.Context, input CreateWorkspaceInput) (Works
 
 	workspace, err := s.repo.CreateWorkspace(ctx, CreateWorkspaceParams{
 		OwnerID:     input.ActorUserID,
+		ZoneID:      input.ZoneID,
 		Slug:        input.Slug,
 		Name:        input.Name,
 		Description: input.Description,
 	})
 	if err != nil {
+		if errors.Is(err, workspacesdomain.ErrWorkspaceQuotaExceeded) {
+			return WorkspaceDTO{}, apperrors.Conflict("ZONE_QUOTA_EXCEEDED", "Zone da dat gioi han workspace.")
+		}
 		if errors.Is(err, workspacesdomain.ErrWorkspaceConflict) {
 			return WorkspaceDTO{}, apperrors.Conflict("WORKSPACE_ALREADY_EXISTS", "Slug workspace đã tồn tại.")
 		}
@@ -296,8 +336,8 @@ func (s *Service) Get(ctx context.Context, userID string, workspaceID string) (W
 	return toWorkspaceDTO(workspace), nil
 }
 
-func (s *Service) ListMine(ctx context.Context, userID string) ([]WorkspaceDTO, error) {
-	workspaces, err := s.repo.ListWorkspacesForUser(ctx, strings.TrimSpace(userID))
+func (s *Service) ListMine(ctx context.Context, userID string, zoneID string) ([]WorkspaceDTO, error) {
+	workspaces, err := s.repo.ListWorkspacesForUser(ctx, strings.TrimSpace(userID), strings.TrimSpace(zoneID))
 	if err != nil {
 		return nil, err
 	}
@@ -544,6 +584,7 @@ func cleanOptional(value *string) *string {
 func toWorkspaceDTO(workspace workspacesdomain.Workspace) WorkspaceDTO {
 	return WorkspaceDTO{
 		ID:          workspace.ID,
+		ZoneID:      workspace.ZoneID,
 		Slug:        workspace.Slug,
 		Name:        workspace.Name,
 		Description: workspace.Description,

@@ -33,6 +33,31 @@ WHERE id = $1::uuid AND deleted_at IS NULL
 	return scanUser(row)
 }
 
+func (r *Repository) FindByIDInZone(ctx context.Context, id string, zoneID string) (usersdomain.User, error) {
+	row := r.pool.QueryRow(ctx, `
+SELECT DISTINCT
+       users.id::text, users.email::text, users.username::text, users.display_name,
+       users.avatar_url, users.phone_number, users.status,
+       users.locale, users.timezone, users.email_verified_at, users.last_seen_at,
+       host(users.registration_ip_address), users.registration_device_name,
+       host(users.last_ip_address), users.device_name,
+       users.created_at, users.updated_at
+FROM users
+JOIN workspace_members member
+  ON member.user_id = users.id
+ AND member.status = 'active'
+JOIN workspaces workspace
+  ON workspace.id = member.workspace_id
+ AND workspace.zone_id = $2::uuid
+ AND workspace.status = 'active'
+ AND workspace.deleted_at IS NULL
+WHERE users.id = $1::uuid
+  AND users.deleted_at IS NULL
+LIMIT 1
+`, id, zoneID)
+	return scanUser(row)
+}
+
 func (r *Repository) List(ctx context.Context, params usersapp.ListUsersParams) ([]usersdomain.User, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT id::text, email::text, username::text, display_name, avatar_url, phone_number, status,
@@ -42,6 +67,17 @@ SELECT id::text, email::text, username::text, display_name, avatar_url, phone_nu
        created_at, updated_at
 FROM users
 WHERE deleted_at IS NULL
+  AND EXISTS (
+      SELECT 1
+      FROM workspace_members member
+      JOIN workspaces workspace
+        ON workspace.id = member.workspace_id
+       AND workspace.zone_id = $4::uuid
+       AND workspace.status = 'active'
+       AND workspace.deleted_at IS NULL
+      WHERE member.user_id = users.id
+        AND member.status = 'active'
+  )
   AND (
     $1 = ''
     OR display_name ILIKE '%' || $1 || '%'
@@ -55,7 +91,7 @@ WHERE deleted_at IS NULL
   AND ($2 = '' OR status = $2)
 ORDER BY created_at DESC
 LIMIT $3
-`, params.Query, params.Status, params.Limit)
+`, params.Query, params.Status, params.Limit, params.ZoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +106,20 @@ LIMIT $3
 		users = append(users, user)
 	}
 	return users, rows.Err()
+}
+
+func (r *Repository) UserBelongsToWorkspace(ctx context.Context, userID string, workspaceID string) (bool, error) {
+	var belongs bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM workspace_members
+    WHERE user_id = $1::uuid
+      AND workspace_id = $2::uuid
+      AND status = 'active'
+)
+`, userID, workspaceID).Scan(&belongs)
+	return belongs, err
 }
 
 func (r *Repository) UpdateProfile(ctx context.Context, params usersapp.UpdateProfileParams) (usersdomain.User, error) {

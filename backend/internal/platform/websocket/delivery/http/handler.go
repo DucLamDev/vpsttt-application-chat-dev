@@ -11,19 +11,25 @@ import (
 
 	platformws "github.com/duclamdev/application-chat/backend/internal/platform/websocket"
 	sharedauth "github.com/duclamdev/application-chat/backend/internal/shared/auth"
+	"github.com/duclamdev/application-chat/backend/internal/shared/constants"
 	"github.com/duclamdev/application-chat/backend/internal/shared/response"
 	"github.com/gin-gonic/gin"
 	xwebsocket "golang.org/x/net/websocket"
 )
 
 type Handler struct {
-	manager    *platformws.Manager
-	tokens     *sharedauth.Manager
-	authorizer RoomAuthorizer
+	manager     *platformws.Manager
+	tokens      *sharedauth.Manager
+	authorizer  RoomAuthorizer
+	zoneChecker WorkspaceZoneChecker
 }
 
 type RoomAuthorizer interface {
 	CanJoinRoom(ctx context.Context, userID string, room string) bool
+}
+
+type WorkspaceZoneChecker interface {
+	WorkspaceBelongsToZone(ctx context.Context, workspaceID string, zoneID string) (bool, error)
 }
 
 type clientCommand struct {
@@ -53,7 +59,15 @@ func NewHandler(manager *platformws.Manager, tokens *sharedauth.Manager, authori
 	return handler
 }
 
+func (h *Handler) SetWorkspaceZoneChecker(checker WorkspaceZoneChecker) {
+	h.zoneChecker = checker
+}
+
 func (h *Handler) RegisterRoutes(router gin.IRouter) {
+	router.GET("/ws", h.Connect)
+}
+
+func (h *Handler) RegisterPublicRoute(router gin.IRouter) {
 	router.GET("/ws", h.Connect)
 }
 
@@ -63,32 +77,37 @@ func (h *Handler) Connect(c *gin.Context) {
 		return
 	}
 
-	userID, err := h.authenticateRequest(c.Request)
+	claims, err := h.authenticateRequest(c.Request)
 	if err != nil {
 		h.failAuth(c, err)
 		return
 	}
+	resolvedZoneID := contextString(c, constants.ContextResolvedZoneID)
+	if claims.ZoneID == "" || resolvedZoneID == "" || claims.ZoneID != resolvedZoneID {
+		response.Fail(c, nethttp.StatusForbidden, "ZONE_TOKEN_MISMATCH", "Phiên đăng nhập không thuộc domain hiện tại.", nil)
+		return
+	}
 
 	xwebsocket.Handler(func(conn *xwebsocket.Conn) {
-		h.serve(conn, userID)
+		h.serve(conn, claims.Subject, claims.ZoneID)
 	}).ServeHTTP(c.Writer, c.Request)
 }
 
-func (h *Handler) authenticateRequest(req *nethttp.Request) (string, error) {
+func (h *Handler) authenticateRequest(req *nethttp.Request) (*sharedauth.AccessClaims, error) {
 	if h.tokens == nil {
-		return "", sharedauth.ErrInvalidToken
+		return nil, sharedauth.ErrInvalidToken
 	}
 
 	token := accessTokenFromRequest(req)
 	if token == "" {
-		return "", sharedauth.ErrInvalidToken
+		return nil, sharedauth.ErrInvalidToken
 	}
 
 	claims, err := h.tokens.VerifyAccessToken(token)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return claims.Subject, nil
+	return claims, nil
 }
 
 func (h *Handler) failAuth(c *gin.Context, err error) {
@@ -147,10 +166,11 @@ func tokenFromSubprotocol(header string) string {
 	return ""
 }
 
-func (h *Handler) serve(conn *xwebsocket.Conn, userID string) {
+func (h *Handler) serve(conn *xwebsocket.Conn, userID string, zoneID string) {
 	client := &platformws.Client{
 		ID:     newClientID(),
 		UserID: userID,
+		ZoneID: zoneID,
 		Send:   make(chan platformws.Event, 64),
 	}
 	if err := h.manager.Register(client); err != nil {
@@ -199,6 +219,9 @@ func (h *Handler) handleCommand(client *platformws.Client, command clientCommand
 	}
 	switch strings.TrimSpace(command.Type) {
 	case "join":
+		if !h.roomBelongsToZone(client.ZoneID, room) {
+			return
+		}
 		if h.authorizer != nil && !h.authorizer.CanJoinRoom(context.Background(), client.UserID, room) {
 			return
 		}
@@ -243,7 +266,8 @@ func (h *Handler) handleCommand(client *platformws.Client, command clientCommand
 			}
 			targetCanJoin := h.authorizer == nil || h.authorizer.CanJoinRoom(context.Background(), targetUserID, room)
 			if targetCanJoin {
-				_ = h.manager.Broadcast(context.Background(), "user:"+targetUserID, platformws.Event{
+				targetRoom := platformws.UserRoom(client.ZoneID, targetUserID)
+				_ = h.manager.Broadcast(context.Background(), targetRoom, platformws.Event{
 					Type:    eventType,
 					Room:    room,
 					UserID:  client.UserID,
@@ -252,6 +276,24 @@ func (h *Handler) handleCommand(client *platformws.Client, command clientCommand
 			}
 		}
 	}
+}
+
+func (h *Handler) roomBelongsToZone(zoneID string, room string) bool {
+	parts := strings.Split(strings.TrimSpace(room), ":")
+	if len(parts) != 4 || parts[0] != "workspace" || parts[2] != "channel" {
+		return false
+	}
+	if h.zoneChecker == nil {
+		return strings.TrimSpace(zoneID) != ""
+	}
+	matches, err := h.zoneChecker.WorkspaceBelongsToZone(context.Background(), parts[1], strings.TrimSpace(zoneID))
+	return err == nil && matches
+}
+
+func contextString(c *gin.Context, key string) string {
+	value, _ := c.Get(key)
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
 }
 
 func newClientID() string {

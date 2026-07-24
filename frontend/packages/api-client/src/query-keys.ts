@@ -80,6 +80,17 @@ export const queryKeys = {
     all: (workspaceId: string, status = "") => ["tickets", workspaceId, status] as const,
     detail: (workspaceId: string, ticketId: string) => ["tickets", workspaceId, ticketId] as const
   },
+  tenancy: {
+    automationInstallations: ["tenancy", "automation-installations"] as const,
+    automationTemplates: ["tenancy", "automation-templates"] as const,
+    capabilities: (domain: string) => ["tenancy", "capabilities", domain] as const,
+    claim: (domainId: string) => ["tenancy", "claim", domainId] as const,
+    currentZone: ["tenancy", "current-zone"] as const,
+    deploymentRequests: ["tenancy", "deployment-requests"] as const,
+    discovery: (domain: string) => ["tenancy", "discovery", domain] as const,
+    oidcProviders: ["tenancy", "oidc-providers"] as const,
+    quota: ["tenancy", "quota"] as const
+  },
   users: {
     all: (query?: string, status?: string) => ["users", query ?? "", status ?? ""] as const,
     detail: (userId: string) => ["users", userId] as const,

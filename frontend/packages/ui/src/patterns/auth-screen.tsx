@@ -4,9 +4,25 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button } from "../components/button";
 import { Input } from "../components/input";
 
-export type LoginFormValues = { identifier: string; password: string; remember: boolean };
-export type RegisterFormValues = { displayName: string; email: string; password: string; username: string };
+export type LoginFormValues = {
+  domain: string;
+  identifier: string;
+  password: string;
+  remember: boolean;
+};
+export type RegisterFormValues = {
+  displayName: string;
+  domain: string;
+  email: string;
+  inviteToken?: string;
+  password: string;
+  username: string;
+};
 export type AuthMode = "login" | "register";
+export type AuthOIDCProvider = {
+  id: string;
+  name: string;
+};
 
 export type AuthScreenProps = {
   brandLogoAlt?: string;
@@ -14,8 +30,11 @@ export type AuthScreenProps = {
   error?: string | null;
   isPending?: boolean;
   googleClientId?: string;
+  initialDomain?: string;
   mode: AuthMode;
-  onGoogleCredential?: (credential: string) => void;
+  onGoogleCredential?: (credential: string, domain: string) => void;
+  onOIDCDiscover?: (domain: string) => Promise<AuthOIDCProvider[]>;
+  onOIDCStart?: (domain: string, providerId: string) => Promise<void> | void;
   onLogin: (values: LoginFormValues) => void;
   onModeChange: (mode: AuthMode) => void;
   onRegister: (values: RegisterFormValues) => void;
@@ -30,9 +49,12 @@ export function AuthScreen({
   brandLogoSrc,
   error,
   googleClientId,
+  initialDomain = "",
   isPending = false,
   mode,
   onGoogleCredential,
+  onOIDCDiscover,
+  onOIDCStart,
   onLogin,
   onModeChange,
   onRegister,
@@ -41,15 +63,20 @@ export function AuthScreen({
   subtitle = "Kết nối – Trò chuyện – Hiệu quả",
   title = "WEBTUI CHAT"
 }: AuthScreenProps) {
+  const [domain, setDomain] = useState(initialDomain);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
+  const [inviteToken, setInviteToken] = useState("");
   const [username, setUsername] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [isGoogleReady, setIsGoogleReady] = useState(false);
+  const [isOIDCPending, setIsOIDCPending] = useState(false);
+  const [oidcProviders, setOIDCProviders] = useState<AuthOIDCProvider[]>([]);
+  const [selectedOIDCProvider, setSelectedOIDCProvider] = useState("");
   const googleButtonRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,7 +94,7 @@ export function AuthScreen({
         callback: (response) => {
           if (response.credential) {
             setLocalError(null);
-            onGoogleCredential(response.credential);
+            onGoogleCredential(response.credential, domain);
           }
         },
         client_id: googleClientId
@@ -101,20 +128,68 @@ export function AuthScreen({
       cancelled = true;
       existing?.removeEventListener("load", renderGoogleButton);
     };
-  }, [googleClientId, mode, onGoogleCredential]);
+  }, [domain, googleClientId, mode, onGoogleCredential]);
+
+  useEffect(() => {
+    setDomain(initialDomain);
+    setOIDCProviders([]);
+    setSelectedOIDCProvider("");
+  }, [initialDomain]);
+
+  async function handleOIDC() {
+    const normalizedDomain = domain.trim();
+    if (!normalizedDomain || !onOIDCDiscover || !onOIDCStart) {
+      setLocalError("Vui lòng nhập server domain trước khi đăng nhập SSO.");
+      return;
+    }
+    setLocalError(null);
+    setIsOIDCPending(true);
+    try {
+      if (oidcProviders.length > 1) {
+        if (!selectedOIDCProvider) {
+          setLocalError("Vui lòng chọn nhà cung cấp SSO.");
+          return;
+        }
+        await onOIDCStart(normalizedDomain, selectedOIDCProvider);
+        return;
+      }
+      const providers = await onOIDCDiscover(normalizedDomain);
+      if (providers.length === 0) {
+        setLocalError("Domain này chưa cấu hình nhà cung cấp SSO.");
+        return;
+      }
+      if (providers.length === 1) {
+        await onOIDCStart(normalizedDomain, providers[0].id);
+        return;
+      }
+      setOIDCProviders(providers);
+      setSelectedOIDCProvider(providers[0].id);
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "Không thể bắt đầu đăng nhập SSO cho domain này.");
+    } finally {
+      setIsOIDCPending(false);
+    }
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLocalError(null);
     if (mode === "login") {
-      onLogin({ identifier, password, remember });
+      onLogin({ domain, identifier, password, remember });
       return;
     }
     if (password !== confirmPassword) {
       setLocalError("Mật khẩu xác nhận không khớp.");
       return;
     }
-    onRegister({ displayName, email, password, username });
+    onRegister({
+      displayName,
+      domain,
+      email,
+      inviteToken: inviteToken.trim() || undefined,
+      password,
+      username
+    });
   }
 
   return (
@@ -169,19 +244,52 @@ export function AuthScreen({
           <h2>{mode === "login" ? "Đăng nhập" : "Tạo tài khoản mới"}</h2>
         </div>
         <form className="auth-form" onSubmit={handleSubmit}>
+          <label>Server domain<Input autoCapitalize="none" autoComplete="url" onChange={(event) => {
+            setDomain(event.target.value);
+            setOIDCProviders([]);
+            setSelectedOIDCProvider("");
+          }} placeholder="chat.example.com" required spellCheck={false} value={domain} /></label>
           {mode === "register" ? <>
             <label>Họ và tên<Input autoComplete="name" onChange={(event) => setDisplayName(event.target.value)} placeholder="Nhập họ và tên của bạn" required value={displayName} /></label>
             <label>Email công việc<Input autoComplete="email" onChange={(event) => setEmail(event.target.value)} placeholder="Nhập email công việc" required type="email" value={email} /></label>
             <label>Tên đăng nhập<Input autoComplete="username" onChange={(event) => setUsername(event.target.value)} placeholder="Nhập tên đăng nhập" required value={username} /></label>
+            <label>Mã mời (nếu cần)<Input autoComplete="one-time-code" onChange={(event) => setInviteToken(event.target.value)} placeholder="Nhập mã mời của workspace" value={inviteToken} /></label>
           </> : <label>Email hoặc tên đăng nhập<Input autoComplete="username" onChange={(event) => setIdentifier(event.target.value)} placeholder="Nhập email hoặc tên đăng nhập" required value={identifier} /></label>}
-          <label>Mật khẩu<Input autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={6} onChange={(event) => setPassword(event.target.value)} placeholder={mode === "login" ? "Nhập mật khẩu của bạn" : "Tạo mật khẩu ít nhất 6 ký tự"} required type="password" value={password} /></label>
-          {mode === "register" ? <label>Xác nhận mật khẩu<Input autoComplete="new-password" minLength={6} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Nhập lại mật khẩu" required type="password" value={confirmPassword} /></label> : <div className="auth-helper-row"><label className="auth-check"><input checked={remember} onChange={(event) => setRemember(event.target.checked)} type="checkbox" />Ghi nhớ đăng nhập</label><span>Quên mật khẩu?</span></div>}
+          <label>Mật khẩu<Input autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={8} onChange={(event) => setPassword(event.target.value)} placeholder={mode === "login" ? "Nhập mật khẩu của bạn" : "Tạo mật khẩu ít nhất 8 ký tự"} required type="password" value={password} /></label>
+          {mode === "register" ? <label>Xác nhận mật khẩu<Input autoComplete="new-password" minLength={8} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Nhập lại mật khẩu" required type="password" value={confirmPassword} /></label> : <div className="auth-helper-row"><label className="auth-check"><input checked={remember} onChange={(event) => setRemember(event.target.checked)} type="checkbox" />Ghi nhớ đăng nhập</label><span>Quên mật khẩu?</span></div>}
           {localError || error ? <p className="auth-error">{localError || error}</p> : null}
           <Button className="auth-submit" disabled={isPending} type="submit">
             {isPending ? "Đang xử lý..." : mode === "login" ? "Đăng nhập" : "Đăng ký tài khoản"}
             <span className="auth-submit__arrow" aria-hidden="true">→</span>
           </Button>
         </form>
+        {mode === "login" && onOIDCDiscover && onOIDCStart ? (
+          <>
+            <div className="auth-divider"><span>hoặc đăng nhập nội bộ</span></div>
+            <div className="auth-oidc-area">
+              {oidcProviders.length > 1 ? (
+                <select
+                  aria-label="Nhà cung cấp SSO"
+                  disabled={isOIDCPending || isPending}
+                  onChange={(event) => setSelectedOIDCProvider(event.target.value)}
+                  value={selectedOIDCProvider}
+                >
+                  {oidcProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>{provider.name}</option>
+                  ))}
+                </select>
+              ) : null}
+              <Button
+                className="auth-oidc-button"
+                disabled={isOIDCPending || isPending}
+                onClick={() => void handleOIDC()}
+                variant="secondary"
+              >
+                {isOIDCPending ? "Đang kết nối..." : oidcProviders.length > 1 ? "Tiếp tục với SSO" : "Đăng nhập bằng SSO"}
+              </Button>
+            </div>
+          </>
+        ) : null}
         {onGoogleCredential ? (
           <>
             <div className="auth-divider"><span>hoặc tiếp tục với Google</span></div>

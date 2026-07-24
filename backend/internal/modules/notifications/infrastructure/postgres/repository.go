@@ -299,13 +299,18 @@ SELECT id, data FROM updated
 	return r.createJobOnce(ctx, notificationID, params.WorkspaceID, params.TargetUserID, []byte(payload), eventID)
 }
 
-func (r *Repository) GetPreference(ctx context.Context, userID string, workspaceID string) (notificationsdomain.NotificationPreference, error) {
+func (r *Repository) GetPreference(ctx context.Context, zoneID string, userID string, workspaceID string) (notificationsdomain.NotificationPreference, error) {
 	row := r.pool.QueryRow(ctx, `
 WITH member AS (
     SELECT $1::uuid AS user_id, $2::uuid AS workspace_id
     WHERE EXISTS (
         SELECT 1
         FROM workspace_members wm
+        JOIN workspaces w
+          ON w.id = wm.workspace_id
+         AND w.zone_id = $3::uuid
+         AND w.status = 'active'
+         AND w.deleted_at IS NULL
         WHERE wm.user_id = $1::uuid
           AND wm.workspace_id = $2::uuid
           AND wm.status IN ('active', 'muted')
@@ -326,20 +331,25 @@ SELECT m.user_id::text, m.workspace_id::text,
 FROM member m
 LEFT JOIN notification_preferences np
   ON np.user_id = m.user_id AND np.workspace_id = m.workspace_id
-`, userID, workspaceID)
+`, userID, workspaceID, zoneID)
 	return scanNotificationPreference(row)
 }
 
 func (r *Repository) ListForUser(ctx context.Context, params notificationsapp.ListParams) ([]notificationsdomain.Notification, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT id::text, user_id::text, workspace_id::text, channel_id::text, message_id::text,
-       type, title, body, data::text, read_at, delivered_at, created_at
-FROM notifications
-WHERE user_id = $1::uuid
-  AND ($2 = '' OR workspace_id = NULLIF($2, '')::uuid)
-ORDER BY created_at DESC
-LIMIT $3
-`, params.UserID, params.WorkspaceID, params.Limit)
+SELECT n.id::text, n.user_id::text, n.workspace_id::text, n.channel_id::text, n.message_id::text,
+       n.type, n.title, n.body, n.data::text, n.read_at, n.delivered_at, n.created_at
+FROM notifications n
+JOIN workspaces w
+  ON w.id = n.workspace_id
+ AND w.zone_id = $2::uuid
+ AND w.status = 'active'
+ AND w.deleted_at IS NULL
+WHERE n.user_id = $1::uuid
+  AND ($3 = '' OR n.workspace_id = NULLIF($3, '')::uuid)
+ORDER BY n.created_at DESC
+LIMIT $4
+`, params.UserID, params.ZoneID, params.WorkspaceID, params.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -356,35 +366,57 @@ LIMIT $3
 	return notifications, rows.Err()
 }
 
-func (r *Repository) MarkRead(ctx context.Context, userID string, notificationID string) (notificationsdomain.Notification, error) {
+func (r *Repository) MarkRead(ctx context.Context, zoneID string, userID string, notificationID string) (notificationsdomain.Notification, error) {
 	row := r.pool.QueryRow(ctx, `
 UPDATE notifications
 SET read_at = COALESCE(read_at, now())
-WHERE id = $2::uuid AND user_id = $1::uuid
+WHERE id = $3::uuid
+  AND user_id = $2::uuid
+  AND EXISTS (
+      SELECT 1
+      FROM workspaces w
+      WHERE w.id = notifications.workspace_id
+        AND w.zone_id = $1::uuid
+        AND w.status = 'active'
+        AND w.deleted_at IS NULL
+  )
 RETURNING id::text, user_id::text, workspace_id::text, channel_id::text, message_id::text,
           type, title, body, data::text, read_at, delivered_at, created_at
-`, userID, notificationID)
+`, zoneID, userID, notificationID)
 	return scanNotification(row)
 }
 
-func (r *Repository) MarkAllRead(ctx context.Context, userID string, workspaceID string) error {
+func (r *Repository) MarkAllRead(ctx context.Context, zoneID string, userID string, workspaceID string) error {
 	_, err := r.pool.Exec(ctx, `
 UPDATE notifications
 SET read_at = COALESCE(read_at, now())
-WHERE user_id = $1::uuid
-  AND ($2 = '' OR workspace_id = NULLIF($2, '')::uuid)
+WHERE user_id = $2::uuid
+  AND ($3 = '' OR workspace_id = NULLIF($3, '')::uuid)
+  AND EXISTS (
+      SELECT 1
+      FROM workspaces w
+      WHERE w.id = notifications.workspace_id
+        AND w.zone_id = $1::uuid
+        AND w.status = 'active'
+        AND w.deleted_at IS NULL
+  )
   AND read_at IS NULL
-`, userID, workspaceID)
+`, zoneID, userID, workspaceID)
 	return err
 }
 
-func (r *Repository) UpsertPreference(ctx context.Context, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error) {
+func (r *Repository) UpsertPreference(ctx context.Context, zoneID string, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error) {
 	row := r.pool.QueryRow(ctx, `
 WITH member AS (
     SELECT $1::uuid AS user_id, $2::uuid AS workspace_id
     WHERE EXISTS (
         SELECT 1
         FROM workspace_members wm
+        JOIN workspaces w
+          ON w.id = wm.workspace_id
+         AND w.zone_id = $12::uuid
+         AND w.status = 'active'
+         AND w.deleted_at IS NULL
         WHERE wm.user_id = $1::uuid
           AND wm.workspace_id = $2::uuid
           AND wm.status IN ('active', 'muted')
@@ -411,11 +443,11 @@ SELECT user_id, workspace_id, mode, preview, quiet_hours, quiet_start, quiet_end
        sound, vibrate, call_ringing, badge_enabled, created_at, updated_at
 FROM upserted
 `, preference.UserID, preference.WorkspaceID, preference.Mode, preference.Preview, preference.QuietHours, preference.QuietStart, preference.QuietEnd,
-		preference.Sound, preference.Vibrate, preference.CallRinging, preference.BadgeEnabled)
+		preference.Sound, preference.Vibrate, preference.CallRinging, preference.BadgeEnabled, zoneID)
 	return scanNotificationPreference(row)
 }
 
-func (r *Repository) GetChannelPreference(ctx context.Context, userID string, workspaceID string, channelID string) (notificationsdomain.ChannelPreference, error) {
+func (r *Repository) GetChannelPreference(ctx context.Context, zoneID string, userID string, workspaceID string, channelID string) (notificationsdomain.ChannelPreference, error) {
 	row := r.pool.QueryRow(ctx, `
 WITH member AS (
     SELECT $1::uuid AS user_id, $2::uuid AS workspace_id, $3::uuid AS channel_id
@@ -423,6 +455,11 @@ WITH member AS (
         SELECT 1
         FROM channel_members cm
         JOIN channels c ON c.id = cm.channel_id
+        JOIN workspaces w
+          ON w.id = c.workspace_id
+         AND w.zone_id = $4::uuid
+         AND w.status = 'active'
+         AND w.deleted_at IS NULL
         WHERE cm.user_id = $1::uuid
           AND c.workspace_id = $2::uuid
           AND c.id = $3::uuid
@@ -438,11 +475,11 @@ SELECT m.user_id::text, m.workspace_id::text, m.channel_id::text,
 FROM member m
 LEFT JOIN notification_channel_preferences ncp
   ON ncp.user_id = m.user_id AND ncp.workspace_id = m.workspace_id AND ncp.channel_id = m.channel_id
-`, userID, workspaceID, channelID)
+`, userID, workspaceID, channelID, zoneID)
 	return scanChannelPreference(row)
 }
 
-func (r *Repository) UpsertChannelPreference(ctx context.Context, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error) {
+func (r *Repository) UpsertChannelPreference(ctx context.Context, zoneID string, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error) {
 	row := r.pool.QueryRow(ctx, `
 WITH member AS (
     SELECT $1::uuid AS user_id, $2::uuid AS workspace_id, $3::uuid AS channel_id
@@ -450,6 +487,11 @@ WITH member AS (
         SELECT 1
         FROM channel_members cm
         JOIN channels c ON c.id = cm.channel_id
+        JOIN workspaces w
+          ON w.id = c.workspace_id
+         AND w.zone_id = $6::uuid
+         AND w.status = 'active'
+         AND w.deleted_at IS NULL
         WHERE cm.user_id = $1::uuid
           AND c.workspace_id = $2::uuid
           AND c.id = $3::uuid
@@ -468,7 +510,7 @@ upserted AS (
 )
 SELECT user_id, workspace_id, channel_id, mode, muted_until, created_at, updated_at
 FROM upserted
-`, preference.UserID, preference.WorkspaceID, preference.ChannelID, preference.Mode, preference.MutedUntil)
+`, preference.UserID, preference.WorkspaceID, preference.ChannelID, preference.Mode, preference.MutedUntil, zoneID)
 	return scanChannelPreference(row)
 }
 

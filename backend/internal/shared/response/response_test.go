@@ -27,6 +27,12 @@ func TestErrorMapsExpectedInfrastructureFailures(t *testing.T) {
 		wantRetryAfter string
 	}{
 		{
+			name:       "zone quota",
+			err:        &pgconn.PgError{Code: "P0001", Message: "ZONE_QUOTA_EXCEEDED:members"},
+			wantStatus: http.StatusConflict,
+			wantCode:   "ZONE_QUOTA_EXCEEDED",
+		},
+		{
 			name:       "deadline",
 			err:        context.DeadlineExceeded,
 			wantStatus: http.StatusGatewayTimeout,

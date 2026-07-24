@@ -33,6 +33,25 @@ export NEXT_PUBLIC_WS_BASE_URL="${NEXT_PUBLIC_WS_BASE_URL:-wss://chat.vpsttt.com
 export NEXT_PUBLIC_GOOGLE_CLIENT_ID="${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-$(read_env_value NEXT_PUBLIC_GOOGLE_CLIENT_ID)}"
 export NEXT_PUBLIC_RTC_ICE_SERVERS="${NEXT_PUBLIC_RTC_ICE_SERVERS:-$(read_env_value NEXT_PUBLIC_RTC_ICE_SERVERS)}"
 export NEXT_PUBLIC_RTC_ICE_SERVERS="${NEXT_PUBLIC_RTC_ICE_SERVERS:-stun:stun.l.google.com:19302}"
+export CADDY_ASK_SECRET="${CADDY_ASK_SECRET:-$(read_env_value CADDY_ASK_SECRET)}"
+export LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-$(read_env_value LETSENCRYPT_EMAIL)}"
+export TLS_PROXY_MODE="${TLS_PROXY_MODE:-$(read_env_value TLS_PROXY_MODE)}"
+export TLS_PROXY_MODE="${TLS_PROXY_MODE:-caddy}"
+
+case "$TLS_PROXY_MODE" in
+  caddy)
+    PROXY_PROFILE="dynamic-tls"
+    PROXY_SERVICE="caddy"
+    ;;
+  nginx)
+    PROXY_PROFILE="static-tls"
+    PROXY_SERVICE="nginx"
+    ;;
+  *)
+    echo "TLS_PROXY_MODE must be caddy or nginx." >&2
+    exit 1
+    ;;
+esac
 
 require_value() {
   name="$1"
@@ -47,6 +66,10 @@ require_value WEBTUI_API_IMAGE "$WEBTUI_API_IMAGE"
 require_value WEBTUI_WORKER_IMAGE "$WEBTUI_WORKER_IMAGE"
 require_value WEBTUI_WEB_IMAGE "$WEBTUI_WEB_IMAGE"
 require_value WEBTUI_ADMIN_IMAGE "$WEBTUI_ADMIN_IMAGE"
+if [ "$TLS_PROXY_MODE" = "caddy" ]; then
+  require_value CADDY_ASK_SECRET "$CADDY_ASK_SECRET"
+  require_value LETSENCRYPT_EMAIL "$LETSENCRYPT_EMAIL"
+fi
 
 mkdir -p data/desktop-releases data/mobile-releases data/download-manifests data/downloads
 
@@ -66,13 +89,15 @@ write_compose_env_file() {
     printf 'NEXT_PUBLIC_WS_BASE_URL=%s\n' "$NEXT_PUBLIC_WS_BASE_URL"
     printf 'NEXT_PUBLIC_GOOGLE_CLIENT_ID=%s\n' "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"
     printf 'NEXT_PUBLIC_RTC_ICE_SERVERS=%s\n' "$NEXT_PUBLIC_RTC_ICE_SERVERS"
+    printf 'CADDY_ASK_SECRET=%s\n' "$CADDY_ASK_SECRET"
+    printf 'LETSENCRYPT_EMAIL=%s\n' "$LETSENCRYPT_EMAIL"
   } > "$COMPOSE_ENV_FILE"
 }
 
 write_compose_env_file
 
 compose() {
-  docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  docker compose --profile "$PROXY_PROFILE" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 wait_for_public_health() {
@@ -98,15 +123,13 @@ wait_for_public_health() {
 
 AUTO_INIT_TLS="${AUTO_INIT_TLS:-$(read_env_value AUTO_INIT_TLS)}"
 
-if [ "$AUTO_INIT_TLS" = "true" ]; then
+if [ "$TLS_PROXY_MODE" = "nginx" ] && [ "$AUTO_INIT_TLS" = "true" ]; then
   COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" sh deploy/scripts/init-letsencrypt.sh
 fi
 
 compose pull
 compose --profile migration run --rm migrate
 compose up -d --remove-orphans
-# The nginx image renders templates only when the container starts. Always
-# recreate it so domain, route, and websocket template changes are applied.
-compose up -d --force-recreate nginx
+compose up -d --force-recreate "$PROXY_SERVICE"
 compose ps
 wait_for_public_health

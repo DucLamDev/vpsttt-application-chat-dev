@@ -23,6 +23,7 @@ type Repository interface {
 	ExpireRinging(ctx context.Context, before time.Time, limit int) ([]callsdomain.Call, error)
 	CreateSignal(ctx context.Context, params SignalParams) (callsdomain.Signal, error)
 	CreateCallMessage(ctx context.Context, params CallMessageParams) error
+	WorkspaceZoneID(ctx context.Context, workspaceID string) (string, error)
 }
 
 type RealtimePublisher interface {
@@ -141,6 +142,7 @@ type SignalDTO struct {
 
 type RealtimeEvent struct {
 	Type         string
+	ZoneID       string
 	WorkspaceID  string
 	ChannelID    string
 	ActorUserID  string
@@ -428,6 +430,10 @@ func (s *Service) publish(ctx context.Context, eventType string, call callsdomai
 	if s.realtime == nil {
 		return nil
 	}
+	zoneID, err := s.repo.WorkspaceZoneID(ctx, call.WorkspaceID)
+	if err != nil {
+		return err
+	}
 	payload := callPayload(call)
 	payload["actor_user_id"] = strings.TrimSpace(actorUserID)
 	for key, value := range extra {
@@ -437,6 +443,7 @@ func (s *Service) publish(ctx context.Context, eventType string, call callsdomai
 	}
 	return s.realtime.Publish(ctx, RealtimeEvent{
 		Type:         eventType,
+		ZoneID:       zoneID,
 		WorkspaceID:  call.WorkspaceID,
 		ChannelID:    call.ChannelID,
 		ActorUserID:  strings.TrimSpace(actorUserID),

@@ -52,6 +52,7 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 
 func (h *Handler) ListMine(c *gin.Context) {
 	notifications, err := h.service.ListMine(c.Request.Context(), notificationsapp.ListParams{
+		ZoneID:      middleware.CurrentZoneID(c),
 		UserID:      middleware.CurrentUserID(c),
 		WorkspaceID: c.Query("workspace_id"),
 		Limit:       queryInt(c, "limit"),
@@ -64,7 +65,7 @@ func (h *Handler) ListMine(c *gin.Context) {
 }
 
 func (h *Handler) GetPreferences(c *gin.Context) {
-	preference, err := h.service.GetPreference(c.Request.Context(), middleware.CurrentUserID(c), c.Query("workspace_id"))
+	preference, err := h.service.GetPreference(c.Request.Context(), middleware.CurrentZoneID(c), middleware.CurrentUserID(c), c.Query("workspace_id"))
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -79,6 +80,7 @@ func (h *Handler) UpsertPreferences(c *gin.Context) {
 		return
 	}
 	preference, err := h.service.UpsertPreference(c.Request.Context(), notificationsapp.PreferenceInput{
+		ZoneID:       middleware.CurrentZoneID(c),
 		UserID:       middleware.CurrentUserID(c),
 		WorkspaceID:  requestWorkspaceID(c, req.WorkspaceID),
 		Mode:         req.Mode,
@@ -101,6 +103,7 @@ func (h *Handler) UpsertPreferences(c *gin.Context) {
 func (h *Handler) GetChannelPreference(c *gin.Context) {
 	preference, err := h.service.GetChannelPreference(
 		c.Request.Context(),
+		middleware.CurrentZoneID(c),
 		middleware.CurrentUserID(c),
 		c.Query("workspace_id"),
 		c.Param("channel_id"),
@@ -123,6 +126,7 @@ func (h *Handler) UpsertChannelPreference(c *gin.Context) {
 		channelID = c.Param("channel_id")
 	}
 	preference, err := h.service.UpsertChannelPreference(c.Request.Context(), notificationsapp.ChannelPreferenceInput{
+		ZoneID:      middleware.CurrentZoneID(c),
 		UserID:      middleware.CurrentUserID(c),
 		WorkspaceID: requestWorkspaceID(c, req.WorkspaceID),
 		ChannelID:   channelID,
@@ -137,7 +141,7 @@ func (h *Handler) UpsertChannelPreference(c *gin.Context) {
 }
 
 func (h *Handler) MarkRead(c *gin.Context) {
-	notification, err := h.service.MarkRead(c.Request.Context(), middleware.CurrentUserID(c), c.Param("notification_id"))
+	notification, err := h.service.MarkRead(c.Request.Context(), middleware.CurrentZoneID(c), middleware.CurrentUserID(c), c.Param("notification_id"))
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -146,7 +150,7 @@ func (h *Handler) MarkRead(c *gin.Context) {
 }
 
 func (h *Handler) MarkAllRead(c *gin.Context) {
-	if err := h.service.MarkAllRead(c.Request.Context(), middleware.CurrentUserID(c), c.Query("workspace_id")); err != nil {
+	if err := h.service.MarkAllRead(c.Request.Context(), middleware.CurrentZoneID(c), middleware.CurrentUserID(c), c.Query("workspace_id")); err != nil {
 		response.Error(c, err)
 		return
 	}

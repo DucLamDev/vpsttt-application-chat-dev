@@ -20,6 +20,23 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+func (r *Repository) WorkspaceSupportsOrderBot(ctx context.Context, workspaceID string) (bool, error) {
+	var allowed bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM workspaces w
+    JOIN zones z ON z.id = w.zone_id
+    WHERE w.id = $1::uuid
+      AND w.status = 'active'
+      AND w.deleted_at IS NULL
+      AND z.kind = 'vpsttt_internal'
+      AND z.status = 'active'
+)
+`, workspaceID).Scan(&allowed)
+	return allowed, err
+}
+
 func (r *Repository) UserEmailByID(ctx context.Context, userID string) (string, error) {
 	var email string
 	err := r.pool.QueryRow(ctx, `
@@ -65,6 +82,14 @@ func (r *Repository) SendBotMessage(ctx context.Context, params orderapp.SendBot
 WITH target AS (
     SELECT c.workspace_id, c.id AS channel_id, b.id AS bot_id
     FROM channels c
+    JOIN workspaces w
+      ON w.id = c.workspace_id
+     AND w.status = 'active'
+     AND w.deleted_at IS NULL
+    JOIN zones z
+      ON z.id = w.zone_id
+     AND z.kind = 'vpsttt_internal'
+     AND z.status = 'active'
     JOIN bots b
       ON b.workspace_id = c.workspace_id
      AND b.slug::text = $2

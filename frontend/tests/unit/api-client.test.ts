@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiClientError, createFilesClient, HttpClient } from "@webtui/api-client";
+import {
+  ApiClientError,
+  createAuthClient,
+  createFilesClient,
+  HttpClient,
+  isLocalHostname,
+  localizeZoneRuntime,
+  zoneWebNavigationTarget
+} from "@webtui/api-client";
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -64,6 +72,19 @@ describe("HttpClient", () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(init.body).toBe(JSON.stringify({ body: "Xin chào" }));
     expect((init.headers as Headers).get("Content-Type")).toBe("application/json");
+  });
+
+  it("binds the native fetch receiver when no fetch adapter is provided", async () => {
+    const fetchMock = vi.fn(function (this: unknown) {
+      if (this !== globalThis) {
+        throw new TypeError("Illegal invocation");
+      }
+      return Promise.resolve(jsonResponse({ data: { ok: true }, success: true }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new HttpClient({ baseUrl: "https://chat.vpsttt.com" });
+
+    await expect(client.get<{ ok: boolean }>("/health")).resolves.toEqual({ ok: true });
   });
 
   it("refreshes once after a 401 response and retries the request", async () => {
@@ -172,6 +193,112 @@ describe("HttpClient", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://chat.vpsttt.com/api/v1/workspaces/workspace-1/channels/channel-1/media?limit=500"
     );
+  });
+
+  it("uses the public OIDC discovery, start, and completion contract", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        data: { oidc_providers: [{ id: "provider-1", name: "Company SSO" }] },
+        success: true
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          authorization_url: "https://identity.example/authorize",
+          expires_at: "2026-07-23T12:10:00Z"
+        },
+        success: true
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          session_id: "session-1",
+          tokens: { access_token: "access-token", token_type: "Bearer" }
+        },
+        success: true
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const auth = createAuthClient(new HttpClient({ baseUrl: "https://chat.company.example" }));
+
+    await expect(auth.oidcProviders("chat.company.example")).resolves.toEqual([
+      { id: "provider-1", name: "Company SSO" }
+    ]);
+    await auth.oidcStart({
+      domain: "chat.company.example",
+      provider_id: "provider-1",
+      return_to: "/"
+    });
+    await auth.oidcComplete({
+      code: "one-time-code",
+      domain: "chat.company.example"
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://chat.company.example/api/v1/auth/oidc/providers?domain=chat.company.example"
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1].body))).toMatchObject({
+      provider_id: "provider-1",
+      return_to: "/"
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1].body))).toEqual({
+      code: "one-time-code",
+      domain: "chat.company.example"
+    });
+  });
+});
+
+describe("zone runtime helpers", () => {
+  it("redirects a control-plane browser to a different HTTPS zone origin", () => {
+    expect(
+      zoneWebNavigationTarget(
+        "https://chat.customer.example/",
+        "https://chat.vpsttt.com/login?source=control"
+      )
+    ).toBe("https://chat.customer.example/");
+  });
+
+  it("does not redirect local development, same-origin, or insecure public targets", () => {
+    expect(
+      zoneWebNavigationTarget(
+        "https://chat.customer.example",
+        "http://127.0.0.1:3000/"
+      )
+    ).toBeNull();
+    expect(
+      zoneWebNavigationTarget(
+        "https://chat.customer.example/",
+        "https://chat.customer.example/login"
+      )
+    ).toBeNull();
+    expect(
+      zoneWebNavigationTarget(
+        "http://chat.customer.example",
+        "https://chat.vpsttt.com/"
+      )
+    ).toBeNull();
+  });
+
+  it("keeps local API and WebSocket ports from the configured runtime", () => {
+    expect(isLocalHostname("app.localhost")).toBe(true);
+    expect(
+      localizeZoneRuntime(
+        {
+          app_name: "VPSTTT Chat",
+          app_version: "1.0.0",
+          release_channel: "development",
+          locale: "vi-VN",
+          web_base_url: "https://chat.customer.example",
+          api_base_url: "https://chat.customer.example",
+          ws_base_url: "wss://chat.customer.example/ws"
+        },
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8080/",
+        "ws://127.0.0.1:8080/ws/"
+      )
+    ).toMatchObject({
+      web_base_url: "http://127.0.0.1:3000",
+      api_base_url: "http://127.0.0.1:8080",
+      ws_base_url: "ws://127.0.0.1:8080/ws"
+    });
   });
 });
 

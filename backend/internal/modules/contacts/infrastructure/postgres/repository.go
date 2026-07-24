@@ -20,22 +20,22 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-func (r *Repository) ListContacts(ctx context.Context, actorUserID string) ([]contactsdomain.ContactRequest, error) {
-	return r.list(ctx, actorUserID, "accepted")
+func (r *Repository) ListContacts(ctx context.Context, zoneID string, actorUserID string) ([]contactsdomain.ContactRequest, error) {
+	return r.list(ctx, zoneID, actorUserID, "accepted")
 }
 
-func (r *Repository) ListRequests(ctx context.Context, actorUserID string, status string) ([]contactsdomain.ContactRequest, error) {
+func (r *Repository) ListRequests(ctx context.Context, zoneID string, actorUserID string, status string) ([]contactsdomain.ContactRequest, error) {
 	if status == "all" {
 		status = ""
 	}
-	return r.list(ctx, actorUserID, status)
+	return r.list(ctx, zoneID, actorUserID, status)
 }
 
-func (r *Repository) CreateRequest(ctx context.Context, actorUserID string, receiverID string) (contactsdomain.ContactRequest, error) {
+func (r *Repository) CreateRequest(ctx context.Context, zoneID string, actorUserID string, receiverID string) (contactsdomain.ContactRequest, error) {
 	if actorUserID == receiverID {
 		return contactsdomain.ContactRequest{}, contactsdomain.ErrCannotContactSelf
 	}
-	userExists, err := r.userExists(ctx, receiverID)
+	userExists, err := r.userExistsInZone(ctx, zoneID, receiverID)
 	if err != nil {
 		return contactsdomain.ContactRequest{}, err
 	}
@@ -44,68 +44,71 @@ func (r *Repository) CreateRequest(ctx context.Context, actorUserID string, rece
 	}
 
 	row := r.pool.QueryRow(ctx, `
-INSERT INTO contact_requests (requester_id, receiver_id, status)
-VALUES ($1::uuid, $2::uuid, 'pending')
+INSERT INTO contact_requests (zone_id, requester_id, receiver_id, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending')
 RETURNING id::text
-`, actorUserID, receiverID)
+`, zoneID, actorUserID, receiverID)
 	var requestID string
 	if err := row.Scan(&requestID); err != nil {
 		if isUniqueViolation(err) {
-			return r.byPair(ctx, actorUserID, receiverID, actorUserID)
+			return r.byPair(ctx, zoneID, actorUserID, receiverID, actorUserID)
 		}
 		return contactsdomain.ContactRequest{}, err
 	}
-	return r.byID(ctx, requestID, actorUserID)
+	return r.byID(ctx, zoneID, requestID, actorUserID)
 }
 
-func (r *Repository) AcceptRequest(ctx context.Context, actorUserID string, requestID string) (contactsdomain.ContactRequest, error) {
+func (r *Repository) AcceptRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) (contactsdomain.ContactRequest, error) {
 	command, err := r.pool.Exec(ctx, `
 UPDATE contact_requests
 SET status = 'accepted',
     responded_at = now()
 WHERE id = $1::uuid
   AND receiver_id = $2::uuid
+  AND zone_id = $3::uuid
   AND status = 'pending'
   AND deleted_at IS NULL
-`, requestID, actorUserID)
+`, requestID, actorUserID, zoneID)
 	if err != nil {
 		return contactsdomain.ContactRequest{}, err
 	}
 	if command.RowsAffected() == 0 {
 		return contactsdomain.ContactRequest{}, contactsdomain.ErrContactRequestNotFound
 	}
-	return r.byID(ctx, requestID, actorUserID)
+	return r.byID(ctx, zoneID, requestID, actorUserID)
 }
 
-func (r *Repository) RejectRequest(ctx context.Context, actorUserID string, requestID string) (contactsdomain.ContactRequest, error) {
+func (r *Repository) RejectRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) (contactsdomain.ContactRequest, error) {
 	command, err := r.pool.Exec(ctx, `
 UPDATE contact_requests
 SET status = 'rejected',
     responded_at = now()
 WHERE id = $1::uuid
   AND receiver_id = $2::uuid
+  AND zone_id = $3::uuid
   AND status = 'pending'
   AND deleted_at IS NULL
-`, requestID, actorUserID)
+`, requestID, actorUserID, zoneID)
 	if err != nil {
 		return contactsdomain.ContactRequest{}, err
 	}
 	if command.RowsAffected() == 0 {
 		return contactsdomain.ContactRequest{}, contactsdomain.ErrContactRequestNotFound
 	}
-	return r.byID(ctx, requestID, actorUserID)
+	return r.byID(ctx, zoneID, requestID, actorUserID)
 }
 
-func (r *Repository) CancelRequest(ctx context.Context, actorUserID string, requestID string) (contactsdomain.ContactRequest, error) {
+func (r *Repository) CancelRequest(ctx context.Context, zoneID string, actorUserID string, requestID string) (contactsdomain.ContactRequest, error) {
 	command, err := r.pool.Exec(ctx, `
 UPDATE contact_requests
 SET status = 'cancelled',
     deleted_at = now()
 WHERE id = $1::uuid
   AND requester_id = $2::uuid
+  AND zone_id = $3::uuid
   AND status = 'pending'
   AND deleted_at IS NULL
-`, requestID, actorUserID)
+`, requestID, actorUserID, zoneID)
 	if err != nil {
 		return contactsdomain.ContactRequest{}, err
 	}
@@ -126,11 +129,12 @@ JOIN users other_user
  AND other_user.deleted_at IS NULL
 WHERE cr.id = $1::uuid
   AND (cr.requester_id = $2::uuid OR cr.receiver_id = $2::uuid)
-`, requestID, actorUserID)
+  AND cr.zone_id = $3::uuid
+`, requestID, actorUserID, zoneID)
 	return scanContactRequest(row)
 }
 
-func (r *Repository) list(ctx context.Context, actorUserID string, status string) ([]contactsdomain.ContactRequest, error) {
+func (r *Repository) list(ctx context.Context, zoneID string, actorUserID string, status string) ([]contactsdomain.ContactRequest, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT cr.id::text, cr.requester_id::text, cr.receiver_id::text, cr.status,
        other_user.id::text, other_user.email::text, other_user.username::text, other_user.display_name,
@@ -144,10 +148,11 @@ JOIN users other_user
   END
  AND other_user.deleted_at IS NULL
 WHERE (cr.requester_id = $1::uuid OR cr.receiver_id = $1::uuid)
+  AND cr.zone_id = $2::uuid
   AND cr.deleted_at IS NULL
-  AND ($2 = '' OR cr.status = $2)
+  AND ($3 = '' OR cr.status = $3)
 ORDER BY cr.updated_at DESC
-`, actorUserID, status)
+`, actorUserID, zoneID, status)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +169,7 @@ ORDER BY cr.updated_at DESC
 	return items, rows.Err()
 }
 
-func (r *Repository) byPair(ctx context.Context, leftUserID string, rightUserID string, actorUserID string) (contactsdomain.ContactRequest, error) {
+func (r *Repository) byPair(ctx context.Context, zoneID string, leftUserID string, rightUserID string, actorUserID string) (contactsdomain.ContactRequest, error) {
 	row := r.pool.QueryRow(ctx, `
 SELECT cr.id::text, cr.requester_id::text, cr.receiver_id::text, cr.status,
        other_user.id::text, other_user.email::text, other_user.username::text, other_user.display_name,
@@ -173,19 +178,20 @@ SELECT cr.id::text, cr.requester_id::text, cr.receiver_id::text, cr.status,
 FROM contact_requests cr
 JOIN users other_user
   ON other_user.id = CASE
-      WHEN cr.requester_id = $3::uuid THEN cr.receiver_id
+      WHEN cr.requester_id = $4::uuid THEN cr.receiver_id
       ELSE cr.requester_id
   END
  AND other_user.deleted_at IS NULL
 WHERE cr.deleted_at IS NULL
+  AND cr.zone_id = $1::uuid
   AND cr.status IN ('pending', 'accepted')
-  AND LEAST(cr.requester_id, cr.receiver_id) = LEAST($1::uuid, $2::uuid)
-  AND GREATEST(cr.requester_id, cr.receiver_id) = GREATEST($1::uuid, $2::uuid)
-`, leftUserID, rightUserID, actorUserID)
+  AND LEAST(cr.requester_id, cr.receiver_id) = LEAST($2::uuid, $3::uuid)
+  AND GREATEST(cr.requester_id, cr.receiver_id) = GREATEST($2::uuid, $3::uuid)
+`, zoneID, leftUserID, rightUserID, actorUserID)
 	return scanContactRequest(row)
 }
 
-func (r *Repository) byID(ctx context.Context, requestID string, actorUserID string) (contactsdomain.ContactRequest, error) {
+func (r *Repository) byID(ctx context.Context, zoneID string, requestID string, actorUserID string) (contactsdomain.ContactRequest, error) {
 	row := r.pool.QueryRow(ctx, `
 SELECT cr.id::text, cr.requester_id::text, cr.receiver_id::text, cr.status,
        other_user.id::text, other_user.email::text, other_user.username::text, other_user.display_name,
@@ -200,22 +206,31 @@ JOIN users other_user
  AND other_user.deleted_at IS NULL
 WHERE cr.id = $1::uuid
   AND (cr.requester_id = $2::uuid OR cr.receiver_id = $2::uuid)
+  AND cr.zone_id = $3::uuid
   AND cr.deleted_at IS NULL
-`, requestID, actorUserID)
+`, requestID, actorUserID, zoneID)
 	return scanContactRequest(row)
 }
 
-func (r *Repository) userExists(ctx context.Context, userID string) (bool, error) {
+func (r *Repository) userExistsInZone(ctx context.Context, zoneID string, userID string) (bool, error) {
 	var exists bool
 	err := r.pool.QueryRow(ctx, `
 SELECT EXISTS (
     SELECT 1
-    FROM users
-    WHERE id = $1::uuid
-      AND deleted_at IS NULL
-      AND status = 'active'
+    FROM users u
+    JOIN workspace_members wm
+      ON wm.user_id = u.id
+     AND wm.status = 'active'
+    JOIN workspaces w
+      ON w.id = wm.workspace_id
+     AND w.zone_id = $1::uuid
+     AND w.status = 'active'
+     AND w.deleted_at IS NULL
+    WHERE u.id = $2::uuid
+      AND u.deleted_at IS NULL
+      AND u.status = 'active'
 )
-`, userID).Scan(&exists)
+`, zoneID, userID).Scan(&exists)
 	return exists, err
 }
 

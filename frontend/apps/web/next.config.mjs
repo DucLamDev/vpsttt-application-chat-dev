@@ -3,6 +3,7 @@
 const isTauriBuild = process.env.TAURI_BUILD === "1";
 
 const nextConfig = {
+  allowedDevOrigins: ["127.0.0.1"],
   reactStrictMode: true,
   transpilePackages: [
     "@webtui/api-client",

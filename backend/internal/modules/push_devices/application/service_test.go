@@ -35,16 +35,17 @@ func (r *fakeDeviceRepo) Upsert(_ context.Context, params UpsertParams) (devices
 	}, nil
 }
 
-func (r *fakeDeviceRepo) ListMine(context.Context, string) ([]devicesdomain.Device, error) {
+func (r *fakeDeviceRepo) ListMine(context.Context, string, string) ([]devicesdomain.Device, error) {
 	return nil, nil
 }
 
-func (r *fakeDeviceRepo) Delete(context.Context, string, string) error {
+func (r *fakeDeviceRepo) Delete(context.Context, string, string, string) error {
 	return nil
 }
 
 type fakeDeviceChecker struct {
 	allowed bool
+	matches bool
 	called  bool
 }
 
@@ -53,13 +54,18 @@ func (c *fakeDeviceChecker) HasWorkspacePermission(context.Context, string, stri
 	return c.allowed, nil
 }
 
+func (c *fakeDeviceChecker) WorkspaceBelongsToZone(context.Context, string, string) (bool, error) {
+	return c.matches, nil
+}
+
 func TestRegisterOrUpdateDefaultsAndroidToFCM(t *testing.T) {
 	repo := &fakeDeviceRepo{}
-	checker := &fakeDeviceChecker{allowed: true}
+	checker := &fakeDeviceChecker{allowed: true, matches: true}
 	service := NewService(repo, checker)
 
 	device, err := service.RegisterOrUpdate(context.Background(), UpsertInput{
 		ActorUserID:            "user-1",
+		ZoneID:                 "zone-1",
 		WorkspaceID:            "workspace-1",
 		DeviceID:               "android-device-1",
 		Platform:               "android",
@@ -82,10 +88,11 @@ func TestRegisterOrUpdateDefaultsAndroidToFCM(t *testing.T) {
 
 func TestRegisterOrUpdateRejectsWorkspaceWhenNotMember(t *testing.T) {
 	repo := &fakeDeviceRepo{}
-	service := NewService(repo, &fakeDeviceChecker{allowed: false})
+	service := NewService(repo, &fakeDeviceChecker{allowed: false, matches: true})
 
 	_, err := service.RegisterOrUpdate(context.Background(), UpsertInput{
 		ActorUserID: "user-1",
+		ZoneID:      "zone-1",
 		WorkspaceID: "workspace-1",
 		DeviceID:    "android-device-1",
 		Platform:    "android",
@@ -100,10 +107,11 @@ func TestRegisterOrUpdateRejectsWorkspaceWhenNotMember(t *testing.T) {
 
 func TestRegisterOrUpdateRejectsUnknownPlatform(t *testing.T) {
 	repo := &fakeDeviceRepo{}
-	service := NewService(repo, &fakeDeviceChecker{allowed: true})
+	service := NewService(repo, &fakeDeviceChecker{allowed: true, matches: true})
 
 	_, err := service.RegisterOrUpdate(context.Background(), UpsertInput{
 		ActorUserID: "user-1",
+		ZoneID:      "zone-1",
 		WorkspaceID: "workspace-1",
 		DeviceID:    "device-1",
 		Platform:    "watch",

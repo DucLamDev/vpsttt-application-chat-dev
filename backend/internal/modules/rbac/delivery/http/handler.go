@@ -69,6 +69,7 @@ func (h *Handler) CreateRole(c *gin.Context) {
 
 	role, err := h.service.CreateRole(c.Request.Context(), rbacapp.CreateRoleInput{
 		ActorUserID:     middleware.CurrentUserID(c),
+		ZoneID:          middleware.CurrentZoneID(c),
 		WorkspaceID:     req.WorkspaceID,
 		Code:            req.Code,
 		Name:            req.Name,

@@ -76,6 +76,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	workspace, err := h.service.Create(c.Request.Context(), workspacesapp.CreateWorkspaceInput{
 		ActorUserID: middleware.CurrentUserID(c),
+		ZoneID:      middleware.CurrentZoneID(c),
 		Slug:        req.Slug,
 		Name:        req.Name,
 		Description: req.Description,
@@ -88,7 +89,11 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) ListMine(c *gin.Context) {
-	workspaces, err := h.service.ListMine(c.Request.Context(), middleware.CurrentUserID(c))
+	workspaces, err := h.service.ListMine(
+		c.Request.Context(),
+		middleware.CurrentUserID(c),
+		middleware.CurrentZoneID(c),
+	)
 	if err != nil {
 		response.Error(c, err)
 		return

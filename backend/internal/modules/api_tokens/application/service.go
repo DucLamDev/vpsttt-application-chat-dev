@@ -78,6 +78,7 @@ type ScopeDTO struct {
 
 type AuthenticatedTokenDTO struct {
 	TokenID     string
+	ZoneID      string
 	WorkspaceID string
 	OwnerID     *string
 	Scopes      []string
@@ -166,6 +167,7 @@ func (s *Service) Authenticate(ctx context.Context, token string, requiredScope 
 	}
 	return AuthenticatedTokenDTO{
 		TokenID:     authenticated.TokenID,
+		ZoneID:      authenticated.ZoneID,
 		WorkspaceID: authenticated.WorkspaceID,
 		OwnerID:     authenticated.OwnerID,
 		Scopes:      authenticated.Scopes,

@@ -20,6 +20,21 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+func (r *Repository) WorkspaceBelongsToZone(ctx context.Context, workspaceID string, zoneID string) (bool, error) {
+	var matches bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM workspaces
+    WHERE id = $1::uuid
+      AND zone_id = $2::uuid
+      AND status = 'active'
+      AND deleted_at IS NULL
+)
+`, workspaceID, zoneID).Scan(&matches)
+	return matches, err
+}
+
 func (r *Repository) ListPermissions(ctx context.Context) ([]rbacdomain.Permission, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT id::text, code::text, module, action, name, description
@@ -269,6 +284,34 @@ SELECT EXISTS (
       AND p.code = $2
 )
 `, userID, permissionCode).Scan(&allowed)
+	return allowed, err
+}
+
+func (r *Repository) HasAnyZonePermission(ctx context.Context, userID string, zoneID string, permissionCode string) (bool, error) {
+	var allowed bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM workspace_members wm
+    JOIN workspaces w
+      ON w.id = wm.workspace_id
+     AND w.zone_id = $2::uuid
+     AND w.deleted_at IS NULL
+     AND w.status = 'active'
+    JOIN workspace_member_roles wmr
+      ON wmr.workspace_id = wm.workspace_id AND wmr.user_id = wm.user_id
+    JOIN roles r
+      ON r.id = wmr.role_id AND r.deleted_at IS NULL
+    JOIN role_permissions rp
+      ON rp.role_id = r.id
+    JOIN permissions p
+      ON p.id = rp.permission_id
+    WHERE wm.user_id = $1::uuid
+      AND wm.status = 'active'
+      AND (r.workspace_id IS NULL OR r.workspace_id = wm.workspace_id)
+      AND p.code = $3
+)
+`, userID, zoneID, permissionCode).Scan(&allowed)
 	return allowed, err
 }
 

@@ -120,6 +120,17 @@ func Error(c *gin.Context, err error) {
 }
 
 func writePostgresError(c *gin.Context, err *pgconn.PgError) bool {
+	if err.Code == "P0001" && strings.HasPrefix(err.Message, "ZONE_QUOTA_EXCEEDED:") {
+		resource := strings.TrimPrefix(err.Message, "ZONE_QUOTA_EXCEEDED:")
+		Fail(
+			c,
+			http.StatusConflict,
+			"ZONE_QUOTA_EXCEEDED",
+			"Zone da dat gioi han tai nguyen.",
+			map[string]any{"resource": resource},
+		)
+		return true
+	}
 	switch err.Code {
 	case "22P02":
 		Fail(c, http.StatusBadRequest, "INVALID_IDENTIFIER", "Mã định danh trong yêu cầu không hợp lệ.", nil)

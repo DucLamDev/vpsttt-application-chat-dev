@@ -45,7 +45,7 @@ func (r *fakeNotificationRepo) ListForUser(context.Context, ListParams) ([]notif
 	return nil, nil
 }
 
-func (r *fakeNotificationRepo) GetPreference(context.Context, string, string) (notificationsdomain.NotificationPreference, error) {
+func (r *fakeNotificationRepo) GetPreference(context.Context, string, string, string) (notificationsdomain.NotificationPreference, error) {
 	if r.preference.CreatedAt.IsZero() {
 		r.preference.CreatedAt = time.Now()
 	}
@@ -55,11 +55,11 @@ func (r *fakeNotificationRepo) GetPreference(context.Context, string, string) (n
 	return r.preference, nil
 }
 
-func (r *fakeNotificationRepo) MarkRead(context.Context, string, string) (notificationsdomain.Notification, error) {
+func (r *fakeNotificationRepo) MarkRead(context.Context, string, string, string) (notificationsdomain.Notification, error) {
 	return notificationsdomain.Notification{}, nil
 }
 
-func (r *fakeNotificationRepo) MarkAllRead(context.Context, string, string) error {
+func (r *fakeNotificationRepo) MarkAllRead(context.Context, string, string, string) error {
 	return nil
 }
 
@@ -67,7 +67,7 @@ func (r *fakeNotificationRepo) ProcessPendingJobs(context.Context, int) (int, er
 	return 0, nil
 }
 
-func (r *fakeNotificationRepo) UpsertPreference(_ context.Context, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error) {
+func (r *fakeNotificationRepo) UpsertPreference(_ context.Context, _ string, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error) {
 	r.preference = preference
 	r.upsertCalled = true
 	if r.preference.CreatedAt.IsZero() {
@@ -79,7 +79,7 @@ func (r *fakeNotificationRepo) UpsertPreference(_ context.Context, preference no
 	return r.preference, nil
 }
 
-func (r *fakeNotificationRepo) GetChannelPreference(context.Context, string, string, string) (notificationsdomain.ChannelPreference, error) {
+func (r *fakeNotificationRepo) GetChannelPreference(context.Context, string, string, string, string) (notificationsdomain.ChannelPreference, error) {
 	if r.channelPreference.CreatedAt.IsZero() {
 		r.channelPreference.CreatedAt = time.Now()
 	}
@@ -89,7 +89,7 @@ func (r *fakeNotificationRepo) GetChannelPreference(context.Context, string, str
 	return r.channelPreference, nil
 }
 
-func (r *fakeNotificationRepo) UpsertChannelPreference(_ context.Context, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error) {
+func (r *fakeNotificationRepo) UpsertChannelPreference(_ context.Context, _ string, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error) {
 	r.channelPreference = preference
 	r.channelUpsertCalled = true
 	if r.channelPreference.CreatedAt.IsZero() {

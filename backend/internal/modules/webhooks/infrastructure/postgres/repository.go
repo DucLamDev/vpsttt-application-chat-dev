@@ -23,7 +23,17 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 func (r *Repository) CreateIncoming(ctx context.Context, params webhooksapp.CreateIncomingParams) (webhooksdomain.IncomingWebhook, error) {
-	row := r.pool.QueryRow(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return webhooksdomain.IncomingWebhook{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	if err := ensureWebhookQuota(ctx, tx, params.WorkspaceID); err != nil {
+		return webhooksdomain.IncomingWebhook{}, err
+	}
+	row := tx.QueryRow(ctx, `
 INSERT INTO incoming_webhooks (workspace_id, channel_id, name, secret_hash, created_by)
 SELECT $1::uuid, NULLIF($2, '')::uuid, $3, $4, $5::uuid
 WHERE $2 = ''
@@ -42,7 +52,13 @@ RETURNING id::text, workspace_id::text, channel_id::text, name, status, created_
 	if errors.Is(err, pgx.ErrNoRows) {
 		return webhooksdomain.IncomingWebhook{}, webhooksdomain.ErrIncomingWebhookNotFound
 	}
-	return webhook, err
+	if err != nil {
+		return webhooksdomain.IncomingWebhook{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return webhooksdomain.IncomingWebhook{}, err
+	}
+	return webhook, nil
 }
 
 func (r *Repository) ListIncoming(ctx context.Context, workspaceID string) ([]webhooksdomain.IncomingWebhook, error) {
@@ -115,18 +131,35 @@ WHERE workspace_id = $1::uuid
 }
 
 func (r *Repository) CreateOutgoing(ctx context.Context, params webhooksapp.CreateOutgoingParams) (webhooksdomain.OutgoingWebhook, error) {
-	row := r.pool.QueryRow(ctx, `
-INSERT INTO outgoing_webhooks (workspace_id, name, target_url, secret_hash, event_types, created_by)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return webhooksdomain.OutgoingWebhook{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	if err := ensureWebhookQuota(ctx, tx, params.WorkspaceID); err != nil {
+		return webhooksdomain.OutgoingWebhook{}, err
+	}
+	row := tx.QueryRow(ctx, `
+INSERT INTO outgoing_webhooks (workspace_id, name, target_url, signing_secret_encrypted, event_types, created_by)
 VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid)
-RETURNING id::text, workspace_id::text, name, target_url, secret_hash, event_types, status,
+RETURNING id::text, workspace_id::text, name, target_url, signing_secret_encrypted, event_types, status,
           created_by::text, created_at, updated_at
-`, params.WorkspaceID, params.Name, params.TargetURL, params.SecretHash, params.EventTypes, params.CreatedBy)
-	return scanOutgoing(row)
+`, params.WorkspaceID, params.Name, params.TargetURL, params.SigningSecretEncrypted, params.EventTypes, params.CreatedBy)
+	webhook, err := scanOutgoing(row)
+	if err != nil {
+		return webhooksdomain.OutgoingWebhook{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return webhooksdomain.OutgoingWebhook{}, err
+	}
+	return webhook, nil
 }
 
 func (r *Repository) ListOutgoing(ctx context.Context, workspaceID string) ([]webhooksdomain.OutgoingWebhook, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT id::text, workspace_id::text, name, target_url, secret_hash, event_types, status,
+SELECT id::text, workspace_id::text, name, target_url, signing_secret_encrypted, event_types, status,
        created_by::text, created_at, updated_at
 FROM outgoing_webhooks
 WHERE workspace_id = $1::uuid
@@ -162,7 +195,7 @@ SET name = COALESCE($3::text, ow.name),
     event_types = CASE WHEN $6::boolean THEN $7::text[] ELSE ow.event_types END
 WHERE ow.workspace_id = $1::uuid
   AND ow.id = $2::uuid
-RETURNING id::text, workspace_id::text, name, target_url, secret_hash, event_types, status,
+RETURNING id::text, workspace_id::text, name, target_url, signing_secret_encrypted, event_types, status,
           created_by::text, created_at, updated_at
 `, params.WorkspaceID, params.WebhookID, nullableString(params.Name), nullableString(params.TargetURL), nullableString(params.Status), hasEventTypes, eventTypes)
 	webhook, err := scanOutgoing(row)
@@ -189,7 +222,7 @@ WHERE workspace_id = $1::uuid
 
 func (r *Repository) ListDeliveries(ctx context.Context, workspaceID string, outgoingWebhookID string, limit int) ([]webhooksdomain.Delivery, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT d.id::text, d.outgoing_webhook_id::text, ow.target_url, ow.secret_hash, d.event_id::text,
+SELECT d.id::text, d.outgoing_webhook_id::text, ow.target_url, ow.signing_secret_encrypted, d.event_id::text,
        d.event_type, d.request_body::text, d.response_status, d.response_body, d.status,
        d.attempt_count, d.next_attempt_at, d.delivered_at, d.created_at, d.updated_at
 FROM webhook_deliveries d
@@ -218,7 +251,7 @@ LIMIT $3
 func (r *Repository) CreateTestDelivery(ctx context.Context, params webhooksapp.TestDeliveryParams) (webhooksdomain.Delivery, error) {
 	row := r.pool.QueryRow(ctx, `
 WITH target AS (
-    SELECT id, target_url, secret_hash
+    SELECT id, target_url, signing_secret_encrypted
     FROM outgoing_webhooks
     WHERE workspace_id = $1::uuid
       AND id = $2::uuid
@@ -234,7 +267,7 @@ inserted AS (
 SELECT inserted.id::text,
        inserted.outgoing_webhook_id::text,
        target.target_url,
-       target.secret_hash,
+       target.signing_secret_encrypted,
        inserted.event_id::text,
        inserted.event_type,
        inserted.request_body,
@@ -271,6 +304,15 @@ func (r *Repository) SendIncomingMessage(ctx context.Context, params webhooksapp
 	row := tx.QueryRow(ctx, `
 SELECT iw.id::text, iw.workspace_id::text, COALESCE(NULLIF($3, '')::uuid, iw.channel_id)::text
 FROM incoming_webhooks iw
+JOIN workspaces workspace
+  ON workspace.id = iw.workspace_id
+ AND workspace.zone_id = $4::uuid
+ AND workspace.status = 'active'
+ AND workspace.deleted_at IS NULL
+JOIN zones zone
+  ON zone.id = workspace.zone_id
+ AND zone.status = 'active'
+ AND zone.deleted_at IS NULL
 JOIN channels c
   ON c.workspace_id = iw.workspace_id
  AND c.id = COALESCE(NULLIF($3, '')::uuid, iw.channel_id)
@@ -279,7 +321,7 @@ JOIN channels c
 WHERE iw.id = $1::uuid
   AND iw.secret_hash = $2
   AND iw.status = 'active'
-`, params.WebhookID, params.SecretHash, params.ChannelID)
+`, params.WebhookID, params.SecretHash, params.ChannelID, params.ExpectedZoneID)
 	if err := row.Scan(&webhookID, &workspaceID, &channelID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return webhooksdomain.IntegrationMessage{}, webhooksdomain.ErrIncomingWebhookNotFound
@@ -350,6 +392,22 @@ WHERE ow.workspace_id = $3::uuid
   )
   AND NOT EXISTS (
       SELECT 1
+      FROM automation_installations installation
+      WHERE installation.runtime_webhook_id = ow.id
+        AND installation.deleted_at IS NULL
+        AND COALESCE(installation.config->>'channel_slug', '') <> ''
+        AND NOT EXISTS (
+            SELECT 1
+            FROM channels channel
+            WHERE channel.workspace_id = ow.workspace_id
+              AND channel.id::text = $4::jsonb->>'channel_id'
+              AND channel.slug::text = installation.config->>'channel_slug'
+              AND channel.status = 'active'
+              AND channel.deleted_at IS NULL
+        )
+  )
+  AND NOT EXISTS (
+      SELECT 1
       FROM webhook_deliveries d
       WHERE d.outgoing_webhook_id = ow.id
         AND d.event_id = $1::uuid
@@ -372,6 +430,52 @@ RETURNING id
 	return count, rows.Err()
 }
 
+func ensureWebhookQuota(ctx context.Context, tx pgx.Tx, workspaceID string) error {
+	var enforcementMode string
+	var maximum int
+	var current int
+	err := tx.QueryRow(ctx, `
+SELECT quota.enforcement_mode,
+       quota.max_webhooks,
+       (
+           SELECT count(*)
+           FROM (
+               SELECT incoming.id
+               FROM incoming_webhooks incoming
+               JOIN workspaces item_workspace ON item_workspace.id = incoming.workspace_id
+               WHERE item_workspace.zone_id = quota.zone_id
+                 AND item_workspace.deleted_at IS NULL
+               UNION ALL
+               SELECT outgoing.id
+               FROM outgoing_webhooks outgoing
+               JOIN workspaces item_workspace ON item_workspace.id = outgoing.workspace_id
+               WHERE item_workspace.zone_id = quota.zone_id
+                 AND item_workspace.deleted_at IS NULL
+           ) webhook
+       )
+FROM workspaces workspace
+JOIN zone_quotas quota ON quota.zone_id = workspace.zone_id
+JOIN zones zone
+  ON zone.id = workspace.zone_id
+ AND zone.status = 'active'
+ AND zone.deleted_at IS NULL
+WHERE workspace.id = $1::uuid
+  AND workspace.status = 'active'
+  AND workspace.deleted_at IS NULL
+FOR UPDATE OF quota
+`, workspaceID).Scan(&enforcementMode, &maximum, &current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return webhooksdomain.ErrWebhookQuotaExceeded
+	}
+	if err != nil {
+		return err
+	}
+	if enforcementMode == "hard" && current >= maximum {
+		return webhooksdomain.ErrWebhookQuotaExceeded
+	}
+	return nil
+}
+
 func (r *Repository) ClaimDeliveries(ctx context.Context, limit int) ([]webhooksdomain.Delivery, error) {
 	rows, err := r.pool.Query(ctx, `
 WITH picked AS (
@@ -392,7 +496,7 @@ WHERE d.id = picked.id
 RETURNING d.id::text,
           d.outgoing_webhook_id::text,
           (SELECT target_url FROM outgoing_webhooks WHERE id = d.outgoing_webhook_id),
-          (SELECT secret_hash FROM outgoing_webhooks WHERE id = d.outgoing_webhook_id),
+          (SELECT signing_secret_encrypted FROM outgoing_webhooks WHERE id = d.outgoing_webhook_id),
           d.event_id::text,
           d.event_type,
           d.request_body::text,
@@ -565,7 +669,7 @@ func scanOutgoing(row rowScanner) (webhooksdomain.OutgoingWebhook, error) {
 		&webhook.WorkspaceID,
 		&webhook.Name,
 		&webhook.TargetURL,
-		&webhook.SecretHash,
+		&webhook.SigningSecretEncrypted,
 		&webhook.EventTypes,
 		&webhook.Status,
 		&createdBy,
@@ -590,7 +694,7 @@ func scanDelivery(row rowScanner) (webhooksdomain.Delivery, error) {
 		&delivery.ID,
 		&delivery.OutgoingWebhookID,
 		&delivery.TargetURL,
-		&delivery.SecretHash,
+		&delivery.SigningSecretEncrypted,
 		&eventID,
 		&delivery.EventType,
 		&requestBody,

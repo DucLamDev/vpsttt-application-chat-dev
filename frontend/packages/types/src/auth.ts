@@ -32,16 +32,51 @@ export type AuthResult = {
   token_type?: string;
   tokens?: AuthTokenSet;
   user?: AuthUser;
+  zone?: AuthZone;
+};
+
+export type AuthZone = {
+  id: Id;
+  slug: string;
+  name: string;
+  kind: string;
+  domain: string;
+  workspace_id: Id;
 };
 
 export type LoginInput = {
   identifier: string;
   password: string;
+  domain: string;
   device_name?: string;
 };
 
 export type GoogleLoginInput = {
   credential: string;
+  domain: string;
+  device_name?: string;
+};
+
+export type OIDCProviderSummary = {
+  id: Id;
+  name: string;
+};
+
+export type OIDCStartInput = {
+  domain: string;
+  provider_id: Id;
+  return_to?: string;
+  device_name?: string;
+};
+
+export type OIDCStartResult = {
+  authorization_url: string;
+  expires_at: ISODateTime;
+};
+
+export type OIDCCompleteInput = {
+  code: string;
+  domain: string;
   device_name?: string;
 };
 
@@ -49,12 +84,15 @@ export type RegisterInput = {
   email: string;
   username: string;
   display_name: string;
+  domain: string;
+  invite_token?: string;
   password: string;
   device_name?: string;
 };
 
 export type RefreshInput = {
   refresh_token: string;
+  domain?: string;
 };
 
 export type LogoutInput = {
@@ -63,6 +101,9 @@ export type LogoutInput = {
 
 export type AuthSession = {
   id: Id;
+  zone_id?: Id;
+  workspace_id?: Id;
+  domain?: string;
   device_name?: string | null;
   ip_address?: string | null;
   user_agent?: string | null;

@@ -6,30 +6,40 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"time"
 
 	webhooksapp "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/application"
 	webhooksdomain "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/domain"
+	webhooksecurity "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/security"
+	"github.com/duclamdev/application-chat/backend/internal/shared/outboundhttp"
 )
 
 type Sender struct {
-	client *http.Client
-	now    func() time.Time
+	client              *http.Client
+	now                 func() time.Time
+	signingMasterSecret string
 }
 
-func NewSender() *Sender {
+func NewSender(signingMasterSecret string) *Sender {
 	return &Sender{
-		client: &http.Client{Timeout: 10 * time.Second},
-		now:    time.Now,
+		client:              outboundhttp.NewPublicClient(10*time.Second, false),
+		now:                 time.Now,
+		signingMasterSecret: signingMasterSecret,
 	}
 }
 
 func (s *Sender) Send(ctx context.Context, delivery webhooksdomain.Delivery) (webhooksapp.DeliveryResult, error) {
+	signingSecret, err := webhooksecurity.DecryptSecret(s.signingMasterSecret, delivery.SigningSecretEncrypted)
+	if err != nil {
+		return webhooksapp.DeliveryResult{}, fmt.Errorf("decrypt outgoing webhook signing secret: %w", err)
+	}
 	timestamp := strconv.FormatInt(s.now().UTC().Unix(), 10)
-	signature := sign(delivery.SecretHash, timestamp, delivery.RequestBody)
+	signature := sign(signingSecret, timestamp, delivery.RequestBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, delivery.TargetURL, bytes.NewReader(delivery.RequestBody))
 	if err != nil {
 		return webhooksapp.DeliveryResult{}, err
@@ -54,12 +64,16 @@ func (s *Sender) Send(ctx context.Context, delivery webhooksdomain.Delivery) (we
 	return result, nil
 }
 
-func sign(secretHash string, timestamp string, body []byte) string {
-	mac := hmac.New(sha256.New, []byte(secretHash))
+func sign(secret string, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(timestamp))
 	_, _ = mac.Write([]byte("."))
 	_, _ = mac.Write(body)
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func isPublicOutboundIP(address netip.Addr) bool {
+	return outboundhttp.IsPublicIP(address)
 }
 
 func valueOrEmpty(value *string) string {

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	tenancyhttp "github.com/duclamdev/application-chat/backend/internal/modules/tenancy/delivery/http"
 	webhooksapp "github.com/duclamdev/application-chat/backend/internal/modules/webhooks/application"
 	"github.com/duclamdev/application-chat/backend/internal/shared/middleware"
 	"github.com/duclamdev/application-chat/backend/internal/shared/response"
@@ -236,11 +237,12 @@ func (h *Handler) DispatchIncoming(c *gin.Context) {
 		req.Secret = c.GetHeader("X-WebTui-Webhook-Secret")
 	}
 	message, err := h.service.DispatchIncoming(c.Request.Context(), webhooksapp.IncomingMessageInput{
-		WebhookID: c.Param("webhook_id"),
-		Secret:    req.Secret,
-		ChannelID: req.ChannelID,
-		Body:      req.Body,
-		Metadata:  req.Metadata,
+		ExpectedZoneID: tenancyhttp.CurrentZoneID(c),
+		WebhookID:      c.Param("webhook_id"),
+		Secret:         req.Secret,
+		ChannelID:      req.ChannelID,
+		Body:           req.Body,
+		Metadata:       req.Metadata,
 	})
 	if err != nil {
 		response.Error(c, err)
@@ -256,10 +258,11 @@ func (h *Handler) SendTokenMessage(c *gin.Context) {
 		return
 	}
 	message, err := h.service.SendTokenMessage(c.Request.Context(), webhooksapp.TokenMessageInput{
-		Token:     bearerToken(c.GetHeader("Authorization")),
-		ChannelID: req.ChannelID,
-		Body:      req.Body,
-		Metadata:  req.Metadata,
+		ExpectedZoneID: tenancyhttp.CurrentZoneID(c),
+		Token:          bearerToken(c.GetHeader("Authorization")),
+		ChannelID:      req.ChannelID,
+		Body:           req.Body,
+		Metadata:       req.Metadata,
 	})
 	if err != nil {
 		response.Error(c, err)

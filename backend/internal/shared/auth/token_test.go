@@ -39,3 +39,26 @@ func TestAccessTokenRejectsTampering(t *testing.T) {
 		t.Fatalf("VerifyAccessToken() error = %v, want ErrInvalidToken", err)
 	}
 }
+
+func TestZoneAccessTokenRoundTrip(t *testing.T) {
+	manager := NewManager("access_secret_du_32_ky_tu_de_test", "refresh_secret_du_32_ky_tu_de_test", time.Minute, time.Hour)
+
+	token, _, err := manager.CreateZoneAccessToken(
+		"user-1",
+		"a@example.com",
+		"alice",
+		"zone-1",
+		"workspace-1",
+		"CHAT.Customer.Example",
+	)
+	if err != nil {
+		t.Fatalf("CreateZoneAccessToken() error = %v", err)
+	}
+	claims, err := manager.VerifyAccessToken(token)
+	if err != nil {
+		t.Fatalf("VerifyAccessToken() error = %v", err)
+	}
+	if claims.ZoneID != "zone-1" || claims.WorkspaceID != "workspace-1" || claims.Domain != "chat.customer.example" {
+		t.Fatalf("zone claims = %+v", claims)
+	}
+}

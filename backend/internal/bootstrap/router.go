@@ -16,6 +16,7 @@ import (
 	auditpostgres "github.com/duclamdev/application-chat/backend/internal/modules/audit/infrastructure/postgres"
 	authapp "github.com/duclamdev/application-chat/backend/internal/modules/auth/application"
 	authhttp "github.com/duclamdev/application-chat/backend/internal/modules/auth/delivery/http"
+	authoidc "github.com/duclamdev/application-chat/backend/internal/modules/auth/infrastructure/oidc"
 	authpostgres "github.com/duclamdev/application-chat/backend/internal/modules/auth/infrastructure/postgres"
 	backupsapp "github.com/duclamdev/application-chat/backend/internal/modules/backups/application"
 	backupshttp "github.com/duclamdev/application-chat/backend/internal/modules/backups/delivery/http"
@@ -69,6 +70,9 @@ import (
 	syncapp "github.com/duclamdev/application-chat/backend/internal/modules/sync/application"
 	synchttp "github.com/duclamdev/application-chat/backend/internal/modules/sync/delivery/http"
 	syncpostgres "github.com/duclamdev/application-chat/backend/internal/modules/sync/infrastructure/postgres"
+	tenancyapp "github.com/duclamdev/application-chat/backend/internal/modules/tenancy/application"
+	tenancyhttp "github.com/duclamdev/application-chat/backend/internal/modules/tenancy/delivery/http"
+	tenancypostgres "github.com/duclamdev/application-chat/backend/internal/modules/tenancy/infrastructure/postgres"
 	ticketsapp "github.com/duclamdev/application-chat/backend/internal/modules/tickets/application"
 	ticketshttp "github.com/duclamdev/application-chat/backend/internal/modules/tickets/delivery/http"
 	ticketspostgres "github.com/duclamdev/application-chat/backend/internal/modules/tickets/infrastructure/postgres"
@@ -132,12 +136,34 @@ func (a *API) registerAPIV1() {
 	}
 
 	tokenManager := a.tokens
-	authMiddleware := middleware.Auth(tokenManager)
 	pool := a.resources.Database.Pool()
+
+	tenancyRepo := tenancypostgres.NewRepository(pool, a.cfg.Registration.DefaultWorkspaceID)
+	tenancyService := tenancyapp.NewService(tenancyRepo, tenancyapp.Options{
+		AppName:              a.cfg.App.Name,
+		AppVersion:           a.cfg.App.Version,
+		DefaultLocale:        "vi-VN",
+		ReleaseChannel:       a.cfg.App.Env,
+		WebhookSigningSecret: a.cfg.Security.WebhookSigningSecret,
+		OIDCEnabled:          len(a.cfg.Security.OIDCStateSecret) >= 32,
+		OIDCClientSecrets:    a.cfg.Security.OIDCClientSecrets,
+	})
+	v1.Use(tenancyhttp.OptionalZoneContext(tenancyService))
+	authMiddleware := middleware.Auth(tokenManager, tenancyService)
+	zoneRecoveryAuthMiddleware := middleware.AuthForZoneRecovery(tokenManager, tenancyService)
+	tenancyHandler := tenancyhttp.NewHandler(tenancyService, a.cfg.Security.CaddyAskSecret)
+	tenancyHandler.RegisterRoutes(a.engine, v1, authMiddleware, zoneRecoveryAuthMiddleware)
 
 	authRepo := authpostgres.NewRepository(pool, a.cfg.Registration.DefaultWorkspaceID)
 	authService := authapp.NewService(authRepo, tokenManager)
 	authHandler := authhttp.NewHandler(authService, a.cfg.Security.GoogleClientID)
+	authHandler.SetOIDCService(authapp.NewOIDCService(
+		authService,
+		authRepo,
+		authoidc.NewClient(),
+		a.cfg.Security.OIDCStateSecret,
+		a.cfg.Security.OIDCClientSecrets,
+	))
 	authHandler.RegisterRoutes(v1.Group("/auth"), authMiddleware)
 
 	rbacRepo := rbacpostgres.NewRepository(pool)
@@ -211,7 +237,10 @@ func (a *API) registerAPIV1() {
 
 	if a.resources.WebSocket != nil {
 		wsHandler := wshttp.NewHandler(a.resources.WebSocket, tokenManager, channelsService)
+		wsHandler.SetWorkspaceZoneChecker(tenancyService)
 		wsHandler.RegisterRoutes(v1)
+		// Keep the discovery URL usable without requiring an ingress rewrite.
+		wsHandler.RegisterPublicRoute(a.engine)
 	}
 
 	notificationsRepo := notificationspostgres.NewRepository(pool)
@@ -269,7 +298,13 @@ func (a *API) registerAPIV1() {
 	ticketsHandler.RegisterRoutes(v1, authMiddleware)
 
 	webhooksRepo := webhookspostgres.NewRepository(pool)
-	webhooksService := webhooksapp.NewService(webhooksRepo, rbacService, apiTokensService, webhooksender.NewSender())
+	webhooksService := webhooksapp.NewService(
+		webhooksRepo,
+		rbacService,
+		apiTokensService,
+		webhooksender.NewSender(a.cfg.Security.WebhookSigningSecret),
+		a.cfg.Security.WebhookSigningSecret,
+	)
 	webhooksHandler := webhookshttp.NewHandler(webhooksService, a.cfg.App.URL)
 	webhooksHandler.RegisterRoutes(v1, authMiddleware)
 

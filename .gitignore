@@ -33,10 +33,11 @@ coverage/
 playwright-report/
 test-results/
 *.tsbuildinfo
-
+.env.example
 # Dữ liệu deploy / runtime
 /data/
 deploy/.env
+deploy/.env.example
 deploy/data/
 deploy/download/**/*.apk
 deploy/download/**/*.aab

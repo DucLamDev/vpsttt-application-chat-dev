@@ -19,6 +19,8 @@ type Repository interface {
 	ListUserWorkspacePermissions(ctx context.Context, userID string, workspaceID string) ([]rbacdomain.Permission, error)
 	HasWorkspacePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) (bool, error)
 	HasAnyWorkspacePermission(ctx context.Context, userID string, permissionCode string) (bool, error)
+	HasAnyZonePermission(ctx context.Context, userID string, zoneID string, permissionCode string) (bool, error)
+	WorkspaceBelongsToZone(ctx context.Context, workspaceID string, zoneID string) (bool, error)
 	RecordAudit(ctx context.Context, event AuditEvent) error
 }
 
@@ -48,6 +50,7 @@ type RoleDTO struct {
 
 type CreateRoleInput struct {
 	ActorUserID     string
+	ZoneID          string
 	WorkspaceID     string
 	Code            string
 	Name            string
@@ -119,8 +122,16 @@ func (s *Service) CreateRole(ctx context.Context, input CreateRoleInput) (RoleDT
 	input.Name = strings.TrimSpace(input.Name)
 	input.Description = strings.TrimSpace(input.Description)
 	input.ActorUserID = strings.TrimSpace(input.ActorUserID)
+	input.ZoneID = strings.TrimSpace(input.ZoneID)
 	if input.WorkspaceID == "" {
 		return RoleDTO{}, apperrors.BadRequest("WORKSPACE_REQUIRED", "Thiếu workspace_id để tạo role.")
+	}
+	matchesZone, err := s.repo.WorkspaceBelongsToZone(ctx, input.WorkspaceID, input.ZoneID)
+	if err != nil {
+		return RoleDTO{}, err
+	}
+	if !matchesZone {
+		return RoleDTO{}, apperrors.Forbidden("Workspace không thuộc zone của phiên đăng nhập.")
 	}
 	if input.Code == "" || input.Name == "" {
 		return RoleDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "Mã role và tên role không được để trống.")
@@ -271,6 +282,25 @@ func (s *Service) HasAnyWorkspacePermission(ctx context.Context, userID string, 
 		return false, apperrors.BadRequest("PERMISSION_REQUIRED", "Thiếu permission để kiểm tra quyền.")
 	}
 	return s.repo.HasAnyWorkspacePermission(ctx, userID, permissionCode)
+}
+
+func (s *Service) HasAnyZonePermission(ctx context.Context, userID string, zoneID string, permissionCode string) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	zoneID = strings.TrimSpace(zoneID)
+	permissionCode = strings.ToLower(strings.TrimSpace(permissionCode))
+	if userID == "" || zoneID == "" || permissionCode == "" {
+		return false, nil
+	}
+	return s.repo.HasAnyZonePermission(ctx, userID, zoneID, permissionCode)
+}
+
+func (s *Service) WorkspaceBelongsToZone(ctx context.Context, workspaceID string, zoneID string) (bool, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	zoneID = strings.TrimSpace(zoneID)
+	if workspaceID == "" || zoneID == "" {
+		return false, nil
+	}
+	return s.repo.WorkspaceBelongsToZone(ctx, workspaceID, zoneID)
 }
 
 func toDTOs(permissions []rbacdomain.Permission) []PermissionDTO {

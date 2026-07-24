@@ -18,14 +18,14 @@ type Repository interface {
 	CreateMessageNotifications(ctx context.Context, params MessageNotificationParams) error
 	CreateIncomingCallNotification(ctx context.Context, params CallNotificationParams) error
 	UpdateCallNotification(ctx context.Context, params CallNotificationParams) error
-	GetPreference(ctx context.Context, userID string, workspaceID string) (notificationsdomain.NotificationPreference, error)
+	GetPreference(ctx context.Context, zoneID string, userID string, workspaceID string) (notificationsdomain.NotificationPreference, error)
 	ListForUser(ctx context.Context, params ListParams) ([]notificationsdomain.Notification, error)
-	MarkRead(ctx context.Context, userID string, notificationID string) (notificationsdomain.Notification, error)
-	MarkAllRead(ctx context.Context, userID string, workspaceID string) error
+	MarkRead(ctx context.Context, zoneID string, userID string, notificationID string) (notificationsdomain.Notification, error)
+	MarkAllRead(ctx context.Context, zoneID string, userID string, workspaceID string) error
 	ProcessPendingJobs(ctx context.Context, limit int) (int, error)
-	UpsertPreference(ctx context.Context, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error)
-	GetChannelPreference(ctx context.Context, userID string, workspaceID string, channelID string) (notificationsdomain.ChannelPreference, error)
-	UpsertChannelPreference(ctx context.Context, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error)
+	UpsertPreference(ctx context.Context, zoneID string, preference notificationsdomain.NotificationPreference) (notificationsdomain.NotificationPreference, error)
+	GetChannelPreference(ctx context.Context, zoneID string, userID string, workspaceID string, channelID string) (notificationsdomain.ChannelPreference, error)
+	UpsertChannelPreference(ctx context.Context, zoneID string, preference notificationsdomain.ChannelPreference) (notificationsdomain.ChannelPreference, error)
 }
 
 type Service struct {
@@ -61,6 +61,7 @@ type CallNotificationParams struct {
 }
 
 type ListParams struct {
+	ZoneID      string
 	UserID      string
 	WorkspaceID string
 	Limit       int
@@ -82,6 +83,7 @@ type NotificationDTO struct {
 }
 
 type PreferenceInput struct {
+	ZoneID       string
 	UserID       string
 	WorkspaceID  string
 	Mode         string
@@ -112,6 +114,7 @@ type NotificationPreferenceDTO struct {
 }
 
 type ChannelPreferenceInput struct {
+	ZoneID      string
 	UserID      string
 	WorkspaceID string
 	ChannelID   string
@@ -135,6 +138,7 @@ func NewService(repo Repository) *Service {
 
 func (s *Service) ListMine(ctx context.Context, params ListParams) ([]NotificationDTO, error) {
 	params.UserID = strings.TrimSpace(params.UserID)
+	params.ZoneID = strings.TrimSpace(params.ZoneID)
 	params.WorkspaceID = strings.TrimSpace(params.WorkspaceID)
 	if params.Limit <= 0 || params.Limit > 100 {
 		params.Limit = 50
@@ -146,25 +150,26 @@ func (s *Service) ListMine(ctx context.Context, params ListParams) ([]Notificati
 	return toDTOs(notifications), nil
 }
 
-func (s *Service) MarkRead(ctx context.Context, userID string, notificationID string) (NotificationDTO, error) {
-	notification, err := s.repo.MarkRead(ctx, strings.TrimSpace(userID), strings.TrimSpace(notificationID))
+func (s *Service) MarkRead(ctx context.Context, zoneID string, userID string, notificationID string) (NotificationDTO, error) {
+	notification, err := s.repo.MarkRead(ctx, strings.TrimSpace(zoneID), strings.TrimSpace(userID), strings.TrimSpace(notificationID))
 	if err != nil {
 		return NotificationDTO{}, mapNotificationError(err)
 	}
 	return toDTO(notification), nil
 }
 
-func (s *Service) MarkAllRead(ctx context.Context, userID string, workspaceID string) error {
-	return s.repo.MarkAllRead(ctx, strings.TrimSpace(userID), strings.TrimSpace(workspaceID))
+func (s *Service) MarkAllRead(ctx context.Context, zoneID string, userID string, workspaceID string) error {
+	return s.repo.MarkAllRead(ctx, strings.TrimSpace(zoneID), strings.TrimSpace(userID), strings.TrimSpace(workspaceID))
 }
 
-func (s *Service) GetPreference(ctx context.Context, userID string, workspaceID string) (NotificationPreferenceDTO, error) {
+func (s *Service) GetPreference(ctx context.Context, zoneID string, userID string, workspaceID string) (NotificationPreferenceDTO, error) {
+	zoneID = strings.TrimSpace(zoneID)
 	userID = strings.TrimSpace(userID)
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" {
 		return NotificationPreferenceDTO{}, apperrors.BadRequest("WORKSPACE_REQUIRED", "workspace_id is required.")
 	}
-	preference, err := s.repo.GetPreference(ctx, userID, workspaceID)
+	preference, err := s.repo.GetPreference(ctx, zoneID, userID, workspaceID)
 	if err != nil {
 		return NotificationPreferenceDTO{}, mapNotificationError(err)
 	}
@@ -176,21 +181,22 @@ func (s *Service) UpsertPreference(ctx context.Context, input PreferenceInput) (
 	if err != nil {
 		return NotificationPreferenceDTO{}, err
 	}
-	stored, err := s.repo.UpsertPreference(ctx, preference)
+	stored, err := s.repo.UpsertPreference(ctx, strings.TrimSpace(input.ZoneID), preference)
 	if err != nil {
 		return NotificationPreferenceDTO{}, mapNotificationError(err)
 	}
 	return toPreferenceDTO(stored), nil
 }
 
-func (s *Service) GetChannelPreference(ctx context.Context, userID string, workspaceID string, channelID string) (ChannelPreferenceDTO, error) {
+func (s *Service) GetChannelPreference(ctx context.Context, zoneID string, userID string, workspaceID string, channelID string) (ChannelPreferenceDTO, error) {
+	zoneID = strings.TrimSpace(zoneID)
 	userID = strings.TrimSpace(userID)
 	workspaceID = strings.TrimSpace(workspaceID)
 	channelID = strings.TrimSpace(channelID)
 	if workspaceID == "" || channelID == "" {
 		return ChannelPreferenceDTO{}, apperrors.BadRequest("VALIDATION_ERROR", "workspace_id và channel_id là bắt buộc.")
 	}
-	preference, err := s.repo.GetChannelPreference(ctx, userID, workspaceID, channelID)
+	preference, err := s.repo.GetChannelPreference(ctx, zoneID, userID, workspaceID, channelID)
 	if err != nil {
 		return ChannelPreferenceDTO{}, mapNotificationError(err)
 	}
@@ -202,7 +208,7 @@ func (s *Service) UpsertChannelPreference(ctx context.Context, input ChannelPref
 	if err != nil {
 		return ChannelPreferenceDTO{}, err
 	}
-	stored, err := s.repo.UpsertChannelPreference(ctx, preference)
+	stored, err := s.repo.UpsertChannelPreference(ctx, strings.TrimSpace(input.ZoneID), preference)
 	if err != nil {
 		return ChannelPreferenceDTO{}, mapNotificationError(err)
 	}

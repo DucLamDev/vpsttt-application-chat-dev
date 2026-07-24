@@ -5,6 +5,10 @@ import type {
   GoogleLoginInput,
   LoginInput,
   LogoutInput,
+  OIDCCompleteInput,
+  OIDCProviderSummary,
+  OIDCStartInput,
+  OIDCStartResult,
   RefreshInput,
   RegisterInput
 } from "@webtui/types";
@@ -18,6 +22,17 @@ export function createAuthClient(http: HttpClient) {
     },
     google(input: GoogleLoginInput) {
       return http.post<AuthResult>("/api/v1/auth/google", input, { auth: false });
+    },
+    async oidcProviders(domain: string) {
+      const query = new URLSearchParams({ domain });
+      const data = await http.get<unknown>(`/api/v1/auth/oidc/providers?${query.toString()}`, { auth: false });
+      return collectionFrom<OIDCProviderSummary>(data, "oidc_providers");
+    },
+    oidcStart(input: OIDCStartInput) {
+      return http.post<OIDCStartResult>("/api/v1/auth/oidc/start", input, { auth: false });
+    },
+    oidcComplete(input: OIDCCompleteInput) {
+      return http.post<AuthResult>("/api/v1/auth/oidc/complete", input, { auth: false });
     },
     register(input: RegisterInput) {
       return http.post<AuthResult>("/api/v1/auth/register", input, { auth: false });

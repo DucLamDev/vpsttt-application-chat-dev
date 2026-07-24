@@ -6,15 +6,17 @@ import (
 )
 
 var (
-	ErrWorkspaceNotFound = errors.New("không tìm thấy workspace")
-	ErrMemberNotFound    = errors.New("không tìm thấy thành viên workspace")
-	ErrInviteNotFound    = errors.New("không tìm thấy lời mời workspace")
-	ErrRoleNotFound      = errors.New("không tìm thấy vai trò workspace")
-	ErrWorkspaceConflict = errors.New("workspace đã tồn tại")
+	ErrWorkspaceQuotaExceeded = errors.New("zone da vuot workspace quota")
+	ErrWorkspaceNotFound      = errors.New("không tìm thấy workspace")
+	ErrMemberNotFound         = errors.New("không tìm thấy thành viên workspace")
+	ErrInviteNotFound         = errors.New("không tìm thấy lời mời workspace")
+	ErrRoleNotFound           = errors.New("không tìm thấy vai trò workspace")
+	ErrWorkspaceConflict      = errors.New("workspace đã tồn tại")
 )
 
 type Workspace struct {
 	ID          string
+	ZoneID      string
 	Slug        string
 	Name        string
 	Description *string

@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"strings"
 
 	contactsapp "github.com/duclamdev/application-chat/backend/internal/modules/contacts/application"
 	platformws "github.com/duclamdev/application-chat/backend/internal/platform/websocket"
@@ -19,7 +20,10 @@ func (p *Publisher) Publish(ctx context.Context, event contactsapp.RealtimeEvent
 	if p == nil || p.manager == nil {
 		return nil
 	}
-	room := "user:" + event.UserID
+	room := platformws.UserRoom(event.ZoneID, event.UserID)
+	if strings.TrimSpace(room) == "" {
+		return nil
+	}
 	return p.manager.Broadcast(ctx, room, platformws.Event{
 		Type:    event.Type,
 		Room:    room,

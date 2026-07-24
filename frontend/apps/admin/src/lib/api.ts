@@ -17,7 +17,7 @@ export const runtimeEnvironment = createRuntimeEnvironment({
 let refreshRequest: Promise<string | null> | null = null;
 
 export const api = createWebTuiApiClient({
-  baseUrl: runtimeEnvironment.apiBaseUrl,
+  baseUrl: apiBaseUrl,
   getAccessToken: () => useAuthStore.getState().accessToken,
   onUnauthorized: () => useAuthStore.getState().clearSession(),
   refreshAccessToken: () => {
@@ -29,7 +29,13 @@ export const api = createWebTuiApiClient({
 
     if (!refreshRequest) {
       refreshRequest = api.auth
-        .refresh({ refresh_token: refreshToken })
+        .refresh({
+          domain:
+            typeof window !== "undefined"
+              ? window.location.hostname
+              : undefined,
+          refresh_token: refreshToken
+        })
         .then((result) => {
           useAuthStore.getState().setSession(result);
           return result.tokens?.access_token ?? result.access_token ?? null;
@@ -46,3 +52,17 @@ export const api = createWebTuiApiClient({
     return refreshRequest;
   }
 });
+
+function apiBaseUrl() {
+  if (typeof window === "undefined") {
+    return runtimeEnvironment.apiBaseUrl;
+  }
+  const { hostname, origin, protocol } = window.location;
+  const isLocal =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".localhost") ||
+    protocol === "tauri:";
+  return isLocal ? runtimeEnvironment.apiBaseUrl : origin;
+}

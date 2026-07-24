@@ -122,8 +122,35 @@ services:
     networks:
       - backend
 
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["dynamic-tls"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      CADDY_ASK_SECRET: ${CADDY_ASK_SECRET:-}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../data/downloads:/srv/downloads:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - backend
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+      admin:
+        condition: service_started
+
   nginx:
     image: nginx:1.27-alpine
+    profiles: ["static-tls"]
     restart: unless-stopped
     ports:
       - "80:80"
@@ -158,5 +185,7 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  caddy_data:
+  caddy_config:
   letsencrypt:
   certbot_www:

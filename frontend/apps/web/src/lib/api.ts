@@ -22,8 +22,15 @@ export const runtimeEnvironment = createRuntimeEnvironment({
 
 let refreshRequest: Promise<string | null> | null = null;
 
+export const controlPlaneApi = createWebTuiApiClient({
+  baseUrl: discoveryBaseUrl,
+  fetcher: getPlatformServices().fetcher
+});
+
 export const api = createWebTuiApiClient({
-  baseUrl: runtimeEnvironment.apiBaseUrl,
+  baseUrl: () =>
+    useAuthStore.getState().zoneRuntime?.api_base_url ??
+    runtimeEnvironment.apiBaseUrl,
   fetcher: getPlatformServices().fetcher,
   getAccessToken: () => useAuthStore.getState().accessToken,
   onUnauthorized: () => {
@@ -31,7 +38,8 @@ export const api = createWebTuiApiClient({
     useAuthStore.getState().clearSession();
   },
   refreshAccessToken: () => {
-    const refreshToken = useAuthStore.getState().refreshToken;
+    const state = useAuthStore.getState();
+    const refreshToken = state.refreshToken;
 
     if (!refreshToken) {
       return Promise.resolve(null);
@@ -39,7 +47,10 @@ export const api = createWebTuiApiClient({
 
     if (!refreshRequest) {
       refreshRequest = api.auth
-        .refresh({ refresh_token: refreshToken })
+        .refresh({
+          domain: state.zoneDomain ?? undefined,
+          refresh_token: refreshToken
+        })
         .then((result) => {
           useAuthStore.getState().setSession(result);
           return result.tokens?.access_token ?? result.access_token ?? null;
@@ -56,3 +67,19 @@ export const api = createWebTuiApiClient({
     return refreshRequest;
   }
 });
+
+function discoveryBaseUrl() {
+  if (typeof window === "undefined") {
+    return runtimeEnvironment.apiBaseUrl;
+  }
+  const { hostname, origin, protocol } = window.location;
+  const isLocal =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".localhost");
+  if (!isLocal && (protocol === "https:" || protocol === "http:")) {
+    return origin;
+  }
+  return runtimeEnvironment.apiBaseUrl;
+}

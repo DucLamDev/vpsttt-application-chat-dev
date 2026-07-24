@@ -85,12 +85,21 @@ export function useChannelRealtime({
   workspaceId
 }: ChannelRealtimeOptions) {
   const accessToken = useAuthStore((state) => state.accessToken);
+  const zoneWebSocketBaseUrl = useAuthStore(
+    (state) => state.zoneRuntime?.ws_base_url
+  );
   const queryClient = useQueryClient();
   const setConnection = useRealtimeStore((state) => state.setConnection);
   const status = useRealtimeStore((state) => state.status);
   const retryAttempt = useRealtimeStore((state) => state.retryAttempt);
   const lastEventAt = useRealtimeStore((state) => state.lastEventAt);
-  const gateway = useMemo(() => createRealtimeGateway(runtimeEnvironment.wsBaseUrl), []);
+  const gateway = useMemo(
+    () =>
+      createRealtimeGateway(
+        zoneWebSocketBaseUrl ?? runtimeEnvironment.wsBaseUrl
+      ),
+    [zoneWebSocketBaseUrl]
+  );
   const socketRef = useRef<WebSocket | null>(null);
   const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [typingEntries, setTypingEntries] = useState<Array<{ room: string; userId: string }>>([]);

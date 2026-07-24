@@ -36,6 +36,11 @@ server {
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header X-Request-ID $request_id;
 
+    location = /.well-known/vpsttt-chat {
+        proxy_pass http://$api_upstream/.well-known/vpsttt-chat$is_args$args;
+        proxy_http_version 1.1;
+    }
+
     location = /ws {
         proxy_pass http://$api_upstream/api/v1/ws$is_args$args;
         proxy_http_version 1.1;

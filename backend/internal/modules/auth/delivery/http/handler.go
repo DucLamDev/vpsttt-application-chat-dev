@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	nethttp "net/http"
 	"net/url"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 
 type Handler struct {
 	service        *authapp.Service
+	oidcService    *authapp.OIDCService
 	googleClientID string
 	httpClient     *nethttp.Client
 }
@@ -27,6 +29,7 @@ type registerRequest struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	Domain      string `json:"domain"`
+	InviteToken string `json:"invite_token"`
 	Password    string `json:"password"`
 	DeviceName  string `json:"device_name"`
 }
@@ -34,11 +37,13 @@ type registerRequest struct {
 type loginRequest struct {
 	Identifier string `json:"identifier"`
 	Password   string `json:"password"`
+	Domain     string `json:"domain"`
 	DeviceName string `json:"device_name"`
 }
 
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
+	Domain       string `json:"domain"`
 }
 
 type logoutRequest struct {
@@ -47,6 +52,20 @@ type logoutRequest struct {
 
 type googleLoginRequest struct {
 	Credential string `json:"credential"`
+	DeviceName string `json:"device_name"`
+	Domain     string `json:"domain"`
+}
+
+type oidcStartRequest struct {
+	Domain     string `json:"domain"`
+	ProviderID string `json:"provider_id"`
+	ReturnTo   string `json:"return_to"`
+	DeviceName string `json:"device_name"`
+}
+
+type oidcCompleteRequest struct {
+	Code       string `json:"code"`
+	Domain     string `json:"domain"`
 	DeviceName string `json:"device_name"`
 }
 
@@ -73,10 +92,18 @@ func NewHandler(service *authapp.Service, googleClientIDs ...string) *Handler {
 	}
 }
 
+func (h *Handler) SetOIDCService(service *authapp.OIDCService) {
+	h.oidcService = service
+}
+
 func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerFunc) {
 	router.POST("/register", h.Register)
 	router.POST("/login", h.Login)
 	router.POST("/google", h.GoogleLogin)
+	router.GET("/oidc/providers", h.ListOIDCProviders)
+	router.POST("/oidc/start", h.StartOIDC)
+	router.GET("/oidc/callback", h.OIDCCallback)
+	router.POST("/oidc/complete", h.CompleteOIDC)
 	router.POST("/refresh", h.Refresh)
 	router.POST("/logout", h.Logout)
 
@@ -86,6 +113,89 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 	private.GET("/sessions", h.ListSessions)
 	private.DELETE("/sessions/:session_id", h.RevokeSession)
 	private.DELETE("/sessions", h.RevokeAllSessions)
+}
+
+func (h *Handler) ListOIDCProviders(c *gin.Context) {
+	if h.oidcService == nil {
+		response.OK(c, nethttp.StatusOK, gin.H{"oidc_providers": []authapp.PublicOIDCProviderDTO{}})
+		return
+	}
+	providers, err := h.oidcService.ListProviders(
+		c.Request.Context(),
+		authRequestDomain(c, c.Query("domain")),
+	)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, gin.H{"oidc_providers": providers})
+}
+
+func (h *Handler) StartOIDC(c *gin.Context) {
+	if h.oidcService == nil {
+		response.Fail(c, nethttp.StatusServiceUnavailable, "OIDC_NOT_CONFIGURED", "OIDC SSO runtime chua duoc cau hinh.", nil)
+		return
+	}
+	var req oidcStartRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khong hop le.", nil)
+		return
+	}
+	result, err := h.oidcService.Start(c.Request.Context(), authapp.OIDCStartInput{
+		Domain:      authRequestDomain(c, req.Domain),
+		ProviderID:  req.ProviderID,
+		RedirectURI: requestOrigin(c) + "/api/v1/auth/oidc/callback",
+		ReturnTo:    req.ReturnTo,
+		DeviceName:  req.DeviceName,
+		IPAddress:   clientIP(c),
+		UserAgent:   c.Request.UserAgent(),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, result)
+}
+
+func (h *Handler) OIDCCallback(c *gin.Context) {
+	if h.oidcService == nil {
+		response.Fail(c, nethttp.StatusServiceUnavailable, "OIDC_NOT_CONFIGURED", "OIDC SSO runtime chua duoc cau hinh.", nil)
+		return
+	}
+	result, err := h.oidcService.Callback(c.Request.Context(), authapp.OIDCCallbackInput{
+		State:         c.Query("state"),
+		Code:          c.Query("code"),
+		ProviderError: c.Query("error"),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	c.Redirect(nethttp.StatusSeeOther, result.RedirectURL)
+}
+
+func (h *Handler) CompleteOIDC(c *gin.Context) {
+	if h.oidcService == nil {
+		response.Fail(c, nethttp.StatusServiceUnavailable, "OIDC_NOT_CONFIGURED", "OIDC SSO runtime chua duoc cau hinh.", nil)
+		return
+	}
+	var req oidcCompleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, nethttp.StatusBadRequest, "INVALID_JSON", "Body JSON khong hop le.", nil)
+		return
+	}
+	result, err := h.oidcService.Complete(c.Request.Context(), authapp.OIDCCompleteInput{
+		Code:       req.Code,
+		Domain:     authRequestDomain(c, req.Domain),
+		DeviceName: req.DeviceName,
+		IPAddress:  clientIP(c),
+		UserAgent:  c.Request.UserAgent(),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nethttp.StatusOK, result)
 }
 
 func (h *Handler) GoogleLogin(c *gin.Context) {
@@ -109,6 +219,7 @@ func (h *Handler) GoogleLogin(c *gin.Context) {
 		EmailVerified: profile.EmailVerified == "true",
 		DisplayName:   profile.Name,
 		AvatarURL:     profile.Picture,
+		Domain:        authRequestDomain(c, req.Domain),
 		DeviceName:    req.DeviceName,
 		IPAddress:     clientIP(c),
 		UserAgent:     c.Request.UserAgent(),
@@ -159,7 +270,8 @@ func (h *Handler) Register(c *gin.Context) {
 		Email:       req.Email,
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
-		Domain:      req.Domain,
+		Domain:      authRequestDomain(c, req.Domain),
+		InviteToken: req.InviteToken,
 		Password:    req.Password,
 		DeviceName:  req.DeviceName,
 		IPAddress:   clientIP(c),
@@ -182,6 +294,7 @@ func (h *Handler) Login(c *gin.Context) {
 	result, err := h.service.Login(c.Request.Context(), authapp.LoginInput{
 		Identifier: req.Identifier,
 		Password:   req.Password,
+		Domain:     authRequestDomain(c, req.Domain),
 		DeviceName: req.DeviceName,
 		IPAddress:  clientIP(c),
 		UserAgent:  c.Request.UserAgent(),
@@ -200,7 +313,10 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.Refresh(c.Request.Context(), authapp.RefreshInput{RefreshToken: req.RefreshToken})
+	result, err := h.service.Refresh(c.Request.Context(), authapp.RefreshInput{
+		RefreshToken: req.RefreshToken,
+		Domain:       authRequestDomain(c, req.Domain),
+	})
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -223,7 +339,7 @@ func (h *Handler) Logout(c *gin.Context) {
 }
 
 func (h *Handler) Me(c *gin.Context) {
-	user, err := h.service.Me(c.Request.Context(), middleware.CurrentUserID(c))
+	user, err := h.service.Me(c.Request.Context(), middleware.CurrentUserID(c), middleware.CurrentZoneDomain(c))
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -232,7 +348,7 @@ func (h *Handler) Me(c *gin.Context) {
 }
 
 func (h *Handler) ListSessions(c *gin.Context) {
-	sessions, err := h.service.ListSessions(c.Request.Context(), middleware.CurrentUserID(c))
+	sessions, err := h.service.ListSessions(c.Request.Context(), middleware.CurrentUserID(c), middleware.CurrentZoneID(c))
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -241,7 +357,12 @@ func (h *Handler) ListSessions(c *gin.Context) {
 }
 
 func (h *Handler) RevokeSession(c *gin.Context) {
-	if err := h.service.RevokeSession(c.Request.Context(), middleware.CurrentUserID(c), c.Param("session_id")); err != nil {
+	if err := h.service.RevokeSession(
+		c.Request.Context(),
+		middleware.CurrentUserID(c),
+		middleware.CurrentZoneID(c),
+		c.Param("session_id"),
+	); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -249,9 +370,38 @@ func (h *Handler) RevokeSession(c *gin.Context) {
 }
 
 func (h *Handler) RevokeAllSessions(c *gin.Context) {
-	if err := h.service.RevokeAllSessions(c.Request.Context(), middleware.CurrentUserID(c)); err != nil {
+	if err := h.service.RevokeAllSessions(
+		c.Request.Context(),
+		middleware.CurrentUserID(c),
+		middleware.CurrentZoneID(c),
+	); err != nil {
 		response.Error(c, err)
 		return
 	}
 	response.NoContent(c)
+}
+
+func authRequestDomain(c *gin.Context, bodyDomain string) string {
+	if value := strings.TrimSpace(bodyDomain); value != "" {
+		return value
+	}
+	return c.Request.Host
+}
+
+func requestOrigin(c *gin.Context) string {
+	scheme := "https"
+	host := strings.TrimSpace(c.Request.Host)
+	hostname := host
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		hostname = parsedHost
+	}
+	hostname = strings.ToLower(strings.Trim(strings.TrimSpace(hostname), "[]"))
+	if c.Request.TLS == nil && (hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") ||
+		hostname == "127.0.0.1" || hostname == "::1") {
+		scheme = "http"
+	}
+	if forwarded := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))); forwarded == "http" || forwarded == "https" {
+		scheme = forwarded
+	}
+	return scheme + "://" + host
 }

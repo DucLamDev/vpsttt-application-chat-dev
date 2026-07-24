@@ -52,6 +52,7 @@ export const useAuthStore = create<AuthState>()(
         refreshToken: state.refreshToken,
         user: state.user
       }),
+      skipHydration: true,
       storage: createJSONStorage(() => localStorage)
     }
   )

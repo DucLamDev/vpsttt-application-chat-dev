@@ -2,6 +2,7 @@ import type { Id, ISODateTime } from "./api";
 
 export type Workspace = {
   id: Id;
+  zone_id?: Id;
   name: string;
   slug: string;
   description?: string | null;

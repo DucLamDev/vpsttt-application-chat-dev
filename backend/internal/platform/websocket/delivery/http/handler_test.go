@@ -9,7 +9,27 @@ import (
 
 	platformws "github.com/duclamdev/application-chat/backend/internal/platform/websocket"
 	sharedauth "github.com/duclamdev/application-chat/backend/internal/shared/auth"
+	"github.com/gin-gonic/gin"
 )
+
+func TestRegistersDiscoveryAndAPIV1WebSocketRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewHandler(nil, nil)
+
+	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterPublicRoute(router)
+
+	routes := map[string]bool{}
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, route := range []string{"GET /ws", "GET /api/v1/ws"} {
+		if !routes[route] {
+			t.Fatalf("missing route %s: %#v", route, routes)
+		}
+	}
+}
 
 func TestAccessTokenFromRequest(t *testing.T) {
 	tests := []struct {
@@ -85,20 +105,20 @@ func TestAuthenticateRequestFromBrowserQueryToken(t *testing.T) {
 	req := httptest.NewRequest(nethttp.MethodGet, "/api/v1/ws?access_token="+url.QueryEscape(accessToken), nil)
 	handler := NewHandler(platformws.NewManager(), tokens)
 
-	userID, err := handler.authenticateRequest(req)
+	claims, err := handler.authenticateRequest(req)
 	if err != nil {
 		t.Fatalf("authenticateRequest() error = %v", err)
 	}
-	if userID != "user-1" {
-		t.Fatalf("authenticateRequest() userID = %q, want user-1", userID)
+	if claims.Subject != "user-1" {
+		t.Fatalf("authenticateRequest() userID = %q, want user-1", claims.Subject)
 	}
 }
 
 func TestHandleCommandBroadcastsTypingState(t *testing.T) {
 	manager := platformws.NewManager()
 	handler := NewHandler(manager, nil)
-	sender := &platformws.Client{ID: "sender", UserID: "user-a", Send: make(chan platformws.Event, 2)}
-	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", Send: make(chan platformws.Event, 2)}
+	sender := &platformws.Client{ID: "sender", UserID: "user-a", ZoneID: "zone-1", Send: make(chan platformws.Event, 2)}
+	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", ZoneID: "zone-1", Send: make(chan platformws.Event, 2)}
 	if err := manager.Register(sender); err != nil {
 		t.Fatal(err)
 	}
@@ -126,8 +146,8 @@ func TestHandleCommandBroadcastsTypingState(t *testing.T) {
 func TestHandleCommandBroadcastsCallSignal(t *testing.T) {
 	manager := platformws.NewManager()
 	handler := NewHandler(manager, nil)
-	sender := &platformws.Client{ID: "sender", UserID: "user-a", Send: make(chan platformws.Event, 2)}
-	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", Send: make(chan platformws.Event, 2)}
+	sender := &platformws.Client{ID: "sender", UserID: "user-a", ZoneID: "zone-1", Send: make(chan platformws.Event, 2)}
+	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", ZoneID: "zone-1", Send: make(chan platformws.Event, 2)}
 	if err := manager.Register(sender); err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +185,8 @@ func TestHandleCommandBroadcastsCallSignal(t *testing.T) {
 func TestHandleCommandBroadcastsCallSignalToTargetUserRoom(t *testing.T) {
 	manager := platformws.NewManager()
 	handler := NewHandler(manager, nil)
-	sender := &platformws.Client{ID: "sender", UserID: "user-a", Send: make(chan platformws.Event, 2)}
-	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", Send: make(chan platformws.Event, 2)}
+	sender := &platformws.Client{ID: "sender", UserID: "user-a", ZoneID: "zone-1", Send: make(chan platformws.Event, 2)}
+	receiver := &platformws.Client{ID: "receiver", UserID: "user-b", ZoneID: "zone-1", Send: make(chan platformws.Event, 2)}
 	if err := manager.Register(sender); err != nil {
 		t.Fatal(err)
 	}

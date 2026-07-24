@@ -13,7 +13,7 @@ export type JsonRequestBody =
   | null;
 
 export type HttpClientOptions = {
-  baseUrl: string;
+  baseUrl: string | (() => string);
   fetcher?: typeof fetch;
   getAccessToken?: () => string | null | undefined;
   onUnauthorized?: () => void;
@@ -54,7 +54,7 @@ export class ApiClientError extends Error {
 }
 
 export class HttpClient {
-  private readonly baseUrl: string;
+  private baseUrl: string | (() => string);
   private readonly fetcher: typeof fetch;
   private readonly getAccessToken?: () => string | null | undefined;
   private readonly onUnauthorized?: () => void;
@@ -62,11 +62,19 @@ export class HttpClient {
   private refreshPromise?: Promise<string | null | undefined>;
 
   constructor(options: HttpClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, "");
-    this.fetcher = options.fetcher ?? fetch;
+    this.baseUrl = options.baseUrl;
+    this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
     this.getAccessToken = options.getAccessToken;
     this.onUnauthorized = options.onUnauthorized;
     this.refreshAccessToken = options.refreshAccessToken;
+  }
+
+  setBaseUrl(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+
+  getBaseUrl() {
+    return this.resolveBaseUrl();
   }
 
   async get<TData>(path: string, options: RequestOptions = {}): Promise<TData> {
@@ -172,7 +180,7 @@ export class HttpClient {
   }
 
   private createUrl(path: string, query?: QueryParams): string {
-    const url = new URL(`${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`);
+    const url = new URL(`${this.resolveBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`);
 
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -186,6 +194,11 @@ export class HttpClient {
     }
 
     return url.toString();
+  }
+
+  private resolveBaseUrl(): string {
+    const selected = typeof this.baseUrl === "function" ? this.baseUrl() : this.baseUrl;
+    return selected.replace(/\/$/, "");
   }
 
   private createBody(body: RequestOptions["body"]): BodyInit | null | undefined {

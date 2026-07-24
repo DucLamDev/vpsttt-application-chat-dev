@@ -12,15 +12,20 @@ import type {
   AuthUser,
   CreateBackupJobInput,
   CreateApiTokenInput,
+  CreateAutomationInstallationInput,
   CreateBotInput,
   CreateIncomingWebhookInput,
   CreateOutgoingWebhookInput,
   CreateRoleInput,
+  CreateZoneOIDCProviderInput,
   InstallBotInput,
   PermissionCode,
   SaveCronJobInput,
   SendBotMessageInput,
+  UpdateAutomationInstallationInput,
   UpdateMemberStatusInput,
+  UpdateZoneOIDCProviderInput,
+  UpdateZoneQuotaInput,
   UpsertWorkspaceSettingInput
 } from "@webtui/types";
 import { api } from "@/lib/api";
@@ -258,6 +263,50 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     retry: false
   });
 
+  const canManageAutomation = canManageWorkspace || canManageBots || canManageWebhooks;
+
+  const automationTemplatesQuery = useQuery({
+    enabled: Boolean(workspaceId && canManageAutomation),
+    queryFn: () => api.tenancy.automationTemplates(),
+    queryKey: queryKeys.tenancy.automationTemplates,
+    retry: false
+  });
+
+  const automationInstallationsQuery = useQuery({
+    enabled: Boolean(workspaceId && canManageAutomation),
+    queryFn: () => api.tenancy.automationInstallations(),
+    queryKey: queryKeys.tenancy.automationInstallations,
+    retry: false
+  });
+
+  const currentZoneQuery = useQuery({
+    enabled: Boolean(workspaceId && canManageWorkspace),
+    queryFn: () => api.tenancy.currentZone(),
+    queryKey: queryKeys.tenancy.currentZone,
+    retry: false
+  });
+
+  const deploymentRequestsQuery = useQuery({
+    enabled: Boolean(workspaceId && canManageWorkspace),
+    queryFn: () => api.tenancy.deploymentRequests(),
+    queryKey: queryKeys.tenancy.deploymentRequests,
+    retry: false
+  });
+
+  const zoneQuotaQuery = useQuery({
+    enabled: Boolean(workspaceId && canManageWorkspace),
+    queryFn: () => api.tenancy.zoneQuota(),
+    queryKey: queryKeys.tenancy.quota,
+    retry: false
+  });
+
+  const oidcProvidersQuery = useQuery({
+    enabled: Boolean(workspaceId && canManageWorkspace),
+    queryFn: () => api.tenancy.oidcProviders(),
+    queryKey: queryKeys.tenancy.oidcProviders,
+    retry: false
+  });
+
   const botInstallationsQuery = useQuery({
     enabled: Boolean(workspaceId && options.selectedBotId && canManageBots),
     queryFn: () => api.bots.installations(workspaceId, options.selectedBotId ?? ""),
@@ -433,6 +482,144 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     }
   });
 
+  const createAutomationInstallationMutation = useMutation({
+    mutationFn: (input: CreateAutomationInstallationInput) =>
+      api.tenancy.createAutomationInstallation({
+        ...input,
+        workspace_id: input.workspace_id || requireWorkspaceId(workspaceId)
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.tenancy.automationInstallations
+      });
+    }
+  });
+
+  const updateAutomationInstallationMutation = useMutation({
+    mutationFn: ({
+      input,
+      installationId
+    }: {
+      input: UpdateAutomationInstallationInput;
+      installationId: string;
+    }) => api.tenancy.updateAutomationInstallation(installationId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.tenancy.automationInstallations
+      });
+    }
+  });
+
+  const deleteAutomationInstallationMutation = useMutation({
+    mutationFn: (installationId: string) =>
+      api.tenancy.deleteAutomationInstallation(installationId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.tenancy.automationInstallations
+      });
+    }
+  });
+
+  const updateCurrentZoneMutation = useMutation({
+    mutationFn: (input: {
+      name?: string;
+      registration_mode?: "open" | "invite_only" | "closed";
+    }) => api.tenancy.updateCurrentZone(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.currentZone });
+    }
+  });
+
+  const setZoneLifecycleMutation = useMutation({
+    mutationFn: (input: { action: "suspend" | "resume" | "archive"; reason?: string }) =>
+      api.tenancy.setZoneLifecycle(input.action, input.reason),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.currentZone });
+    }
+  });
+
+  const createAdditionalDomainMutation = useMutation({
+    mutationFn: (input: { domain: string; kind?: "alias" | "api" | "web" }) =>
+      api.tenancy.createAdditionalDomain(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.currentZone });
+    }
+  });
+
+  const verifyZoneDomainMutation = useMutation({
+    mutationFn: (domainId: string) => api.tenancy.verifyClaim(domainId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.currentZone });
+    }
+  });
+
+  const setPrimaryDomainMutation = useMutation({
+    mutationFn: (domainId: string) => api.tenancy.setPrimaryDomain(domainId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.currentZone });
+    }
+  });
+
+  const deleteZoneDomainMutation = useMutation({
+    mutationFn: (domainId: string) => api.tenancy.deleteDomain(domainId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.currentZone });
+    }
+  });
+
+  const createDeploymentRequestMutation = useMutation({
+    mutationFn: (input: {
+      requested_mode: string;
+      requested_database_mode: string;
+      idempotency_key: string;
+    }) =>
+      api.tenancy.createDeploymentRequest(
+        {
+          requested_mode: input.requested_mode,
+          requested_database_mode: input.requested_database_mode
+        },
+        input.idempotency_key
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.deploymentRequests });
+    }
+  });
+
+  const updateZoneQuotaMutation = useMutation({
+    mutationFn: (input: UpdateZoneQuotaInput) => api.tenancy.updateZoneQuota(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.quota });
+    }
+  });
+
+  const createOIDCProviderMutation = useMutation({
+    mutationFn: (input: CreateZoneOIDCProviderInput) =>
+      api.tenancy.createOIDCProvider(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.oidcProviders });
+    }
+  });
+
+  const updateOIDCProviderMutation = useMutation({
+    mutationFn: ({
+      input,
+      providerId
+    }: {
+      input: UpdateZoneOIDCProviderInput;
+      providerId: string;
+    }) => api.tenancy.updateOIDCProvider(providerId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.oidcProviders });
+    }
+  });
+
+  const deleteOIDCProviderMutation = useMutation({
+    mutationFn: (providerId: string) => api.tenancy.deleteOIDCProvider(providerId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenancy.oidcProviders });
+    }
+  });
+
   const installBotMutation = useMutation({
     mutationFn: ({ botId, input }: { botId: string; input: InstallBotInput }) =>
       api.bots.install(requireWorkspaceId(workspaceId), botId, input),
@@ -565,6 +752,10 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     apiScopesQuery,
     apiTokens: apiTokensQuery.data ?? [],
     apiTokensQuery,
+    automationInstallations: automationInstallationsQuery.data ?? [],
+    automationInstallationsQuery,
+    automationTemplates: automationTemplatesQuery.data ?? [],
+    automationTemplatesQuery,
     assignMemberRoleMutation,
     auditLogs: auditLogsQuery.data ?? [],
     auditLogsQuery,
@@ -579,6 +770,7 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     can,
     canManageBackups,
     canManageApiTokens,
+    canManageAutomation,
     canManageBots,
     canManageCronjobs,
     canManageRoles,
@@ -590,17 +782,24 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     channels: channelsQuery.data ?? [],
     channelsQuery,
     createApiTokenMutation,
+    createAutomationInstallationMutation,
+    createAdditionalDomainMutation,
     createBackupJobMutation,
     createBotMutation,
     createCronjobMutation,
     createIncomingWebhookMutation,
     createOutgoingWebhookMutation,
+    createDeploymentRequestMutation,
+    createOIDCProviderMutation,
     createRoleMutation,
     cronjobRuns: cronjobRunsQuery.data ?? [],
     cronjobRunsQuery,
     cronjobs: cronjobsQuery.data ?? [],
     cronjobsQuery,
     deleteCronjobMutation,
+    deleteAutomationInstallationMutation,
+    deleteOIDCProviderMutation,
+    deleteZoneDomainMutation,
     deleteIncomingWebhookMutation,
     deleteOutgoingWebhookMutation,
     healthQuery,
@@ -611,6 +810,8 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     membersQuery,
     outgoingWebhooks: outgoingWebhooksQuery.data ?? [],
     outgoingWebhooksQuery,
+    oidcProviders: oidcProvidersQuery.data ?? [],
+    oidcProvidersQuery,
     permissionCodes,
     permissions: permissionsQuery.data ?? [],
     permissionsCatalog: permissionsCatalogQuery.data ?? [],
@@ -627,25 +828,38 @@ export function useAdminDashboardData(options: AdminDashboardDataOptions = {}) {
     selectedWorkspace,
     sendBotMessageMutation,
     setWorkspaceId,
+    setPrimaryDomainMutation,
+    setZoneLifecycleMutation,
     settings: settingsQuery.data ?? [],
     settingsQuery,
     statsQuery,
     operationsQueryEnabled,
     updateMemberStatusMutation,
+    updateAutomationInstallationMutation,
+    updateCurrentZoneMutation,
     updateIncomingWebhookMutation,
     updateOutgoingWebhookMutation,
+    updateOIDCProviderMutation,
+    updateZoneQuotaMutation,
     updateCronjobMutation,
     updateUserMutation,
     upsertWorkspaceSettingMutation,
     users: usersQuery.data ?? [],
     usersQuery,
+    verifyZoneDomainMutation,
     webhookDeliveries: webhookDeliveriesQuery.data ?? [],
     webhookDeliveriesQuery,
+    currentZone: currentZoneQuery.data ?? null,
+    currentZoneQuery,
+    deploymentRequests: deploymentRequestsQuery.data ?? [],
+    deploymentRequestsQuery,
     testOutgoingWebhookMutation,
     workspaceQuery,
     workspaceId,
     workspaces,
-    workspacesQuery
+    workspacesQuery,
+    zoneQuota: zoneQuotaQuery.data ?? null,
+    zoneQuotaQuery
   };
 }
 

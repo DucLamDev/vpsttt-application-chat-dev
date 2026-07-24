@@ -13,7 +13,9 @@ import (
 
 type Repository interface {
 	FindByID(ctx context.Context, id string) (usersdomain.User, error)
+	FindByIDInZone(ctx context.Context, id string, zoneID string) (usersdomain.User, error)
 	List(ctx context.Context, params ListUsersParams) ([]usersdomain.User, error)
+	UserBelongsToWorkspace(ctx context.Context, userID string, workspaceID string) (bool, error)
 	UpdateProfile(ctx context.Context, params UpdateProfileParams) (usersdomain.User, error)
 	UpdateUser(ctx context.Context, params UpdateUserParams) (usersdomain.User, error)
 	DeleteUser(ctx context.Context, userID string) error
@@ -31,6 +33,7 @@ type Service struct {
 type ListUsersParams struct {
 	Query  string
 	Status string
+	ZoneID string
 	Limit  int
 }
 
@@ -103,16 +106,17 @@ func NewService(repo Repository, checker ...PermissionChecker) *Service {
 }
 
 func (s *Service) Me(ctx context.Context, userID string) (UserDTO, error) {
-	return s.Get(ctx, userID)
-}
-
-func (s *Service) Get(ctx context.Context, userID string) (UserDTO, error) {
 	user, err := s.repo.FindByID(ctx, strings.TrimSpace(userID))
 	if err != nil {
-		if errors.Is(err, usersdomain.ErrUserNotFound) {
-			return UserDTO{}, apperrors.NotFound("USER_NOT_FOUND", "Không tìm thấy người dùng.")
-		}
-		return UserDTO{}, err
+		return UserDTO{}, mapUserError(err)
+	}
+	return toDTO(user), nil
+}
+
+func (s *Service) Get(ctx context.Context, userID string, zoneID string) (UserDTO, error) {
+	user, err := s.repo.FindByIDInZone(ctx, strings.TrimSpace(userID), strings.TrimSpace(zoneID))
+	if err != nil {
+		return UserDTO{}, mapUserError(err)
 	}
 	return toDTO(user), nil
 }
@@ -120,6 +124,7 @@ func (s *Service) Get(ctx context.Context, userID string) (UserDTO, error) {
 func (s *Service) List(ctx context.Context, params ListUsersParams) ([]UserDTO, pagination.Meta, error) {
 	params.Query = strings.TrimSpace(params.Query)
 	params.Status = strings.TrimSpace(params.Status)
+	params.ZoneID = strings.TrimSpace(params.ZoneID)
 	params.Limit = pagination.NormalizeLimit(params.Limit)
 
 	users, err := s.repo.List(ctx, params)
@@ -160,6 +165,9 @@ func (s *Service) Update(ctx context.Context, input UpdateUserInput) (UserDTO, e
 	if err := s.ensureUserManagePermission(ctx, input.ActorUserID, input.WorkspaceID); err != nil {
 		return UserDTO{}, err
 	}
+	if err := s.ensureWorkspaceUser(ctx, input.UserID, input.WorkspaceID); err != nil {
+		return UserDTO{}, err
+	}
 	displayName, avatarURL, phoneNumber, locale, timezone, err := validateProfile(input.DisplayName, input.AvatarURL, input.PhoneNumber, input.Locale, input.Timezone)
 	if err != nil {
 		return UserDTO{}, err
@@ -194,6 +202,9 @@ func (s *Service) Delete(ctx context.Context, actorUserID string, workspaceID st
 	if err := s.ensureUserManagePermission(ctx, actorUserID, workspaceID); err != nil {
 		return err
 	}
+	if err := s.ensureWorkspaceUser(ctx, userID, workspaceID); err != nil {
+		return err
+	}
 	if err := s.repo.DeleteUser(ctx, strings.TrimSpace(userID)); err != nil {
 		if errors.Is(err, usersdomain.ErrUserNotFound) {
 			return apperrors.NotFound("USER_NOT_FOUND", "Không tìm thấy người dùng.")
@@ -201,6 +212,28 @@ func (s *Service) Delete(ctx context.Context, actorUserID string, workspaceID st
 		return err
 	}
 	return nil
+}
+
+func (s *Service) ensureWorkspaceUser(ctx context.Context, userID string, workspaceID string) error {
+	belongs, err := s.repo.UserBelongsToWorkspace(
+		ctx,
+		strings.TrimSpace(userID),
+		strings.TrimSpace(workspaceID),
+	)
+	if err != nil {
+		return err
+	}
+	if !belongs {
+		return apperrors.NotFound("USER_NOT_FOUND", "Khong tim thay nguoi dung trong workspace hien tai.")
+	}
+	return nil
+}
+
+func mapUserError(err error) error {
+	if errors.Is(err, usersdomain.ErrUserNotFound) {
+		return apperrors.NotFound("USER_NOT_FOUND", "Khong tim thay nguoi dung.")
+	}
+	return err
 }
 
 func (s *Service) ensureUserManagePermission(ctx context.Context, actorUserID string, workspaceID string) error {

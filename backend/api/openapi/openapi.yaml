@@ -146,6 +146,387 @@ paths:
       responses:
         "200":
           description: API v1 hoạt động
+  /.well-known/vpsttt-chat:
+    get:
+      security: []
+      summary: Discovery public theo domain
+      description: Client domain-first goi endpoint nay tren domain cua zone de lay runtime URL va capabilities.
+      responses:
+        "200":
+          description: Thong tin discovery cua zone
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ZoneDiscovery"
+  /api/v1/discovery:
+    get:
+      security: []
+      summary: Resolve domain thanh zone chat
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Domain can resolve. Neu bo trong backend dung Host header.
+      responses:
+        "200":
+          description: Discovery duoc boc trong envelope API
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          discovery:
+                            $ref: "#/components/schemas/ZoneDiscovery"
+  /api/v1/capabilities:
+    get:
+      security: []
+      summary: Capabilities public cua zone
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Domain can resolve. Neu bo trong backend dung Host header.
+      responses:
+        "200":
+          description: Capabilities duoc boc trong envelope API
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          capabilities:
+                            $ref: "#/components/schemas/ZoneCapabilities"
+                          domain:
+                            type: string
+                          zone:
+                            $ref: "#/components/schemas/ZoneSummary"
+  /api/v1/zones/claims:
+    post:
+      summary: Claim domain và tạo zone ở trạng thái chờ xác minh DNS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDomainClaimRequest"
+      responses:
+        "201":
+          description: Domain claim đã được tạo
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/DomainClaim"
+  /api/v1/zones/claims/{domain_id}:
+    get:
+      summary: Xem trạng thái claim domain của user hiện tại
+      parameters:
+        - $ref: "#/components/parameters/DomainID"
+      responses:
+        "200":
+          description: Trạng thái domain claim
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/DomainClaim"
+  /api/v1/zones/claims/{domain_id}/verify:
+    post:
+      summary: Kiểm tra DNS TXT và provision customer zone
+      parameters:
+        - $ref: "#/components/parameters/DomainID"
+      responses:
+        "200":
+          description: Domain đã xác minh và zone đã sẵn sàng
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          discovery:
+                            $ref: "#/components/schemas/ZoneDiscovery"
+  /api/v1/zones/current:
+    get:
+      summary: Lay control-plane overview cua zone hien tai
+      responses:
+        "200":
+          description: Zone, domains va deployments
+    patch:
+      summary: Cap nhat ten hoac registration mode cua zone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateZoneRequest"
+      responses:
+        "200":
+          description: Zone da duoc cap nhat
+  /api/v1/zones/current/lifecycle:
+    post:
+      summary: Suspend, resume hoac archive zone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [suspend, resume, archive]
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        "204":
+          description: Trang thai zone da duoc cap nhat va session da bi revoke khi can
+  /api/v1/zones/current/domains:
+    post:
+      summary: Tao them domain claim trong zone hien tai
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domain]
+              properties:
+                domain:
+                  type: string
+                kind:
+                  type: string
+                  enum: [alias, web, api]
+      responses:
+        "201":
+          description: Domain claim da duoc tao
+  /api/v1/zones/current/domains/{domain_id}:
+    parameters:
+      - $ref: "#/components/parameters/DomainID"
+    delete:
+      summary: Xoa domain phu khoi zone
+      responses:
+        "204":
+          description: Domain da bi vo hieu hoa
+  /api/v1/zones/current/domains/{domain_id}/primary:
+    parameters:
+      - $ref: "#/components/parameters/DomainID"
+    post:
+      summary: Chuyen domain da xac minh thanh primary
+      responses:
+        "204":
+          description: Primary domain da duoc cap nhat
+  /api/v1/zones/current/deployment-requests:
+    get:
+      summary: Danh sach yeu cau deployment cua zone
+      responses:
+        "200":
+          description: Danh sach deployment request
+    post:
+      summary: Tao yeu cau chuyen deployment mode
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            maxLength: 120
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateZoneDeploymentRequest"
+      responses:
+        "201":
+          description: Deployment request da duoc ghi ben vung
+  /api/v1/zones/current/quota:
+    get:
+      summary: Lay quota va usage hien tai cua zone
+      responses:
+        "200":
+          description: Quota va usage cua zone
+    put:
+      summary: Thay the quota cua zone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ZoneQuota"
+      responses:
+        "200":
+          description: Quota da duoc cap nhat
+        "409":
+          description: Hard quota moi thap hon usage hien tai
+  /api/v1/zones/current/oidc-providers:
+    get:
+      summary: Danh sach OIDC provider config cua zone
+      responses:
+        "200":
+          description: Danh sach provider, khong tra secret reference value
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          oidc_providers:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/ZoneOIDCProvider"
+    post:
+      summary: Tao OIDC provider config cho zone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOIDCProviderRequest"
+      responses:
+        "201":
+          description: OIDC provider config da duoc tao
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          oidc_provider:
+                            $ref: "#/components/schemas/ZoneOIDCProvider"
+  /api/v1/zones/current/oidc-providers/{provider_id}:
+    parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      summary: Cap nhat OIDC provider config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOIDCProviderRequest"
+      responses:
+        "200":
+          description: OIDC provider config da duoc cap nhat
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          oidc_provider:
+                            $ref: "#/components/schemas/ZoneOIDCProvider"
+    delete:
+      summary: Xoa OIDC provider config
+      responses:
+        "204":
+          description: OIDC provider config da duoc soft-delete
+  /api/v1/zones/current/automation-templates:
+    get:
+      summary: Danh sách automation template phù hợp với loại zone hiện tại
+      responses:
+        "200":
+          description: Danh sách template
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          templates:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/AutomationTemplate"
+  /api/v1/zones/current/automation-installations:
+    get:
+      summary: Danh sách automation installation của zone hiện tại
+      responses:
+        "200":
+          description: Danh sách installation
+    post:
+      summary: Cài automation theo cấu hình riêng của zone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAutomationInstallationRequest"
+      responses:
+        "201":
+          description: Automation installation đã được tạo
+  /api/v1/zones/current/automation-installations/{installation_id}:
+    parameters:
+      - name: installation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      summary: Cập nhật cấu hình hoặc trạng thái automation trong zone hiện tại
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAutomationInstallationRequest"
+      responses:
+        "200":
+          description: Automation installation đã được cập nhật
+    delete:
+      summary: Gỡ automation khỏi zone hiện tại
+      responses:
+        "204":
+          description: Automation installation đã được soft-delete
   /api/v1/ws:
     get:
       summary: Kết nối WebSocket realtime
@@ -246,6 +627,96 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthResponse"
+  /api/v1/auth/oidc/providers:
+    get:
+      security: []
+      summary: List runtime-ready OIDC providers for one zone domain
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Public provider identifiers and display names
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [oidc_providers]
+                        properties:
+                          oidc_providers:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/PublicOIDCProvider"
+  /api/v1/auth/oidc/start:
+    post:
+      security: []
+      summary: Start an OIDC authorization-code flow with PKCE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OIDCStartRequest"
+      responses:
+        "200":
+          description: IdP authorization URL
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OIDCStartResult"
+  /api/v1/auth/oidc/callback:
+    get:
+      security: []
+      summary: Verify the IdP callback and redirect with a one-time completion code
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Same-origin redirect to return_to with oidc_code or oidc_error
+  /api/v1/auth/oidc/complete:
+    post:
+      security: []
+      summary: Exchange a one-time OIDC completion code for a VPSTTT session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OIDCCompleteRequest"
+      responses:
+        "200":
+          description: VPSTTT access and refresh session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
   /api/v1/auth/refresh:
     post:
       security: []
@@ -259,6 +730,10 @@ paths:
       responses:
         "200":
           description: Refresh thành công
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
   /api/v1/auth/logout:
     post:
       security: []
@@ -284,6 +759,20 @@ paths:
       responses:
         "200":
           description: Danh sách phiên
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          sessions:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/AuthSession"
     delete:
       summary: Thu hồi toàn bộ phiên đăng nhập của user hiện tại
       responses:
@@ -2005,6 +2494,13 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    DomainID:
+      name: domain_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     WorkspaceID:
       name: workspace_id
       in: path
@@ -2097,6 +2593,427 @@ components:
         type: string
         format: uuid
   schemas:
+    ZoneDiscovery:
+      type: object
+      properties:
+        version:
+          type: string
+        domain:
+          type: string
+        zone:
+          $ref: "#/components/schemas/ZoneSummary"
+        workspace:
+          $ref: "#/components/schemas/ZoneWorkspaceRef"
+        runtime:
+          $ref: "#/components/schemas/ZoneRuntime"
+        capabilities:
+          $ref: "#/components/schemas/ZoneCapabilities"
+        deployment:
+          $ref: "#/components/schemas/ZoneDeployment"
+    ZoneSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [vpsttt_internal, customer_saas, customer_dedicated]
+        status:
+          type: string
+          enum: [provisioning, active, suspended, archived]
+        registration_mode:
+          type: string
+          enum: [open, invite_only, closed]
+    ZoneWorkspaceRef:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+    ZoneRuntime:
+      type: object
+      properties:
+        app_name:
+          type: string
+        app_version:
+          type: string
+        release_channel:
+          type: string
+        locale:
+          type: string
+        web_base_url:
+          type: string
+          format: uri
+        api_base_url:
+          type: string
+          format: uri
+        ws_base_url:
+          type: string
+        admin_base_url:
+          type: string
+          format: uri
+    ZoneCapabilities:
+      type: object
+      properties:
+        chat:
+          type: boolean
+        files:
+          type: boolean
+        calls:
+          type: boolean
+        bots:
+          type: boolean
+        automation:
+          type: boolean
+        webhooks:
+          type: boolean
+        federation:
+          type: boolean
+        sso:
+          type: boolean
+          description: Chi true khi OIDC login verifier da duoc deploy.
+        oidc_configuration:
+          type: boolean
+          description: Control-plane API ho tro luu OIDC provider contract.
+        custom_domain:
+          type: boolean
+        dedicated:
+          type: boolean
+    ZoneDeployment:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [shared, dedicated_compose, dedicated_k8s]
+        database_mode:
+          type: string
+          enum: [shared_schema, dedicated_schema, dedicated_database]
+        status:
+          type: string
+          enum: [provisioning, ready, failed, suspended]
+    CreateDomainClaimRequest:
+      type: object
+      required: [domain, zone_name]
+      properties:
+        domain:
+          type: string
+          example: chat.customer.example
+        zone_name:
+          type: string
+        registration_mode:
+          type: string
+          enum: [open, invite_only, closed]
+          default: invite_only
+    DomainClaim:
+      type: object
+      required: [id, domain, status, verification_method, verification_dns_name, verification_dns_value, zone]
+      properties:
+        id:
+          type: string
+          format: uuid
+        domain:
+          type: string
+        status:
+          type: string
+          enum: [pending, verified, active, suspended]
+        verification_method:
+          type: string
+          enum: [dns_txt]
+        verification_dns_name:
+          type: string
+        verification_dns_value:
+          type: string
+        verification_expires_at:
+          type: string
+          format: date-time
+        verification_attempts:
+          type: integer
+        last_verification_error:
+          type: string
+        last_checked_at:
+          type: string
+          format: date-time
+        zone:
+          $ref: "#/components/schemas/ZoneSummary"
+        workspace:
+          $ref: "#/components/schemas/ZoneWorkspaceRef"
+    UpdateZoneRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          maxLength: 120
+        registration_mode:
+          type: string
+          enum: [open, invite_only, closed]
+    CreateZoneDeploymentRequest:
+      type: object
+      required: [requested_mode, requested_database_mode]
+      properties:
+        requested_mode:
+          type: string
+          enum: [shared, dedicated_compose, dedicated_k8s]
+        requested_database_mode:
+          type: string
+          enum: [shared_schema, dedicated_schema, dedicated_database]
+    ZoneQuota:
+      type: object
+      properties:
+        max_workspaces:
+          type: integer
+          minimum: 1
+        max_members:
+          type: integer
+          minimum: 1
+        max_storage_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+        max_automation_installations:
+          type: integer
+          minimum: 1
+        max_webhooks:
+          type: integer
+          minimum: 1
+        enforcement_mode:
+          type: string
+          enum: [monitor, hard]
+    ZoneOIDCProvider:
+      type: object
+      required:
+        - id
+        - zone_id
+        - name
+        - issuer_url
+        - client_id
+        - has_client_secret_ref
+        - scopes
+        - claim_mapping
+        - jit_provisioning
+        - require_verified_email
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        zone_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        issuer_url:
+          type: string
+          format: uri
+        client_id:
+          type: string
+        has_client_secret_ref:
+          type: boolean
+        scopes:
+          type: array
+          items:
+            type: string
+        claim_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        jit_provisioning:
+          type: boolean
+        require_verified_email:
+          type: boolean
+        status:
+          type: string
+          enum: [configured, disabled]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateOIDCProviderRequest:
+      type: object
+      required: [name, issuer_url, client_id]
+      properties:
+        name:
+          type: string
+          maxLength: 120
+        issuer_url:
+          type: string
+          format: uri
+        client_id:
+          type: string
+        client_secret_ref:
+          type: string
+          description: Reference den secret manager; API khong nhan client secret inline.
+        scopes:
+          type: array
+          items:
+            type: string
+        claim_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        jit_provisioning:
+          type: boolean
+          default: false
+        require_verified_email:
+          type: boolean
+          default: true
+        status:
+          type: string
+          enum: [configured, disabled]
+    UpdateOIDCProviderRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          maxLength: 120
+        issuer_url:
+          type: string
+          format: uri
+        client_id:
+          type: string
+        client_secret_ref:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        claim_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        jit_provisioning:
+          type: boolean
+        require_verified_email:
+          type: boolean
+        status:
+          type: string
+          enum: [configured, disabled]
+    AutomationTemplate:
+      type: object
+      required: [id, key, name, zone_kind, template_type, runtime_kind, config_schema, default_config, required_scopes, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        zone_kind:
+          type: string
+          enum: [vpsttt_internal, customer_saas, customer_dedicated, any]
+        template_type:
+          type: string
+          enum: [bot, workflow, connector]
+        runtime_kind:
+          type: string
+          enum: [none, outgoing_webhook]
+        config_schema:
+          type: object
+          additionalProperties: true
+        default_config:
+          type: object
+          additionalProperties: true
+        required_scopes:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+    CreateAutomationInstallationRequest:
+      type: object
+      required: [template_key, name]
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        template_key:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [enabled, disabled]
+        config:
+          type: object
+          additionalProperties: true
+        secret_ref:
+          type: string
+          description: Tham chiếu đến secret manager; không gửi credential trực tiếp trong config.
+    UpdateAutomationInstallationRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [enabled, disabled]
+        config:
+          type: object
+          additionalProperties: true
+        secret_ref:
+          type: string
+          description: Gửi chuỗi rỗng để xóa secret_ref; không gửi credential trực tiếp trong config.
+    AutomationInstallation:
+      type: object
+      required: [id, zone_id, name, status, config, has_secret_ref, runtime_ready, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        zone_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        template_id:
+          type: string
+          format: uuid
+        template_key:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [enabled, disabled, failed]
+        config:
+          type: object
+          additionalProperties: true
+        has_secret_ref:
+          type: boolean
+        runtime_webhook_id:
+          type: string
+          format: uuid
+        runtime_ready:
+          type: boolean
+        runtime_secret:
+          type: string
+          writeOnly: true
+          description: Chi co trong response create va chi hien thi mot lan.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     ApiResponse:
       type: object
       properties:
@@ -3382,7 +4299,7 @@ components:
           type: integer
     RegisterRequest:
       type: object
-      required: [email, username, display_name, password]
+      required: [email, username, display_name, domain, password]
       properties:
         email:
           type: string
@@ -3393,7 +4310,11 @@ components:
           type: string
         domain:
           type: string
-          description: Domain công ty, không bắt buộc. Ví dụ company.com.
+          description: Domain server/zone cần đăng ký.
+          example: chat.customer.example
+        invite_token:
+          type: string
+          description: Bắt buộc khi zone dùng registration_mode=invite_only.
         password:
           type: string
           format: password
@@ -3402,7 +4323,7 @@ components:
           description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.
     LoginRequest:
       type: object
-      required: [identifier, password]
+      required: [identifier, password, domain]
       properties:
         identifier:
           type: string
@@ -3410,25 +4331,80 @@ components:
         password:
           type: string
           format: password
+        domain:
+          type: string
+          example: chat.customer.example
         device_name:
           type: string
           description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.
     GoogleLoginRequest:
       type: object
-      required: [credential]
+      required: [credential, domain]
       properties:
         credential:
           type: string
           description: Google ID token do Google Identity Services trả về.
+        domain:
+          type: string
+          example: chat.customer.example
         device_name:
           type: string
           description: Tùy chọn. Nếu không gửi, backend tự suy ra từ User-Agent.
+    PublicOIDCProvider:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    OIDCStartRequest:
+      type: object
+      required: [domain, provider_id]
+      properties:
+        domain:
+          type: string
+          example: chat.customer.example
+        provider_id:
+          type: string
+          format: uuid
+        return_to:
+          type: string
+          description: Same-origin relative path. Local development also accepts an http localhost URL with the same hostname.
+          example: /
+        device_name:
+          type: string
+    OIDCStartResult:
+      type: object
+      required: [authorization_url, expires_at]
+      properties:
+        authorization_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    OIDCCompleteRequest:
+      type: object
+      required: [code, domain]
+      properties:
+        code:
+          type: string
+          description: Single-use, short-lived completion code returned by the backend callback.
+        domain:
+          type: string
+        device_name:
+          type: string
     RefreshRequest:
       type: object
       required: [refresh_token]
       properties:
         refresh_token:
           type: string
+        domain:
+          type: string
+          description: Domain của session. Nếu gửi phải khớp với refresh token.
     UpdateMeRequest:
       type: object
       properties:
@@ -3464,3 +4440,88 @@ components:
     AuthResponse:
       allOf:
         - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/AuthResult"
+    AuthResult:
+      type: object
+      required: [tokens, zone, session_id, refresh_until]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        tokens:
+          $ref: "#/components/schemas/AuthTokenSet"
+        zone:
+          $ref: "#/components/schemas/AuthZone"
+        session_id:
+          type: string
+          format: uuid
+        refresh_until:
+          type: string
+          format: date-time
+    AuthTokenSet:
+      type: object
+      required: [access_token, token_type, access_token_expires_at]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token_expires_at:
+          type: string
+          format: date-time
+    AuthZone:
+      type: object
+      required: [id, slug, name, kind, domain, workspace_id]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        domain:
+          type: string
+        workspace_id:
+          type: string
+          format: uuid
+    AuthSession:
+      type: object
+      required: [id, zone_id, workspace_id, domain, expires_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        zone_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        domain:
+          type: string
+        device_name:
+          type: string
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time

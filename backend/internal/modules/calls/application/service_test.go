@@ -96,6 +96,10 @@ func (r *fakeCallRepo) CreateCallMessage(_ context.Context, params CallMessagePa
 	return nil
 }
 
+func (r *fakeCallRepo) WorkspaceZoneID(context.Context, string) (string, error) {
+	return "zone-1", nil
+}
+
 type fakeCallChecker struct {
 	allowed bool
 }

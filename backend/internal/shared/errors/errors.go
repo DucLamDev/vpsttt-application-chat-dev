@@ -48,3 +48,7 @@ func NotFound(code string, message string) *AppError {
 func Internal(message string) *AppError {
 	return New("INTERNAL_ERROR", message, http.StatusInternalServerError)
 }
+
+func ServiceUnavailable(code string, message string) *AppError {
+	return New(code, message, http.StatusServiceUnavailable)
+}

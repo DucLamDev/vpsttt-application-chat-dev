@@ -37,6 +37,7 @@ type Scope struct {
 
 type AuthenticatedToken struct {
 	TokenID     string
+	ZoneID      string
 	WorkspaceID string
 	OwnerID     *string
 	Scopes      []string

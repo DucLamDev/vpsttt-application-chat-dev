@@ -41,7 +41,7 @@ func (h *Handler) RegisterRoutes(router gin.IRouter, authMiddleware gin.HandlerF
 }
 
 func (h *Handler) ListMine(c *gin.Context) {
-	devices, err := h.service.ListMine(c.Request.Context(), middleware.CurrentUserID(c))
+	devices, err := h.service.ListMine(c.Request.Context(), middleware.CurrentZoneID(c), middleware.CurrentUserID(c))
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -78,7 +78,7 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 func (h *Handler) Delete(c *gin.Context) {
-	if err := h.service.Delete(c.Request.Context(), middleware.CurrentUserID(c), c.Param("device_id")); err != nil {
+	if err := h.service.Delete(c.Request.Context(), middleware.CurrentZoneID(c), middleware.CurrentUserID(c), c.Param("device_id")); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -88,7 +88,8 @@ func (h *Handler) Delete(c *gin.Context) {
 func toInput(c *gin.Context, req upsertDeviceRequest, deviceID string) devicesapp.UpsertInput {
 	return devicesapp.UpsertInput{
 		ActorUserID:            middleware.CurrentUserID(c),
-		WorkspaceID:            req.WorkspaceID,
+		ZoneID:                 middleware.CurrentZoneID(c),
+		WorkspaceID:            firstNonEmpty(req.WorkspaceID, middleware.CurrentWorkspaceID(c)),
 		DeviceID:               deviceID,
 		Platform:               req.Platform,
 		PushProvider:           req.PushProvider,
@@ -100,4 +101,13 @@ func toInput(c *gin.Context, req upsertDeviceRequest, deviceID string) devicesap
 		Locale:                 req.Locale,
 		Timezone:               req.Timezone,
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

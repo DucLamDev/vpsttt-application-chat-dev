@@ -13,16 +13,17 @@ import (
 	"time"
 
 	authdomain "github.com/duclamdev/application-chat/backend/internal/modules/auth/domain"
+	tenancyapp "github.com/duclamdev/application-chat/backend/internal/modules/tenancy/application"
 	sharedauth "github.com/duclamdev/application-chat/backend/internal/shared/auth"
 	apperrors "github.com/duclamdev/application-chat/backend/internal/shared/errors"
 )
 
 var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{2,39}$`)
-var companyDomainPattern = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 
 type Repository interface {
 	CreateUser(ctx context.Context, params CreateUserParams) (authdomain.User, error)
-	EnsureDefaultWorkspaceMembership(ctx context.Context, userID string) error
+	ResolveZoneAccess(ctx context.Context, domain string) (ZoneAccess, error)
+	EnsureZoneWorkspaceAccess(ctx context.Context, userID string, target ZoneAccess) error
 	FindUserByID(ctx context.Context, id string) (authdomain.User, error)
 	FindUserByIdentifier(ctx context.Context, identifier string) (authdomain.User, error)
 	UpdateLastLoginInfo(ctx context.Context, params UpdateLastLoginInfoParams) error
@@ -30,9 +31,9 @@ type Repository interface {
 	FindSessionByRefreshTokenHash(ctx context.Context, hash string) (authdomain.Session, error)
 	RotateSessionRefreshToken(ctx context.Context, params RotateSessionParams) (authdomain.Session, error)
 	RevokeSessionByRefreshTokenHash(ctx context.Context, hash string, revokedAt time.Time) error
-	RevokeSessionByID(ctx context.Context, userID string, sessionID string, revokedAt time.Time) error
-	RevokeAllSessions(ctx context.Context, userID string, revokedAt time.Time) error
-	ListSessions(ctx context.Context, userID string) ([]authdomain.Session, error)
+	RevokeSessionByID(ctx context.Context, userID string, zoneID string, sessionID string, revokedAt time.Time) error
+	RevokeAllSessions(ctx context.Context, userID string, zoneID string, revokedAt time.Time) error
+	ListSessions(ctx context.Context, userID string, zoneID string) ([]authdomain.Session, error)
 	RecordAudit(ctx context.Context, event AuditEvent) error
 }
 
@@ -47,6 +48,7 @@ type RegisterInput struct {
 	Username    string
 	DisplayName string
 	Domain      string
+	InviteToken string
 	Password    string
 	DeviceName  string
 	IPAddress   string
@@ -56,6 +58,7 @@ type RegisterInput struct {
 type LoginInput struct {
 	Identifier string
 	Password   string
+	Domain     string
 	DeviceName string
 	IPAddress  string
 	UserAgent  string
@@ -67,6 +70,7 @@ type GoogleLoginInput struct {
 	EmailVerified bool
 	DisplayName   string
 	AvatarURL     string
+	Domain        string
 	DeviceName    string
 	IPAddress     string
 	UserAgent     string
@@ -74,6 +78,7 @@ type GoogleLoginInput struct {
 
 type RefreshInput struct {
 	RefreshToken string
+	Domain       string
 }
 
 type LogoutInput struct {
@@ -90,6 +95,20 @@ type CreateUserParams struct {
 	UserAgent     string
 	AvatarURL     string
 	EmailVerified bool
+	Zone          ZoneAccess
+	InviteToken   string
+}
+
+type ZoneAccess struct {
+	ZoneID           string
+	ZoneSlug         string
+	ZoneName         string
+	ZoneKind         string
+	ZoneStatus       string
+	RegistrationMode string
+	WorkspaceID      string
+	WorkspaceSlug    string
+	Domain           string
 }
 
 type UpdateLastLoginInfoParams struct {
@@ -102,6 +121,9 @@ type UpdateLastLoginInfoParams struct {
 
 type CreateSessionParams struct {
 	UserID           string
+	ZoneID           string
+	WorkspaceID      string
+	Domain           string
 	RefreshTokenHash string
 	DeviceName       string
 	IPAddress        string
@@ -118,6 +140,8 @@ type RotateSessionParams struct {
 
 type AuditEvent struct {
 	ActorUserID string
+	ZoneID      string
+	WorkspaceID string
 	Action      string
 	EntityType  string
 	EntityID    string
@@ -127,16 +151,18 @@ type AuditEvent struct {
 }
 
 type AuthResult struct {
-	User         UserDTO  `json:"user"`
-	Tokens       TokenDTO `json:"tokens"`
-	SessionID    string   `json:"session_id"`
-	RefreshUntil string   `json:"refresh_until"`
+	User         UserDTO     `json:"user"`
+	Tokens       TokenDTO    `json:"tokens"`
+	Zone         AuthZoneDTO `json:"zone"`
+	SessionID    string      `json:"session_id"`
+	RefreshUntil string      `json:"refresh_until"`
 }
 
 type RefreshResult struct {
-	Tokens       TokenDTO `json:"tokens"`
-	SessionID    string   `json:"session_id"`
-	RefreshUntil string   `json:"refresh_until"`
+	Tokens       TokenDTO    `json:"tokens"`
+	Zone         AuthZoneDTO `json:"zone"`
+	SessionID    string      `json:"session_id"`
+	RefreshUntil string      `json:"refresh_until"`
 }
 
 type TokenDTO struct {
@@ -145,6 +171,15 @@ type TokenDTO struct {
 	TokenType             string `json:"token_type"`
 	AccessTokenExpiresAt  string `json:"access_token_expires_at"`
 	RefreshTokenExpiresAt string `json:"refresh_token_expires_at,omitempty"`
+}
+
+type AuthZoneDTO struct {
+	ID          string `json:"id"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Domain      string `json:"domain"`
+	WorkspaceID string `json:"workspace_id"`
 }
 
 type UserDTO struct {
@@ -167,13 +202,16 @@ type UserDTO struct {
 }
 
 type SessionDTO struct {
-	ID         string  `json:"id"`
-	DeviceName *string `json:"device_name,omitempty"`
-	IPAddress  *string `json:"ip_address,omitempty"`
-	UserAgent  *string `json:"user_agent,omitempty"`
-	ExpiresAt  string  `json:"expires_at"`
-	RevokedAt  *string `json:"revoked_at,omitempty"`
-	CreatedAt  string  `json:"created_at"`
+	ID          string  `json:"id"`
+	ZoneID      string  `json:"zone_id"`
+	WorkspaceID string  `json:"workspace_id"`
+	Domain      string  `json:"domain"`
+	DeviceName  *string `json:"device_name,omitempty"`
+	IPAddress   *string `json:"ip_address,omitempty"`
+	UserAgent   *string `json:"user_agent,omitempty"`
+	ExpiresAt   string  `json:"expires_at"`
+	RevokedAt   *string `json:"revoked_at,omitempty"`
+	CreatedAt   string  `json:"created_at"`
 }
 
 func NewService(repo Repository, tokens *sharedauth.Manager) *Service {
@@ -189,6 +227,13 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (AuthResult
 	if err != nil {
 		return AuthResult{}, err
 	}
+	target, err := s.resolveZoneAccess(ctx, normalized.Domain)
+	if err != nil {
+		return AuthResult{}, err
+	}
+	if target.ZoneStatus != "active" {
+		return AuthResult{}, apperrors.Forbidden("Zone dang tam dung va khong nhan dang ky moi.")
+	}
 
 	passwordHash, err := sharedauth.HashPassword(normalized.Password)
 	if err != nil {
@@ -203,15 +248,23 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (AuthResult
 		DeviceName:   normalized.DeviceName,
 		IPAddress:    normalized.IPAddress,
 		UserAgent:    normalized.UserAgent,
+		Zone:         target,
+		InviteToken:  normalized.InviteToken,
 	})
 	if err != nil {
 		if errors.Is(err, authdomain.ErrUserAlreadyExists) {
 			return AuthResult{}, apperrors.Conflict("USER_ALREADY_EXISTS", "Email hoặc username đã tồn tại.")
 		}
+		if errors.Is(err, authdomain.ErrInviteRequired) {
+			return AuthResult{}, apperrors.Forbidden("Zone nay yeu cau invite token hop le de dang ky.")
+		}
+		if errors.Is(err, authdomain.ErrRegistrationClosed) {
+			return AuthResult{}, apperrors.Forbidden("Zone nay dang dong dang ky tai khoan moi.")
+		}
 		return AuthResult{}, err
 	}
 
-	result, err := s.issueTokens(ctx, user, normalized.DeviceName, normalized.IPAddress, normalized.UserAgent)
+	result, err := s.issueTokens(ctx, user, target, normalized.DeviceName, normalized.IPAddress, normalized.UserAgent)
 	if err != nil {
 		return AuthResult{}, err
 	}
@@ -222,7 +275,9 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (AuthResult
 		EntityID:    user.ID,
 		IPAddress:   normalized.IPAddress,
 		UserAgent:   normalized.UserAgent,
-		Metadata:    map[string]any{"domain": normalized.Domain},
+		ZoneID:      target.ZoneID,
+		WorkspaceID: target.WorkspaceID,
+		Metadata:    map[string]any{"domain": target.Domain},
 	})
 	return result, nil
 }
@@ -233,29 +288,33 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (AuthResult, erro
 	if identifier == "" || strings.TrimSpace(input.Password) == "" {
 		return AuthResult{}, apperrors.BadRequest("VALIDATION_ERROR", "Thông tin đăng nhập không được để trống.")
 	}
+	target, err := s.resolveZoneAccess(ctx, input.Domain)
+	if err != nil {
+		return AuthResult{}, err
+	}
 
 	user, err := s.repo.FindUserByIdentifier(ctx, identifier)
 	if err != nil {
 		if errors.Is(err, authdomain.ErrUserNotFound) {
-			s.recordFailedLogin(ctx, "", input, "invalid_credentials")
+			s.recordFailedLogin(ctx, "", input, target, "invalid_credentials")
 			return AuthResult{}, apperrors.Unauthorized("Email, username hoặc mật khẩu không đúng.")
 		}
 		return AuthResult{}, err
 	}
 	if user.Status != "active" {
-		s.recordFailedLogin(ctx, user.ID, input, "account_"+user.Status)
+		s.recordFailedLogin(ctx, user.ID, input, target, "account_"+user.Status)
 		return AuthResult{}, apperrors.Forbidden("Tài khoản chưa sẵn sàng hoặc đã bị khóa.")
 	}
 	if !sharedauth.VerifyPassword(user.PasswordHash, input.Password) {
-		s.recordFailedLogin(ctx, user.ID, input, "invalid_credentials")
+		s.recordFailedLogin(ctx, user.ID, input, target, "invalid_credentials")
 		return AuthResult{}, apperrors.Unauthorized("Email, username hoặc mật khẩu không đúng.")
 	}
 
-	if err := s.repo.EnsureDefaultWorkspaceMembership(ctx, user.ID); err != nil {
+	if err := s.ensureZoneWorkspaceAccess(ctx, user.ID, target); err != nil {
 		return AuthResult{}, err
 	}
 
-	result, err := s.issueTokens(ctx, user, input.DeviceName, input.IPAddress, input.UserAgent)
+	result, err := s.issueTokens(ctx, user, target, input.DeviceName, input.IPAddress, input.UserAgent)
 	if err != nil {
 		return AuthResult{}, err
 	}
@@ -273,11 +332,20 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (AuthResult, erro
 		EntityID:    user.ID,
 		IPAddress:   input.IPAddress,
 		UserAgent:   input.UserAgent,
+		ZoneID:      target.ZoneID,
+		WorkspaceID: target.WorkspaceID,
+		Metadata:    map[string]any{"domain": target.Domain},
 	})
 	return result, nil
 }
 
-func (s *Service) recordFailedLogin(ctx context.Context, userID string, input LoginInput, reason string) {
+func (s *Service) recordFailedLogin(
+	ctx context.Context,
+	userID string,
+	input LoginInput,
+	target ZoneAccess,
+	reason string,
+) {
 	// Chỉ lưu dấu vân tay một chiều của định danh; tuyệt đối không ghi password,
 	// token hoặc email/username dạng rõ vào audit log.
 	fingerprint := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(input.Identifier))))
@@ -288,8 +356,11 @@ func (s *Service) recordFailedLogin(ctx context.Context, userID string, input Lo
 		EntityID:    userID,
 		IPAddress:   input.IPAddress,
 		UserAgent:   input.UserAgent,
+		ZoneID:      target.ZoneID,
+		WorkspaceID: target.WorkspaceID,
 		Metadata: map[string]any{
 			"reason":            reason,
+			"domain":            target.Domain,
 			"identifier_sha256": hex.EncodeToString(fingerprint[:]),
 		},
 	})
@@ -308,8 +379,16 @@ func (s *Service) LoginWithGoogle(ctx context.Context, input GoogleLoginInput) (
 		return AuthResult{}, apperrors.Unauthorized("Google không trả về email hợp lệ.")
 	}
 
+	target, err := s.resolveZoneAccess(ctx, input.Domain)
+	if err != nil {
+		return AuthResult{}, err
+	}
+
 	user, err := s.repo.FindUserByIdentifier(ctx, input.Email)
 	if errors.Is(err, authdomain.ErrUserNotFound) {
+		if target.ZoneStatus != "active" {
+			return AuthResult{}, apperrors.Forbidden("Zone dang tam dung va khong nhan tai khoan Google moi.")
+		}
 		passwordBytes := make([]byte, 32)
 		if _, randomErr := rand.Read(passwordBytes); randomErr != nil {
 			return AuthResult{}, apperrors.Internal("Không tạo được thông tin tài khoản Google.")
@@ -332,6 +411,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, input GoogleLoginInput) (
 			UserAgent:     input.UserAgent,
 			AvatarURL:     input.AvatarURL,
 			EmailVerified: true,
+			Zone:          target,
 		})
 		if errors.Is(err, authdomain.ErrUserAlreadyExists) {
 			user, err = s.repo.FindUserByIdentifier(ctx, input.Email)
@@ -343,11 +423,11 @@ func (s *Service) LoginWithGoogle(ctx context.Context, input GoogleLoginInput) (
 	if user.Status != "active" {
 		return AuthResult{}, apperrors.Forbidden("Tài khoản chưa sẵn sàng hoặc đã bị khóa.")
 	}
-	if err := s.repo.EnsureDefaultWorkspaceMembership(ctx, user.ID); err != nil {
+	if err := s.ensureZoneWorkspaceAccess(ctx, user.ID, target); err != nil {
 		return AuthResult{}, err
 	}
 
-	result, err := s.issueTokens(ctx, user, input.DeviceName, input.IPAddress, input.UserAgent)
+	result, err := s.issueTokens(ctx, user, target, input.DeviceName, input.IPAddress, input.UserAgent)
 	if err != nil {
 		return AuthResult{}, err
 	}
@@ -365,7 +445,9 @@ func (s *Service) LoginWithGoogle(ctx context.Context, input GoogleLoginInput) (
 		EntityID:    user.ID,
 		IPAddress:   input.IPAddress,
 		UserAgent:   input.UserAgent,
-		Metadata:    map[string]any{"provider": "google"},
+		ZoneID:      target.ZoneID,
+		WorkspaceID: target.WorkspaceID,
+		Metadata:    map[string]any{"provider": "google", "domain": target.Domain},
 	})
 	return result, nil
 }
@@ -387,6 +469,21 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (RefreshResul
 		return RefreshResult{}, apperrors.Unauthorized("Phiên đăng nhập không còn hiệu lực.")
 	}
 
+	target, err := s.resolveZoneAccess(ctx, session.Domain)
+	if err != nil {
+		return RefreshResult{}, apperrors.Unauthorized("Zone cua phien dang nhap khong con kha dung.")
+	}
+	if target.ZoneID != session.ZoneID || target.WorkspaceID != session.WorkspaceID {
+		return RefreshResult{}, apperrors.Unauthorized("Phien dang nhap khong khop zone hien tai.")
+	}
+	if strings.TrimSpace(input.Domain) != "" {
+		requestedTarget, resolveErr := s.resolveZoneAccess(ctx, input.Domain)
+		if resolveErr != nil || requestedTarget.ZoneID != target.ZoneID {
+			return RefreshResult{}, apperrors.Forbidden("Refresh token khong thuoc domain hien tai.")
+		}
+		target = requestedTarget
+	}
+
 	user, err := s.repo.FindUserByID(ctx, session.UserID)
 	if err != nil {
 		if errors.Is(err, authdomain.ErrUserNotFound) {
@@ -397,11 +494,18 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (RefreshResul
 	if user.Status != "active" {
 		return RefreshResult{}, apperrors.Forbidden("Tài khoản chưa sẵn sàng hoặc đã bị khóa.")
 	}
-	if err := s.repo.EnsureDefaultWorkspaceMembership(ctx, user.ID); err != nil {
+	if err := s.ensureZoneWorkspaceAccess(ctx, user.ID, target); err != nil {
 		return RefreshResult{}, err
 	}
 
-	accessToken, accessExpiresAt, err := s.tokens.CreateAccessToken(user.ID, user.Email, user.Username)
+	accessToken, accessExpiresAt, err := s.tokens.CreateZoneAccessToken(
+		user.ID,
+		user.Email,
+		user.Username,
+		target.ZoneID,
+		target.WorkspaceID,
+		target.Domain,
+	)
 	if err != nil {
 		return RefreshResult{}, apperrors.Internal("Không tạo được access token.")
 	}
@@ -430,6 +534,7 @@ func (s *Service) Refresh(ctx context.Context, input RefreshInput) (RefreshResul
 			AccessTokenExpiresAt:  formatTime(accessExpiresAt),
 			RefreshTokenExpiresAt: formatTime(session.ExpiresAt),
 		},
+		Zone:         toAuthZoneDTO(target),
 		SessionID:    session.ID,
 		RefreshUntil: formatTime(session.ExpiresAt),
 	}, nil
@@ -452,6 +557,8 @@ func (s *Service) Logout(ctx context.Context, input LogoutInput) error {
 	if session.ID != "" {
 		_ = s.repo.RecordAudit(ctx, AuditEvent{
 			ActorUserID: session.UserID,
+			ZoneID:      session.ZoneID,
+			WorkspaceID: session.WorkspaceID,
 			Action:      "auth.logout",
 			EntityType:  "user_session",
 			EntityID:    session.ID,
@@ -460,7 +567,11 @@ func (s *Service) Logout(ctx context.Context, input LogoutInput) error {
 	return nil
 }
 
-func (s *Service) Me(ctx context.Context, userID string) (UserDTO, error) {
+func (s *Service) Me(ctx context.Context, userID string, domain string) (UserDTO, error) {
+	target, err := s.resolveZoneAccess(ctx, domain)
+	if err != nil {
+		return UserDTO{}, err
+	}
 	user, err := s.repo.FindUserByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, authdomain.ErrUserNotFound) {
@@ -468,14 +579,14 @@ func (s *Service) Me(ctx context.Context, userID string) (UserDTO, error) {
 		}
 		return UserDTO{}, err
 	}
-	if err := s.repo.EnsureDefaultWorkspaceMembership(ctx, user.ID); err != nil {
+	if err := s.ensureZoneWorkspaceAccess(ctx, user.ID, target); err != nil {
 		return UserDTO{}, err
 	}
 	return toUserDTO(user), nil
 }
 
-func (s *Service) ListSessions(ctx context.Context, userID string) ([]SessionDTO, error) {
-	sessions, err := s.repo.ListSessions(ctx, userID)
+func (s *Service) ListSessions(ctx context.Context, userID string, zoneID string) ([]SessionDTO, error) {
+	sessions, err := s.repo.ListSessions(ctx, userID, strings.TrimSpace(zoneID))
 	if err != nil {
 		return nil, err
 	}
@@ -486,11 +597,11 @@ func (s *Service) ListSessions(ctx context.Context, userID string) ([]SessionDTO
 	return dtos, nil
 }
 
-func (s *Service) RevokeSession(ctx context.Context, userID string, sessionID string) error {
+func (s *Service) RevokeSession(ctx context.Context, userID string, zoneID string, sessionID string) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return apperrors.BadRequest("VALIDATION_ERROR", "session_id không được để trống.")
 	}
-	if err := s.repo.RevokeSessionByID(ctx, userID, sessionID, s.now().UTC()); err != nil {
+	if err := s.repo.RevokeSessionByID(ctx, userID, zoneID, sessionID, s.now().UTC()); err != nil {
 		if errors.Is(err, authdomain.ErrSessionNotFound) {
 			return apperrors.NotFound("SESSION_NOT_FOUND", "Không tìm thấy phiên đăng nhập.")
 		}
@@ -498,6 +609,7 @@ func (s *Service) RevokeSession(ctx context.Context, userID string, sessionID st
 	}
 	_ = s.repo.RecordAudit(ctx, AuditEvent{
 		ActorUserID: userID,
+		ZoneID:      strings.TrimSpace(zoneID),
 		Action:      "auth.revoke_session",
 		EntityType:  "user_session",
 		EntityID:    strings.TrimSpace(sessionID),
@@ -505,12 +617,13 @@ func (s *Service) RevokeSession(ctx context.Context, userID string, sessionID st
 	return nil
 }
 
-func (s *Service) RevokeAllSessions(ctx context.Context, userID string) error {
-	if err := s.repo.RevokeAllSessions(ctx, userID, s.now().UTC()); err != nil {
+func (s *Service) RevokeAllSessions(ctx context.Context, userID string, zoneID string) error {
+	if err := s.repo.RevokeAllSessions(ctx, userID, zoneID, s.now().UTC()); err != nil {
 		return err
 	}
 	_ = s.repo.RecordAudit(ctx, AuditEvent{
 		ActorUserID: userID,
+		ZoneID:      strings.TrimSpace(zoneID),
 		Action:      "auth.revoke_all_sessions",
 		EntityType:  "user",
 		EntityID:    userID,
@@ -518,8 +631,22 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID string) error {
 	return nil
 }
 
-func (s *Service) issueTokens(ctx context.Context, user authdomain.User, deviceName string, ipAddress string, userAgent string) (AuthResult, error) {
-	accessToken, accessExpiresAt, err := s.tokens.CreateAccessToken(user.ID, user.Email, user.Username)
+func (s *Service) issueTokens(
+	ctx context.Context,
+	user authdomain.User,
+	target ZoneAccess,
+	deviceName string,
+	ipAddress string,
+	userAgent string,
+) (AuthResult, error) {
+	accessToken, accessExpiresAt, err := s.tokens.CreateZoneAccessToken(
+		user.ID,
+		user.Email,
+		user.Username,
+		target.ZoneID,
+		target.WorkspaceID,
+		target.Domain,
+	)
 	if err != nil {
 		return AuthResult{}, apperrors.Internal("Không tạo được access token.")
 	}
@@ -530,6 +657,9 @@ func (s *Service) issueTokens(ctx context.Context, user authdomain.User, deviceN
 
 	session, err := s.repo.CreateSession(ctx, CreateSessionParams{
 		UserID:           user.ID,
+		ZoneID:           target.ZoneID,
+		WorkspaceID:      target.WorkspaceID,
+		Domain:           target.Domain,
 		RefreshTokenHash: s.tokens.HashRefreshToken(refreshToken),
 		DeviceName:       strings.TrimSpace(deviceName),
 		IPAddress:        strings.TrimSpace(ipAddress),
@@ -549,6 +679,7 @@ func (s *Service) issueTokens(ctx context.Context, user authdomain.User, deviceN
 			AccessTokenExpiresAt:  formatTime(accessExpiresAt),
 			RefreshTokenExpiresAt: formatTime(session.ExpiresAt),
 		},
+		Zone:         toAuthZoneDTO(target),
 		SessionID:    session.ID,
 		RefreshUntil: formatTime(session.ExpiresAt),
 	}, nil
@@ -558,11 +689,8 @@ func normalizeRegister(input RegisterInput) (RegisterInput, error) {
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	input.Username = strings.ToLower(strings.TrimSpace(input.Username))
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
-	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	input.Domain = strings.TrimPrefix(input.Domain, "https://")
-	input.Domain = strings.TrimPrefix(input.Domain, "http://")
-	input.Domain = strings.Split(input.Domain, "/")[0]
-	input.Domain = strings.Split(input.Domain, ":")[0]
+	input.Domain = strings.TrimSpace(input.Domain)
+	input.InviteToken = strings.TrimSpace(input.InviteToken)
 	input.Password = strings.TrimSpace(input.Password)
 	input.DeviceName, input.IPAddress, input.UserAgent = normalizeClientInfo(input.DeviceName, input.IPAddress, input.UserAgent)
 
@@ -575,9 +703,11 @@ func normalizeRegister(input RegisterInput) (RegisterInput, error) {
 	if input.DisplayName == "" || len([]rune(input.DisplayName)) > 120 {
 		return input, apperrors.BadRequest("VALIDATION_ERROR", "Tên hiển thị phải dài từ 1 đến 120 ký tự.")
 	}
-	if input.Domain != "" && (len(input.Domain) > 253 || !companyDomainPattern.MatchString(input.Domain)) {
-		return input, apperrors.BadRequest("VALIDATION_ERROR", "Domain công ty không đúng định dạng.")
+	domain, err := tenancyapp.NormalizeDomain(input.Domain)
+	if err != nil {
+		return input, apperrors.BadRequest("INVALID_DOMAIN", "Domain server khong dung dinh dang.")
 	}
+	input.Domain = domain
 	if len([]rune(input.Password)) < 8 {
 		return input, apperrors.BadRequest("VALIDATION_ERROR", "Mật khẩu phải có ít nhất 8 ký tự.")
 	}
@@ -587,6 +717,7 @@ func normalizeRegister(input RegisterInput) (RegisterInput, error) {
 func normalizeLogin(input LoginInput) LoginInput {
 	input.Identifier = strings.ToLower(strings.TrimSpace(input.Identifier))
 	input.Password = strings.TrimSpace(input.Password)
+	input.Domain = strings.TrimSpace(input.Domain)
 	input.DeviceName, input.IPAddress, input.UserAgent = normalizeClientInfo(input.DeviceName, input.IPAddress, input.UserAgent)
 	return input
 }
@@ -680,13 +811,60 @@ func toUserDTO(user authdomain.User) UserDTO {
 
 func toSessionDTO(session authdomain.Session) SessionDTO {
 	return SessionDTO{
-		ID:         session.ID,
-		DeviceName: session.DeviceName,
-		IPAddress:  session.IPAddress,
-		UserAgent:  session.UserAgent,
-		ExpiresAt:  formatTime(session.ExpiresAt),
-		RevokedAt:  formatOptionalTime(session.RevokedAt),
-		CreatedAt:  formatTime(session.CreatedAt),
+		ID:          session.ID,
+		ZoneID:      session.ZoneID,
+		WorkspaceID: session.WorkspaceID,
+		Domain:      session.Domain,
+		DeviceName:  session.DeviceName,
+		IPAddress:   session.IPAddress,
+		UserAgent:   session.UserAgent,
+		ExpiresAt:   formatTime(session.ExpiresAt),
+		RevokedAt:   formatOptionalTime(session.RevokedAt),
+		CreatedAt:   formatTime(session.CreatedAt),
+	}
+}
+
+func (s *Service) resolveZoneAccess(ctx context.Context, rawDomain string) (ZoneAccess, error) {
+	domain, err := tenancyapp.NormalizeDomain(rawDomain)
+	if err != nil {
+		return ZoneAccess{}, apperrors.BadRequest("INVALID_DOMAIN", "Domain server khong dung dinh dang.")
+	}
+	target, err := s.repo.ResolveZoneAccess(ctx, domain)
+	if err != nil {
+		switch {
+		case errors.Is(err, authdomain.ErrZoneNotFound):
+			return ZoneAccess{}, apperrors.NotFound("ZONE_NOT_FOUND", "Domain chua san sang cho dang nhap.")
+		case errors.Is(err, authdomain.ErrZoneAccessDenied):
+			return ZoneAccess{}, apperrors.Forbidden("Tai khoan khong co quyen truy cap zone nay.")
+		case errors.Is(err, authdomain.ErrRegistrationClosed):
+			return ZoneAccess{}, apperrors.Forbidden("Zone nay khong cho phep dang ky tai khoan moi.")
+		default:
+			return ZoneAccess{}, err
+		}
+	}
+	return target, nil
+}
+
+func (s *Service) ensureZoneWorkspaceAccess(ctx context.Context, userID string, target ZoneAccess) error {
+	err := s.repo.EnsureZoneWorkspaceAccess(ctx, userID, target)
+	switch {
+	case errors.Is(err, authdomain.ErrZoneAccessDenied):
+		return apperrors.Forbidden("Tai khoan khong phai thanh vien cua zone nay.")
+	case errors.Is(err, authdomain.ErrZoneNotFound):
+		return apperrors.NotFound("ZONE_NOT_FOUND", "Zone hoac workspace khong con kha dung.")
+	default:
+		return err
+	}
+}
+
+func toAuthZoneDTO(target ZoneAccess) AuthZoneDTO {
+	return AuthZoneDTO{
+		ID:          target.ZoneID,
+		Slug:        target.ZoneSlug,
+		Name:        target.ZoneName,
+		Kind:        target.ZoneKind,
+		Domain:      target.Domain,
+		WorkspaceID: target.WorkspaceID,
 	}
 }
 

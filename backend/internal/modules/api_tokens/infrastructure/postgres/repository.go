@@ -134,16 +134,24 @@ WHERE workspace_id = $1::uuid
 
 func (r *Repository) Authenticate(ctx context.Context, tokenHash string) (aptokensdomain.AuthenticatedToken, error) {
 	row := r.pool.QueryRow(ctx, `
-UPDATE api_tokens
+UPDATE api_tokens token
 SET last_used_at = now()
-WHERE token_hash = $1
-  AND status = 'active'
-  AND (expires_at IS NULL OR expires_at > now())
-RETURNING id::text, workspace_id::text, owner_id::text
+FROM workspaces workspace
+JOIN zones zone
+  ON zone.id = workspace.zone_id
+ AND zone.status = 'active'
+ AND zone.deleted_at IS NULL
+WHERE token.token_hash = $1
+  AND token.status = 'active'
+  AND (token.expires_at IS NULL OR token.expires_at > now())
+  AND workspace.id = token.workspace_id
+  AND workspace.status = 'active'
+  AND workspace.deleted_at IS NULL
+RETURNING token.id::text, zone.id::text, token.workspace_id::text, token.owner_id::text
 `, tokenHash)
 	var authenticated aptokensdomain.AuthenticatedToken
 	var ownerID sql.NullString
-	if err := row.Scan(&authenticated.TokenID, &authenticated.WorkspaceID, &ownerID); err != nil {
+	if err := row.Scan(&authenticated.TokenID, &authenticated.ZoneID, &authenticated.WorkspaceID, &ownerID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return aptokensdomain.AuthenticatedToken{}, aptokensdomain.ErrTokenInactive
 		}

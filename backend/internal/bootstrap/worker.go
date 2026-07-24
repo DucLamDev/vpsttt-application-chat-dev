@@ -106,7 +106,13 @@ func (w *Worker) tasks() []workerTask {
 	apiTokensRepo := aptokenspostgres.NewRepository(pool)
 	apiTokensService := aptokensapp.NewService(apiTokensRepo, nil)
 	webhooksRepo := webhookspostgres.NewRepository(pool)
-	webhooksService := webhooksapp.NewService(webhooksRepo, nil, apiTokensService, webhooksender.NewSender())
+	webhooksService := webhooksapp.NewService(
+		webhooksRepo,
+		nil,
+		apiTokensService,
+		webhooksender.NewSender(w.cfg.Security.WebhookSigningSecret),
+		w.cfg.Security.WebhookSigningSecret,
+	)
 	outboxRepo := outboxpostgres.NewRepository(pool)
 	outboxPublisher := outboxrabbitmq.NewPublisher(w.resources.RabbitMQ)
 	outboxService := outboxapp.NewService(outboxRepo, outboxPublisher, notificationsService, webhooksService)

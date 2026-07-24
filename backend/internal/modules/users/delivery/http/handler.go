@@ -83,6 +83,7 @@ func (h *Handler) List(c *gin.Context) {
 	users, meta, err := h.service.List(c.Request.Context(), usersapp.ListUsersParams{
 		Query:  c.Query("q"),
 		Status: c.Query("status"),
+		ZoneID: middleware.CurrentZoneID(c),
 		Limit:  limit,
 	})
 	if err != nil {
@@ -93,7 +94,7 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
-	user, err := h.service.Get(c.Request.Context(), c.Param("user_id"))
+	user, err := h.service.Get(c.Request.Context(), c.Param("user_id"), middleware.CurrentZoneID(c))
 	if err != nil {
 		response.Error(c, err)
 		return

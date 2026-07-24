@@ -88,6 +88,7 @@ type Repository interface {
 	ChannelByID(ctx context.Context, workspaceID string, channelID string) (ChannelDTO, error)
 	SendBotMessage(ctx context.Context, params SendBotMessageParams) (BotMessageDTO, error)
 	UserEmailByID(ctx context.Context, userID string) (string, error)
+	WorkspaceSupportsOrderBot(ctx context.Context, workspaceID string) (bool, error)
 }
 
 type Service struct {
@@ -1393,6 +1394,9 @@ func normalizeText(value string) string {
 }
 
 func (s *Service) ensurePermission(ctx context.Context, userID string, workspaceID string, permissionCode string) error {
+	if err := s.ensureVPSTTTWorkspace(ctx, workspaceID); err != nil {
+		return err
+	}
 	if s.checker == nil {
 		return nil
 	}
@@ -1407,6 +1411,9 @@ func (s *Service) ensurePermission(ctx context.Context, userID string, workspace
 }
 
 func (s *Service) ensureRenewalPermission(ctx context.Context, userID string, workspaceID string, targetEmail string) error {
+	if err := s.ensureVPSTTTWorkspace(ctx, workspaceID); err != nil {
+		return err
+	}
 	if s.checker == nil {
 		return nil
 	}
@@ -1430,6 +1437,20 @@ func (s *Service) ensureRenewalPermission(ctx context.Context, userID string, wo
 	}
 	if normalizeEmail(actorEmail) != normalizeEmail(targetEmail) {
 		return apperrors.Forbidden("Email yêu cầu gia hạn phải trùng email tài khoản chat đã xác minh. Vui lòng dùng đúng tài khoản hoặc liên hệ #ke-toan.")
+	}
+	return nil
+}
+
+func (s *Service) ensureVPSTTTWorkspace(ctx context.Context, workspaceID string) error {
+	if s.repo == nil {
+		return apperrors.Internal("Order bot repository chưa được cấu hình.")
+	}
+	allowed, err := s.repo.WorkspaceSupportsOrderBot(ctx, strings.TrimSpace(workspaceID))
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return apperrors.Forbidden("Bot order VPSTTT chỉ khả dụng trong zone nội bộ VPSTTT.")
 	}
 	return nil
 }

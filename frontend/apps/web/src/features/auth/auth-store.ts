@@ -1,6 +1,11 @@
 "use client";
 
-import type { AuthResult, AuthUser } from "@webtui/types";
+import type {
+  AuthResult,
+  AuthUser,
+  DomainClaim,
+  ZoneRuntime
+} from "@webtui/types";
 import { getPlatformServices } from "@webtui/chat-core";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
@@ -8,15 +13,20 @@ import { createJSONStorage, persist, type StateStorage } from "zustand/middlewar
 type AuthState = {
   accessToken: string | null;
   hydrated: boolean;
+  pendingDomainClaim: DomainClaim | null;
   refreshToken: string | null;
   rememberLogin: boolean;
   sessionId: string | null;
   user: AuthUser | null;
+  zoneDomain: string | null;
+  zoneRuntime: ZoneRuntime | null;
   clearSession: () => void;
   setHydrated: (hydrated: boolean) => void;
+  setPendingDomainClaim: (claim: DomainClaim | null) => void;
   setRememberLogin: (remember: boolean) => void;
   setSession: (result: AuthResult) => void;
   setUser: (user: AuthUser | null) => void;
+  setZoneRuntime: (domain: string, runtime: ZoneRuntime) => void;
 };
 
 export const useAuthStore = create<AuthState>()(
@@ -24,18 +34,25 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       accessToken: null,
       hydrated: false,
+      pendingDomainClaim: null,
       refreshToken: null,
       rememberLogin: true,
       sessionId: null,
       user: null,
+      zoneDomain: null,
+      zoneRuntime: null,
       clearSession: () =>
         set({
           accessToken: null,
+          pendingDomainClaim: null,
           refreshToken: null,
           sessionId: null,
-          user: null
+          user: null,
+          zoneDomain: null,
+          zoneRuntime: null
         }),
       setHydrated: (hydrated) => set({ hydrated }),
+      setPendingDomainClaim: (pendingDomainClaim) => set({ pendingDomainClaim }),
       setRememberLogin: (rememberLogin) => set({ rememberLogin }),
       setSession: (result) =>
         set((state) => {
@@ -46,10 +63,12 @@ export const useAuthStore = create<AuthState>()(
             accessToken,
             refreshToken,
             sessionId: result.session_id ?? state.sessionId,
-            user: result.user ?? state.user
+            user: result.user ?? state.user,
+            zoneDomain: result.zone?.domain ?? state.zoneDomain
           };
         }),
-      setUser: (user) => set({ user })
+      setUser: (user) => set({ user }),
+      setZoneRuntime: (zoneDomain, zoneRuntime) => set({ zoneDomain, zoneRuntime })
     }),
     {
       name: "webtui-web-auth",
@@ -58,11 +77,15 @@ export const useAuthStore = create<AuthState>()(
       },
       partialize: (state) => ({
         accessToken: getPlatformServices().lifecycle.isDesktop ? null : state.accessToken,
+        pendingDomainClaim: state.pendingDomainClaim,
         refreshToken: state.refreshToken,
         rememberLogin: state.rememberLogin,
         sessionId: state.sessionId,
-        user: state.user
+        user: state.user,
+        zoneDomain: state.zoneDomain,
+        zoneRuntime: state.zoneRuntime
       }),
+      skipHydration: true,
       storage: createJSONStorage(createAuthStorage)
     }
   )

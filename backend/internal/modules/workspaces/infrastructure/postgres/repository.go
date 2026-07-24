@@ -31,11 +31,42 @@ func (r *Repository) CreateWorkspace(ctx context.Context, params workspacesapp.C
 		_ = tx.Rollback(ctx)
 	}()
 
+	var zoneKind string
+	var enforcementMode string
+	var maxWorkspaces int
+	var workspaceCount int
+	if err := tx.QueryRow(ctx, `
+SELECT zone.kind,
+       quota.enforcement_mode,
+       quota.max_workspaces,
+       (
+           SELECT count(*)
+           FROM workspaces workspace
+           WHERE workspace.zone_id = zone.id
+             AND workspace.deleted_at IS NULL
+       )
+FROM zones zone
+JOIN zone_quotas quota ON quota.zone_id = zone.id
+WHERE zone.id = $1::uuid
+  AND zone.status = 'active'
+  AND zone.deleted_at IS NULL
+FOR UPDATE OF quota
+`, params.ZoneID).Scan(&zoneKind, &enforcementMode, &maxWorkspaces, &workspaceCount); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return workspacesdomain.Workspace{}, workspacesdomain.ErrWorkspaceNotFound
+		}
+		return workspacesdomain.Workspace{}, err
+	}
+	if enforcementMode == "hard" && workspaceCount >= maxWorkspaces {
+		return workspacesdomain.Workspace{}, workspacesdomain.ErrWorkspaceQuotaExceeded
+	}
+	template := workspacesapp.WorkspaceTemplateForZone(zoneKind)
+
 	row := tx.QueryRow(ctx, `
-INSERT INTO workspaces (slug, name, description, owner_id)
-VALUES ($1, $2, NULLIF($3, ''), $4::uuid)
-RETURNING id::text, slug::text, name, description, owner_id::text, plan, status, created_at, updated_at
-`, params.Slug, params.Name, params.Description, params.OwnerID)
+INSERT INTO workspaces (zone_id, slug, name, description, owner_id)
+VALUES ($1::uuid, $2, $3, NULLIF($4, ''), $5::uuid)
+RETURNING id::text, zone_id::text, slug::text, name, description, owner_id::text, plan, status, created_at, updated_at
+`, params.ZoneID, params.Slug, params.Name, params.Description, params.OwnerID)
 	workspace, err := scanWorkspace(row)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -63,9 +94,9 @@ ON CONFLICT DO NOTHING
 		return workspacesdomain.Workspace{}, err
 	}
 
-	defaultChannelIDs := make(map[string]string, len(workspacesapp.DefaultWorkspaceChannels()))
-	for _, definition := range workspacesapp.DefaultWorkspaceChannels() {
-		settings := map[string]any{"system_default": true}
+	defaultChannelIDs := make(map[string]string, len(template.Channels))
+	for _, definition := range template.Channels {
+		settings := map[string]any{"system_default": true, "template_key": template.Key}
 		if definition.PrivateSession {
 			settings["bot_session_mode"] = "private"
 		}
@@ -93,7 +124,7 @@ ON CONFLICT (channel_id, user_id) DO UPDATE SET status = 'active'
 		}
 	}
 
-	for _, definition := range workspacesapp.DefaultWorkspaceBots() {
+	for _, definition := range template.Bots {
 		channelID, ok := defaultChannelIDs[definition.ChannelSlug]
 		if !ok {
 			return workspacesdomain.Workspace{}, errors.New("default bot references an unknown channel")
@@ -114,8 +145,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, '{"system_default": true}'::jsonb)
 		}
 	}
 
-	if err := ensureDefaultBotGuidePins(ctx, tx, workspace.ID, params.OwnerID); err != nil {
-		return workspacesdomain.Workspace{}, err
+	if template.Key == "vpsttt_services" {
+		if err := ensureDefaultBotGuidePins(ctx, tx, workspace.ID, params.OwnerID); err != nil {
+			return workspacesdomain.Workspace{}, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -217,23 +250,24 @@ DO UPDATE SET pinned_by = EXCLUDED.pinned_by,
 
 func (r *Repository) FindWorkspace(ctx context.Context, workspaceID string) (workspacesdomain.Workspace, error) {
 	row := r.pool.QueryRow(ctx, `
-SELECT id::text, slug::text, name, description, owner_id::text, plan, status, created_at, updated_at
+SELECT id::text, zone_id::text, slug::text, name, description, owner_id::text, plan, status, created_at, updated_at
 FROM workspaces
 WHERE id = $1::uuid AND deleted_at IS NULL
 `, workspaceID)
 	return scanWorkspace(row)
 }
 
-func (r *Repository) ListWorkspacesForUser(ctx context.Context, userID string) ([]workspacesdomain.Workspace, error) {
+func (r *Repository) ListWorkspacesForUser(ctx context.Context, userID string, zoneID string) ([]workspacesdomain.Workspace, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT DISTINCT w.id::text, w.slug::text, w.name, w.description, w.owner_id::text, w.plan, w.status, w.created_at, w.updated_at
+SELECT DISTINCT w.id::text, w.zone_id::text, w.slug::text, w.name, w.description, w.owner_id::text, w.plan, w.status, w.created_at, w.updated_at
 FROM workspaces w
 LEFT JOIN workspace_members wm
   ON wm.workspace_id = w.id AND wm.user_id = $1::uuid AND wm.status = 'active'
 WHERE w.deleted_at IS NULL
+  AND w.zone_id = $2::uuid
   AND (w.owner_id = $1::uuid OR wm.user_id IS NOT NULL)
 ORDER BY w.created_at DESC
-`, userID)
+`, userID, zoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +290,7 @@ UPDATE workspaces
 SET name = COALESCE($2, name),
     description = COALESCE($3, description)
 WHERE id = $1::uuid AND deleted_at IS NULL
-RETURNING id::text, slug::text, name, description, owner_id::text, plan, status, created_at, updated_at
+RETURNING id::text, zone_id::text, slug::text, name, description, owner_id::text, plan, status, created_at, updated_at
 `, params.WorkspaceID, params.Name, params.Description)
 	return scanWorkspace(row)
 }
@@ -506,6 +540,7 @@ func scanWorkspace(row rowScanner) (workspacesdomain.Workspace, error) {
 	var ownerID sql.NullString
 	if err := row.Scan(
 		&workspace.ID,
+		&workspace.ZoneID,
 		&workspace.Slug,
 		&workspace.Name,
 		&description,

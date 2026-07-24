@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/duclamdev/application-chat/backend/internal/config"
@@ -15,8 +16,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if len(os.Args) < 2 || os.Args[1] != "up" {
-		slog.Error("Lệnh migrate chỉ hỗ trợ: go run ./cmd/migrate up")
+	if len(os.Args) < 2 || (os.Args[1] != "up" && os.Args[1] != "down") {
+		slog.Error("Lệnh migrate phải là: go run ./cmd/migrate up|down [steps]")
 		os.Exit(1)
 	}
 
@@ -34,10 +35,24 @@ func main() {
 	defer db.Close()
 
 	runner := database.NewMigrationRunner(db, cfg.Database.MigrationsPath)
-	if err := runner.Up(ctx); err != nil {
-		slog.Error("Chạy migration thất bại", "error", err)
+	var migrationErr error
+	if os.Args[1] == "up" {
+		migrationErr = runner.Up(ctx)
+	} else {
+		steps := 1
+		if len(os.Args) > 2 {
+			steps, err = strconv.Atoi(os.Args[2])
+			if err != nil || steps <= 0 {
+				slog.Error("Số bước rollback phải là số nguyên dương")
+				os.Exit(1)
+			}
+		}
+		migrationErr = runner.Down(ctx, steps)
+	}
+	if migrationErr != nil {
+		slog.Error("Chạy migration thất bại", "error", migrationErr)
 		os.Exit(1)
 	}
 
-	slog.Info("Chạy migration thành công")
+	slog.Info("Chạy migration thành công", "command", os.Args[1])
 }

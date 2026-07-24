@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,6 +66,63 @@ func (r *MigrationRunner) Up(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+// Down rolls back the most recently applied migrations one at a time.
+func (r *MigrationRunner) Down(ctx context.Context, steps int) error {
+	if r.db == nil || r.db.pool == nil {
+		return ErrDisabled
+	}
+	if steps <= 0 {
+		return errors.New("migration rollback steps must be greater than zero")
+	}
+	if err := r.ensureTable(ctx); err != nil {
+		return err
+	}
+
+	rows, err := r.db.pool.Query(ctx, `
+SELECT version
+FROM schema_migrations
+ORDER BY version DESC
+LIMIT $1
+`, steps)
+	if err != nil {
+		return fmt.Errorf("list applied migrations for rollback: %w", err)
+	}
+	versions := make([]string, 0, steps)
+	for rows.Next() {
+		var version string
+		if err := rows.Scan(&version); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan applied migration for rollback: %w", err)
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("list applied migrations for rollback: %w", err)
+	}
+	rows.Close()
+
+	for _, version := range versions {
+		file := filepath.Join(r.path, version+".down.sql")
+		sqlBytes, err := os.ReadFile(file)
+		if err != nil {
+			return fmt.Errorf("read rollback migration %s: %w", file, err)
+		}
+		if err := r.db.Tx(ctx, func(txCtx context.Context, tx pgx.Tx) error {
+			if _, err := tx.Exec(txCtx, string(sqlBytes)); err != nil {
+				return fmt.Errorf("run rollback migration %s: %w", file, err)
+			}
+			if _, err := tx.Exec(txCtx, "DELETE FROM schema_migrations WHERE version = $1", version); err != nil {
+				return fmt.Errorf("remove migration record %s: %w", version, err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

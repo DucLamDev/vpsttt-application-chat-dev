@@ -22,16 +22,16 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) Upsert(ctx context.Context, params devicesapp.UpsertParams) (devicesdomain.Device, error) {
 	row := r.pool.QueryRow(ctx, `
 INSERT INTO push_devices (
-    user_id, workspace_id, device_id, platform, push_provider, push_token,
+    zone_id, user_id, workspace_id, device_id, platform, push_provider, push_token,
     notification_permission, app_version, build_number, release_channel, locale, timezone,
     status, last_seen_at, revoked_at
 )
 VALUES (
-    $1::uuid, NULLIF($2, '')::uuid, $3, $4, $5, NULLIF($6, ''),
-    $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''),
+    $1::uuid, $2::uuid, NULLIF($3, '')::uuid, $4, $5, $6, NULLIF($7, ''),
+    $8, NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''),
     'active', now(), NULL
 )
-ON CONFLICT (user_id, device_id)
+ON CONFLICT (zone_id, user_id, device_id)
 DO UPDATE SET workspace_id = EXCLUDED.workspace_id,
               platform = EXCLUDED.platform,
               push_provider = EXCLUDED.push_provider,
@@ -48,20 +48,21 @@ DO UPDATE SET workspace_id = EXCLUDED.workspace_id,
 RETURNING id::text, user_id::text, workspace_id::text, device_id, platform, push_provider,
           push_token, notification_permission, app_version, build_number, release_channel,
           locale, timezone, status, last_seen_at, revoked_at, created_at, updated_at
-`, params.UserID, params.WorkspaceID, params.DeviceID, params.Platform, params.PushProvider, params.PushToken,
+`, params.ZoneID, params.UserID, params.WorkspaceID, params.DeviceID, params.Platform, params.PushProvider, params.PushToken,
 		params.NotificationPermission, params.AppVersion, params.BuildNumber, params.ReleaseChannel, params.Locale, params.Timezone)
 	return scanDevice(row)
 }
 
-func (r *Repository) ListMine(ctx context.Context, userID string) ([]devicesdomain.Device, error) {
+func (r *Repository) ListMine(ctx context.Context, zoneID string, userID string) ([]devicesdomain.Device, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT id::text, user_id::text, workspace_id::text, device_id, platform, push_provider,
        push_token, notification_permission, app_version, build_number, release_channel,
        locale, timezone, status, last_seen_at, revoked_at, created_at, updated_at
 FROM push_devices
 WHERE user_id = $1::uuid
+  AND zone_id = $2::uuid
 ORDER BY status, updated_at DESC
-`, userID)
+`, userID, zoneID)
 	if err != nil {
 		return nil, err
 	}
@@ -78,16 +79,17 @@ ORDER BY status, updated_at DESC
 	return devices, rows.Err()
 }
 
-func (r *Repository) Delete(ctx context.Context, userID string, deviceID string) error {
+func (r *Repository) Delete(ctx context.Context, zoneID string, userID string, deviceID string) error {
 	command, err := r.pool.Exec(ctx, `
 UPDATE push_devices
 SET status = 'revoked',
     push_token = NULL,
     revoked_at = now()
-WHERE user_id = $1::uuid
-  AND device_id = $2
+WHERE zone_id = $1::uuid
+  AND user_id = $2::uuid
+  AND device_id = $3
   AND status <> 'revoked'
-`, userID, deviceID)
+`, zoneID, userID, deviceID)
 	if err != nil {
 		return err
 	}
