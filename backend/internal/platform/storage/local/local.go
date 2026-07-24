@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/duclamdev/application-chat/backend/internal/platform/storage"
 )
@@ -155,5 +156,7 @@ func chmodBestEffort(path string, mode os.FileMode) error {
 }
 
 func isChmodUnsupported(err error) bool {
-	return errors.Is(err, os.ErrPermission)
+	return errors.Is(err, os.ErrPermission) ||
+		errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.EACCES)
 }
