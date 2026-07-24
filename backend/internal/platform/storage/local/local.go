@@ -23,8 +23,8 @@ func New(root string) (*Store, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("tạo thư mục gốc lưu trữ local: %w", err)
 	}
-	if err := os.Chmod(root, 0o700); err != nil {
-		return nil, fmt.Errorf("không thể bảo vệ quyền đọc thư mục lưu trữ local: %w", err)
+	if err := chmodBestEffort(root, 0o700); err != nil {
+		return nil, fmt.Errorf("không thể kiểm tra quyền ghi thư mục lưu trữ local: %w", err)
 	}
 	return &Store{root: root}, nil
 }
@@ -44,8 +44,8 @@ func (s *Store) Put(ctx context.Context, input storage.PutObjectInput) (storage.
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return storage.ObjectInfo{}, fmt.Errorf("tạo thư mục đối tượng lưu trữ: %w", err)
 	}
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
-		return storage.ObjectInfo{}, fmt.Errorf("không thể bảo vệ quyền đọc thư mục đối tượng: %w", err)
+	if err := chmodBestEffort(filepath.Dir(path), 0o700); err != nil {
+		return storage.ObjectInfo{}, fmt.Errorf("không thể kiểm tra quyền ghi thư mục đối tượng: %w", err)
 	}
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -53,7 +53,7 @@ func (s *Store) Put(ctx context.Context, input storage.PutObjectInput) (storage.
 		return storage.ObjectInfo{}, fmt.Errorf("tạo đối tượng lưu trữ: %w", err)
 	}
 	defer file.Close()
-	if err := file.Chmod(0o600); err != nil {
+	if err := file.Chmod(0o600); err != nil && !isChmodUnsupported(err) {
 		return storage.ObjectInfo{}, fmt.Errorf("không thể bảo vệ quyền đọc đối tượng lưu trữ: %w", err)
 	}
 
@@ -135,4 +135,25 @@ func (s *Store) path(key string) (string, error) {
 		return "", errors.New("khóa đối tượng lưu trữ không hợp lệ")
 	}
 	return filepath.Join(s.root, key), nil
+}
+
+func chmodBestEffort(path string, mode os.FileMode) error {
+	if err := os.Chmod(path, mode); err != nil && !isChmodUnsupported(err) {
+		return err
+	}
+
+	probe, err := os.CreateTemp(path, ".chmod-probe-*")
+	if err != nil {
+		return err
+	}
+	probePath := probe.Name()
+	if closeErr := probe.Close(); closeErr != nil {
+		_ = os.Remove(probePath)
+		return closeErr
+	}
+	return os.Remove(probePath)
+}
+
+func isChmodUnsupported(err error) bool {
+	return errors.Is(err, os.ErrPermission)
 }

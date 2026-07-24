@@ -1,76 +1,130 @@
-# Môi trường
+# Environment and secrets
 .env
 .env.*
 !.env.example
-!deploy/.env.example
-!deploy/self-hosted/.env.example
-deploy/self-hosted/backups/
-vps-info.md
+!**/.env.example
+*.local
+*.secret
+*.secrets
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
 
-# Log
-*.log
-logs/
-
-# Hệ điều hành / trình soạn thảo
+# OS and editors
 .DS_Store
 Thumbs.db
+Desktop.ini
 .idea/
 .vscode/
+*.swp
+*.swo
+*.iml
 
-# Backend
+# Logs
+*.log
+logs/
+**/logs/
+frontend/.dev-logs/
+frontend/*-dev.out.log
+frontend/*-dev.err.log
+
+# Dependency caches
+node_modules/
+.npm-cache/
+**/.npm-cache/
+.pnpm-store/
+.yarn/cache/
 .cache/
+.parcel-cache/
+
+# Go backend
 backend/bin/
 backend/tmp/
 backend/coverage.out
 backend/.gocache/
+*.test
 
-# Frontend
-node_modules/
-.npm-cache/
-frontend/.npm-cache/
+# Frontend / Next.js / Playwright / Vitest
 .next/
+**/.next/
 out/
+**/out/
 dist/
+**/dist/
 coverage/
+**/coverage/
 playwright-report/
+**/playwright-report/
 test-results/
+**/test-results/
+frontend/.test-results/
 *.tsbuildinfo
-.env.example
-# Dữ liệu deploy / runtime
+
+# Flutter / Dart / mobile build outputs
+.dart_tool/
+**/.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+**/build/
+mobile/ios/Flutter/.last_build_id
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/ios/Flutter/ephemeral/
+mobile/ios/Runner/GeneratedPluginRegistrant.*
+mobile/android/app/debug/
+mobile/android/app/profile/
+mobile/android/app/release/
+
+# Mobile signing material
+mobile/android/key.properties
+mobile/android/app/*.jks
+mobile/android/app/*.keystore
+mobile/ios/**/*.p8
+mobile/ios/**/*.cer
+mobile/ios/**/*.provisionprofile
+
+# Desktop / Tauri / native release artifacts
+frontend/apps/desktop/src-tauri/target/
+**/src-tauri/target/
+*.msi
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+
+# Generated app packages and archives
+*.apk
+*.aab
+*.ipa
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Deploy runtime data, backups and local release drops
 /data/
 deploy/.env
-deploy/.env.example
 deploy/data/
+deploy/**/data/
+deploy/self-hosted/backups/
+deploy/**/backups/
 deploy/download/**/*.apk
 deploy/download/**/*.aab
+deploy/download/**/*.ipa
 
-# Local planning / generated docs
-.agents/webtui-chat-architecture/references/architecture.md
-.env.example
-!deploy/.env.example
-!frontend/.env.example
-!deploy/self-hosted/.env.example
+# Local operator notes
+vps-info.md
 Task_list.md
-backend/ARCHITECTURE.md
-backend/db/schema/erd.mmd
-backend/docs/admin-audit-backup-phase-10.md
-backend/docs/api-convention.md
-backend/docs/auth-rbac.md
-backend/docs/cronjobs-phase-9.md
-backend/docs/event-convention.md
-backend/docs/files.md
-backend/docs/hardening-observability-phase-11.md
-backend/docs/integrations-phase-8.md
-backend/docs/local-run.md
-backend/docs/messages.md
-backend/docs/notifications-worker-presence.md
-backend/docs/security-baseline.md
-backend/docs/workspace-channel.md
-docs/architecture/backend-clean-architecture.md
-docs/architecture/cicd-github-actions-docker-compose.md
-docs/architecture/module-template.md
-docs/architecture/operations.md
-docs/architecture/overview.md
-docs/architecture/realtime-queue.md
-docs/deploy/vps-production.md
-docs/planning/backend-roadmap.md
+
+# Codex / local agent scratch space
+.codex/
+.agents/**/references/architecture.md

@@ -85,14 +85,22 @@ if ! printf '%s\n' "$TURN_EXTERNAL_IP" | awk -F. '
 fi
 
 if [ "$SKIP_DNS_CHECK" -ne 1 ]; then
-  if ! command -v getent >/dev/null 2>&1; then
-    echo "getent is required for the DNS preflight, or pass --skip-dns-check." >&2
-    exit 1
+  DNS_IPS=""
+  if command -v getent >/dev/null 2>&1; then
+    DNS_IPS=$(getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u || true)
   fi
-  DNS_IPS=$(getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u || true)
+  if ! printf '%s\n' "$DNS_IPS" | grep -Fx "$TURN_EXTERNAL_IP" >/dev/null 2>&1; then
+    GOOGLE_DNS_IPS=$(curl -4fsS --max-time 10 "https://dns.google/resolve?name=$DOMAIN&type=A" |
+      sed 's/[{},]/\
+/g' |
+      awk -F: '/"data"/ { gsub(/[" ]/, "", $2); print $2 }' |
+      sort -u || true)
+    DNS_IPS=$(printf '%s\n%s\n' "$DNS_IPS" "$GOOGLE_DNS_IPS" | awk 'NF' | sort -u)
+  fi
   if ! printf '%s\n' "$DNS_IPS" | grep -Fx "$TURN_EXTERNAL_IP" >/dev/null 2>&1; then
     echo "DNS for $DOMAIN must contain A record $TURN_EXTERNAL_IP before installation." >&2
     echo "Resolved IPv4 addresses: ${DNS_IPS:-none}" >&2
+    echo "If your DNS panel already shows this record, wait for propagation or rerun with --skip-dns-check." >&2
     exit 1
   fi
 fi

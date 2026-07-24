@@ -130,6 +130,25 @@ sh deploy/self-hosted/install.sh \
   --skip-dns-check
 ```
 
+Nếu gặp lỗi dạng:
+
+```text
+DNS for chat.company.com must contain A record <IPv4 VPS> before installation.
+Resolved IPv4 addresses: none
+```
+
+hãy kiểm tra lại trên VPS:
+
+```sh
+curl -4 https://api.ipify.org
+getent ahostsv4 chat.company.com
+```
+
+Nếu IP public của VPS trùng với bản ghi `A` trong DNS panel nhưng resolver của VPS
+chưa cập nhật, chạy lại installer với `--skip-dns-check`. Nếu domain vẫn chưa trỏ
+đúng ra public DNS, Caddy/Let's Encrypt sẽ chưa thể cấp TLS và bước chờ
+`https://chat.company.com/ready` sẽ thất bại.
+
 Chỉ dùng `--force` cho database/volume mới hoặc môi trường test. Không dùng
 `--force` để sửa instance đang có dữ liệu.
 
