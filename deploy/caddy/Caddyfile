@@ -1,21 +1,9 @@
 {
 	email {$LETSENCRYPT_EMAIL}
 	admin off
-
-	on_demand_tls {
-		ask http://api:8080/internal/tenancy/caddy-ask?token={$CADDY_ASK_SECRET}
-	}
-
-	servers {
-		strict_sni_host on
-	}
 }
 
-https:// {
-	tls {
-		on_demand
-	}
-
+{$FRONTEND_DOMAIN} {
 	encode zstd gzip
 
 	@websocket path /ws /api/v1/ws

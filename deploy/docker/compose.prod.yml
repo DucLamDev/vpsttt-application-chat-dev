@@ -160,7 +160,7 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      CADDY_ASK_SECRET: ${CADDY_ASK_SECRET:-}
+      FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:-chat.vpsttt.com}
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro

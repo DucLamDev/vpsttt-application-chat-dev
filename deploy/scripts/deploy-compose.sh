@@ -85,7 +85,6 @@ if [ "$DEPLOYMENT_MODE" = "self_hosted" ]; then
   require_value INSTANCE_NAME "$INSTANCE_NAME"
 fi
 if [ "$TLS_PROXY_MODE" = "caddy" ]; then
-  require_value CADDY_ASK_SECRET "$CADDY_ASK_SECRET"
   require_value LETSENCRYPT_EMAIL "$LETSENCRYPT_EMAIL"
 fi
 
