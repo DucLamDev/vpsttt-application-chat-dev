@@ -1,45 +1,45 @@
-﻿# Deploy production lÃªn VPS
+# Deploy production lên VPS
 
-TÃ i liá»‡u nÃ y mÃ´ táº£ luá»“ng deploy backend WebTui Chat lÃªn VPS báº±ng Docker Compose vÃ  GitHub Actions.
+Tài liệu này mô tả luồng deploy backend WebTui Chat lên VPS bằng Docker Compose và GitHub Actions.
 
-Náº¿u cáº§n checklist tá»«ng bÆ°á»›c tá»« táº¡o SSH key, cáº¥u hÃ¬nh GitHub Actions, cÃ i Docker trÃªn VPS, táº¡o `.env`, cháº¡y deploy vÃ  test, Ä‘á»c thÃªm [CI/CD tá»«ng bÆ°á»›c vá»›i GitHub Actions vÃ  Docker Compose](cicd.md).
+Nếu cần checklist từng bước từ tạo SSH key, cấu hình GitHub Actions, cài Docker trên VPS, tạo `.env`, chạy deploy và test, đọc thêm [CI/CD từng bước với GitHub Actions và Docker Compose](cicd.md).
 
-## ThÃ´ng tin triá»ƒn khai
+## Thông tin triển khai
 
 - API backend: `https://chat.vpsttt.com`
 - Frontend: `https://chat.vpsttt.com`
-- VPS public IP: lÆ°u trong `vps-info.md`
-- User SSH: lÆ°u trong `vps-info.md`
+- VPS public IP: lưu trong `vps-info.md`
+- User SSH: lưu trong `vps-info.md`
 - Runtime backend: API + worker + PostgreSQL + Redis + Nginx
 - Queue production: CloudAMQP qua `amqps`
-- File storage production: MinIO/S3 ngoÃ i VPS
+- File storage production: MinIO/S3 ngoài VPS
 
-KhÃ´ng commit máº­t kháº©u VPS, máº­t kháº©u RabbitMQ, secret JWT, secret PostgreSQL hoáº·c secret MinIO vÃ o repo.
+Không commit mật khẩu VPS, mật khẩu RabbitMQ, secret JWT, secret PostgreSQL hoặc secret MinIO vào repo.
 
-## Cáº¥u hÃ¬nh RabbitMQ CloudAMQP
+## Cấu hình RabbitMQ CloudAMQP
 
-CloudAMQP trÃªn áº£nh dÃ¹ng:
+CloudAMQP trên ảnh dùng:
 
-- Host cÃ¢n báº±ng táº£i: `fuji.lmq.cloudamqp.com`
+- Host cân bằng tải: `fuji.lmq.cloudamqp.com`
 - Vhost: `btrvptkc`
 - User: `btrvptkc`
 - Port TLS: `5671`
 - Scheme: `amqps`
 
-Trong `.env` production trÃªn VPS, cáº¥u hÃ¬nh:
+Trong `.env` production trên VPS, cấu hình:
 
 ```env
 RABBITMQ_ENABLED=true
 RABBITMQ_URL=amqps://btrvptkc:THAY_BANG_MAT_KHAU_CLOUDAMQP@fuji.lmq.cloudamqp.com/btrvptkc
 ```
 
-KhÃ´ng dÃ¹ng container RabbitMQ trong `compose.prod.yml` vÃ¬ production Ä‘ang dÃ¹ng RabbitMQ managed.
+Không dùng container RabbitMQ trong `compose.prod.yml` vì production đang dùng RabbitMQ managed.
 
-## Chuáº©n bá»‹ VPS láº§n Ä‘áº§u
+## Chuẩn bị VPS lần đầu
 
-ÄÄƒng nháº­p VPS báº±ng user trong `vps-info.md`, sau Ä‘Ã³ cÃ i Docker Engine vÃ  Docker Compose plugin.
+Đăng nhập VPS bằng user trong `vps-info.md`, sau đó cài Docker Engine và Docker Compose plugin.
 
-Táº¡o thÆ° má»¥c deploy:
+Tạo thư mục deploy:
 
 ```bash
 sudo mkdir -p /opt/webtui-chat
@@ -47,16 +47,16 @@ sudo chown -R "$USER":"$USER" /opt/webtui-chat
 cd /opt/webtui-chat
 ```
 
-Copy thÆ° má»¥c `deploy` tá»« repo lÃªn VPS hoáº·c cháº¡y workflow deploy má»™t láº§n Ä‘á»ƒ workflow Ä‘á»“ng bá»™ thÆ° má»¥c nÃ y.
+Copy thư mục `deploy` từ repo lên VPS hoặc chạy workflow deploy một lần để workflow đồng bộ thư mục này.
 
-Táº¡o file mÃ´i trÆ°á»ng production:
+Tạo file môi trường production:
 
 ```bash
 cp deploy/.env.example .env
 nano .env
 ```
 
-Cáº§n thay toÃ n bá»™ giÃ¡ trá»‹ báº¯t Ä‘áº§u báº±ng `THAY_BANG_...`, Ä‘áº·c biá»‡t:
+Cần thay toàn bộ giá trị bắt đầu bằng `THAY_BANG_...`, đặc biệt:
 
 - `POSTGRES_PASSWORD`
 - `DATABASE_URL`
@@ -68,33 +68,33 @@ Cáº§n thay toÃ n bá»™ giÃ¡ trá»‹ báº¯t Ä‘áº§u báº±ng 
 - `WEBTUI_API_IMAGE`
 - `WEBTUI_WORKER_IMAGE`
 
-Äá»ƒ tÃ i khoáº£n má»›i sá»­ dá»¥ng chat ngay sau khi Ä‘Äƒng kÃ½, cáº¥u hÃ¬nh workspace máº·c Ä‘á»‹nh trong `.env` production:
+Để tài khoản mới sử dụng chat ngay sau khi đăng ký, cấu hình workspace mặc định trong `.env` production:
 
 ```env
 REGISTRATION_DEFAULT_WORKSPACE_ID=UUID_WORKSPACE_PRODUCTION
 ```
 
-Backend chá»‰ gÃ¡n role há»‡ thá»‘ng `workspace_member` vÃ  cÃ¡c kÃªnh public thÃ´ng thÆ°á»ng; khÃ´ng tá»± cáº¥p `workspace_admin`, `workspace_owner` hoáº·c kÃªnh phiÃªn bot riÃªng tÆ°. Náº¿u chá»‰ cÃ³ Ä‘Ãºng má»™t workspace active thÃ¬ backend cÃ³ thá»ƒ tá»± nháº­n diá»‡n, nhÆ°ng production nÃªn khai bÃ¡o UUID rÃµ rÃ ng Ä‘á»ƒ trÃ¡nh chá»n nháº§m khi táº¡o thÃªm workspace.
+Backend chỉ gán role hệ thống `workspace_member` và các kênh public thông thường; không tự cấp `workspace_admin`, `workspace_owner` hoặc kênh phiên bot riêng tư. Nếu chỉ có đúng một workspace active thì backend có thể tự nhận diện, nhưng production nên khai báo UUID rõ ràng để tránh chọn nhầm khi tạo thêm workspace.
 
-## Khá»Ÿi táº¡o HTTPS
+## Khởi tạo HTTPS
 
-Sau khi DNS `chat.vpsttt.com` vÃ  `chat.vpsttt.com` Ä‘Ã£ trá» vá» IP VPS, cÃ³ thá»ƒ Ä‘á»ƒ `AUTO_INIT_TLS=true` trong `.env`; deploy script sáº½ tá»± khá»Ÿi táº¡o TLS láº§n Ä‘áº§u. Náº¿u muá»‘n cháº¡y thá»§ cÃ´ng:
+Sau khi DNS `chat.vpsttt.com` và `chat.vpsttt.com` đã trỏ về IP VPS, có thể để `AUTO_INIT_TLS=true` trong `.env`; deploy script sẽ tự khởi tạo TLS lần đầu. Nếu muốn chạy thủ công:
 
 ```bash
 cd /opt/webtui-chat
 sh deploy/scripts/init-letsencrypt.sh
 ```
 
-Script Ä‘á»c `API_DOMAIN`, `FRONTEND_DOMAIN` vÃ  `LETSENCRYPT_EMAIL` tá»« `.env`, táº¡o chá»©ng chá»‰ táº¡m, xin chá»©ng chá»‰ Let's Encrypt tháº­t rá»“i reload Nginx.
+Script đọc `API_DOMAIN`, `FRONTEND_DOMAIN` và `LETSENCRYPT_EMAIL` từ `.env`, tạo chứng chỉ tạm, xin chứng chỉ Let's Encrypt thật rồi reload Nginx.
 
-Gia háº¡n thá»§ cÃ´ng khi cáº§n:
+Gia hạn thủ công khi cần:
 
 ```bash
 cd /opt/webtui-chat
 sh deploy/scripts/renew-letsencrypt.sh
 ```
 
-NÃªn thÃªm cron trÃªn VPS Ä‘á»ƒ gia háº¡n Ä‘á»‹nh ká»³:
+Nên thêm cron trên VPS để gia hạn định kỳ:
 
 ```cron
 0 3 * * * cd /opt/webtui-chat && sh deploy/scripts/renew-letsencrypt.sh >> /var/log/webtui-certbot.log 2>&1
@@ -102,7 +102,7 @@ NÃªn thÃªm cron trÃªn VPS Ä‘á»ƒ gia háº¡n Ä‘á»‹nh ká»³:
 
 ## GitHub Secrets
 
-Trong GitHub Environment `production`, táº¡o secrets:
+Trong GitHub Environment `production`, tạo secrets:
 
 ```text
 DEPLOY_HOST=IP_VPS_TRONG_VPS_INFO
@@ -113,31 +113,31 @@ GHCR_USERNAME=GITHUB_USERNAME
 GHCR_TOKEN=TOKEN_CO_QUYEN_READ_PACKAGES
 ```
 
-Khuyáº¿n nghá»‹ sau giai Ä‘oáº¡n Ä‘áº§u: táº¡o SSH key riÃªng cho deploy, Ä‘Æ°a private key vÃ o `DEPLOY_SSH_KEY`, rá»“i bá» `DEPLOY_PASSWORD`.
+Khuyến nghị sau giai đoạn đầu: tạo SSH key riêng cho deploy, đưa private key vào `DEPLOY_SSH_KEY`, rồi bỏ `DEPLOY_PASSWORD`.
 
-Repository variables nÃªn cÃ³:
+Repository variables nên có:
 
 ```text
 DEPLOY_PATH=/opt/webtui-chat
 API_HEALTH_URL=https://chat.vpsttt.com/ready
 ```
 
-## Luá»“ng CI/CD
+## Luồng CI/CD
 
-1. Push code lÃªn `main`.
-2. Workflow `Docker` build vÃ  push image:
+1. Push code lên `main`.
+2. Workflow `Docker` build và push image:
    - `ghcr.io/<owner>/<repo>/api:<tag>`
    - `ghcr.io/<owner>/<repo>/worker:<tag>`
    - `ghcr.io/<owner>/<repo>/web:<tag>`
-3. Má»Ÿ workflow `Deploy`.
-4. Chá»n `environment=production`.
-5. Äá»ƒ trá»‘ng `image_tag` Ä‘á»ƒ dÃ¹ng SHA commit hiá»‡n táº¡i, hoáº·c nháº­p `latest`/SHA image Ä‘Ã£ tá»“n táº¡i trÃªn GHCR.
-6. Workflow SSH vÃ o VPS, Ä‘á»“ng bá»™ thÆ° má»¥c `deploy`, login GHCR, cháº¡y migration vÃ  `docker compose up -d`.
-7. Workflow gá»i health check `https://chat.vpsttt.com/ready`.
+3. Mở workflow `Deploy`.
+4. Chọn `environment=production`.
+5. Để trống `image_tag` để dùng SHA commit hiện tại, hoặc nhập `latest`/SHA image đã tồn tại trên GHCR.
+6. Workflow SSH vào VPS, đồng bộ thư mục `deploy`, login GHCR, chạy migration và `docker compose up -d`.
+7. Workflow gọi health check `https://chat.vpsttt.com/ready`.
 
-LÆ°u Ã½: deploy tá»± Ä‘á»™ng sau workflow `Docker` sáº½ dÃ¹ng tag full SHA cá»§a commit vá»«a build. Náº¿u cháº¡y deploy thá»§ cÃ´ng vÃ  gáº·p `manifest unknown`, image tag Ä‘ang chá»n chÆ°a tá»“n táº¡i; hÃ£y cháº¡y workflow `Docker` trÆ°á»›c rá»“i deploy láº¡i vá»›i tag SHA Ä‘Ã³, hoáº·c chá»‰ dÃ¹ng `latest` sau khi Docker workflow trÃªn `main`/`master` Ä‘Ã£ hoÃ n táº¥t.
+Lưu ý: deploy tự động sau workflow `Docker` sẽ dùng tag full SHA của commit vừa build. Nếu chạy deploy thủ công và gặp `manifest unknown`, image tag đang chọn chưa tồn tại; hãy chạy workflow `Docker` trước rồi deploy lại với tag SHA đó, hoặc chỉ dùng `latest` sau khi Docker workflow trên `main`/`master` đã hoàn tất.
 
-## Kiá»ƒm tra sau deploy
+## Kiểm tra sau deploy
 
 ```bash
 curl -fsS https://chat.vpsttt.com/health
@@ -146,7 +146,7 @@ curl -fsS https://chat.vpsttt.com/version
 curl -fsS https://chat.vpsttt.com/metrics
 ```
 
-Kiá»ƒm tra container:
+Kiểm tra container:
 
 ```bash
 cd /opt/webtui-chat
@@ -155,26 +155,26 @@ docker compose -f deploy/docker/compose.prod.yml logs --tail=100 api
 docker compose -f deploy/docker/compose.prod.yml logs --tail=100 worker
 ```
 
-## Seed demo ná»™i bá»™
+## Seed demo nội bộ
 
-Sau khi API production cháº¡y á»•n, táº¡o user quáº£n trá»‹ vÃ  workspace demo qua API Ä‘á»ƒ Ä‘i Ä‘Ãºng luá»“ng audit/RBAC.
+Sau khi API production chạy ổn, tạo user quản trị và workspace demo qua API để đi đúng luồng audit/RBAC.
 
-CÃ³ thá»ƒ dÃ¹ng cÃ¡c block trong `backend/docs/local-run.md`, chá»‰ cáº§n Ä‘á»•i base URL:
+Có thể dùng các block trong `backend/docs/local-run.md`, chỉ cần đổi base URL:
 
 ```powershell
 $baseUrl = "https://chat.vpsttt.com"
 ```
 
-Luá»“ng seed tá»‘i thiá»ƒu:
+Luồng seed tối thiểu:
 
-1. Register user quáº£n trá»‹ Ä‘áº§u tiÃªn.
-2. Táº¡o workspace `vpsttt`.
-3. Táº¡o channel `thong-bao`, `ky-thuat`, `sale`.
-4. Táº¡o bot/server alert náº¿u cáº§n demo tÃ­ch há»£p.
-5. Gá»­i má»™t message máº«u Ä‘á»ƒ kiá»ƒm tra WebSocket, notification vÃ  search.
+1. Register user quản trị đầu tiên.
+2. Tạo workspace `vpsttt`.
+3. Tạo channel `thong-bao`, `ky-thuat`, `sale`.
+4. Tạo bot/server alert nếu cần demo tích hợp.
+5. Gửi một message mẫu để kiểm tra WebSocket, notification và search.
 
 ## Rollback
 
-Äá»•i tag image trong `.env` hoáº·c cháº¡y láº¡i workflow `Deploy` vá»›i `image_tag` cÅ©.
+Đổi tag image trong `.env` hoặc chạy lại workflow `Deploy` với `image_tag` cũ.
 
-Náº¿u migration Ä‘Ã£ thay Ä‘á»•i dá»¯ liá»‡u theo hÆ°á»›ng destructive, cáº§n restore backup hoáº·c cÃ³ káº¿ hoáº¡ch rollback riÃªng.
+Nếu migration đã thay đổi dữ liệu theo hướng destructive, cần restore backup hoặc có kế hoạch rollback riêng.

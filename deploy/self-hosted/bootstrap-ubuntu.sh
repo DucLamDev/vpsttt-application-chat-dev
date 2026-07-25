@@ -4,7 +4,7 @@ set -eu
 DOMAIN=""
 EMAIL=""
 INSTANCE_NAME="VPSTTT Chat"
-PORTAL_ORIGIN="https://portal.webtuichat.com"
+PORTAL_ORIGIN="https://chat.vpsttt.com"
 EXTERNAL_IP=""
 REPO_URL=""
 INSTALL_DIR=""
@@ -12,7 +12,7 @@ SKIP_DNS_CHECK=0
 FORCE=0
 
 usage() {
-  echo "Usage: $0 --domain chat.example.com --email admin@example.com [--name 'Example Chat'] [--repo-url https://github.com/org/repo.git] [--install-dir /opt/vpsttt-chat] [--portal-origin https://portal.webtuichat.com] [--external-ip 203.0.113.10] [--skip-dns-check] [--force]"
+  echo "Usage: $0 --domain chat.example.com --email admin@example.com [--name 'Example Chat'] [--repo-url https://github.com/org/repo.git] [--install-dir /opt/vpsttt-chat] [--portal-origin https://chat.vpsttt.com] [--external-ip 203.0.113.10] [--skip-dns-check] [--force]"
 }
 
 while [ "$#" -gt 0 ]; do

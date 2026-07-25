@@ -5,7 +5,14 @@
 
 {$PORTAL_DOMAIN} {
 	encode zstd gzip
-	reverse_proxy portal:3002
+
+	redir {$PORTAL_BASE_PATH} {$PORTAL_BASE_PATH}/ 308
+
+	handle {$PORTAL_BASE_PATH}/* {
+		reverse_proxy portal:3002
+	}
+
+	respond "Not found" 404
 
 	header {
 		-Server

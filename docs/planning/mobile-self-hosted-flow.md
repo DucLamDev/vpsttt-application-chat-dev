@@ -93,7 +93,7 @@ Mobile chỉ hoạt động sau khi admin đã cài server:
 
 1. Admin chuẩn bị VPS, DNS và firewall.
 2. Admin chạy `deploy/self-hosted/install.sh`.
-3. Admin mở `https://portal.webtuichat.com` và nhập `chat.company.com`.
+3. Admin mở `https://chat.vpsttt.com/portal` và nhập `chat.company.com`.
 4. Portal discovery rồi chuyển admin tới trang tạo tài khoản owner đầu tiên.
 5. Admin gửi domain hoặc QR cho nhân viên.
 6. Nhân viên cài app, nhập `chat.company.com`, đăng nhập hoặc đăng ký bằng lời mời.

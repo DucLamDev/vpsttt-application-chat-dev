@@ -26,6 +26,17 @@ export WEBTUI_API_IMAGE="${WEBTUI_API_IMAGE:-$(read_env_value WEBTUI_API_IMAGE)}
 export WEBTUI_WORKER_IMAGE="${WEBTUI_WORKER_IMAGE:-$(read_env_value WEBTUI_WORKER_IMAGE)}"
 export WEBTUI_WEB_IMAGE="${WEBTUI_WEB_IMAGE:-$(read_env_value WEBTUI_WEB_IMAGE)}"
 export WEBTUI_ADMIN_IMAGE="${WEBTUI_ADMIN_IMAGE:-$(read_env_value WEBTUI_ADMIN_IMAGE)}"
+export WEBTUI_PORTAL_IMAGE="${WEBTUI_PORTAL_IMAGE:-$(read_env_value WEBTUI_PORTAL_IMAGE)}"
+export DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-$(read_env_value DEPLOYMENT_MODE)}"
+export DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-self_hosted}"
+export INSTANCE_DOMAIN="${INSTANCE_DOMAIN:-$(read_env_value INSTANCE_DOMAIN)}"
+export INSTANCE_DOMAIN="${INSTANCE_DOMAIN:-$FRONTEND_DOMAIN}"
+export INSTANCE_NAME="${INSTANCE_NAME:-$(read_env_value INSTANCE_NAME)}"
+export INSTANCE_NAME="${INSTANCE_NAME:-WebTUI Chat}"
+export PORTAL_ORIGIN="${PORTAL_ORIGIN:-$(read_env_value PORTAL_ORIGIN)}"
+export PORTAL_ORIGIN="${PORTAL_ORIGIN:-https://$FRONTEND_DOMAIN}"
+export PORTAL_BASE_PATH="${PORTAL_BASE_PATH:-$(read_env_value PORTAL_BASE_PATH)}"
+export PORTAL_BASE_PATH="${PORTAL_BASE_PATH:-/portal}"
 export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-$(read_env_value NEXT_PUBLIC_API_BASE_URL)}"
 export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-https://chat.vpsttt.com}"
 export NEXT_PUBLIC_WS_BASE_URL="${NEXT_PUBLIC_WS_BASE_URL:-$(read_env_value NEXT_PUBLIC_WS_BASE_URL)}"
@@ -68,6 +79,11 @@ require_value WEBTUI_API_IMAGE "$WEBTUI_API_IMAGE"
 require_value WEBTUI_WORKER_IMAGE "$WEBTUI_WORKER_IMAGE"
 require_value WEBTUI_WEB_IMAGE "$WEBTUI_WEB_IMAGE"
 require_value WEBTUI_ADMIN_IMAGE "$WEBTUI_ADMIN_IMAGE"
+require_value WEBTUI_PORTAL_IMAGE "$WEBTUI_PORTAL_IMAGE"
+if [ "$DEPLOYMENT_MODE" = "self_hosted" ]; then
+  require_value INSTANCE_DOMAIN "$INSTANCE_DOMAIN"
+  require_value INSTANCE_NAME "$INSTANCE_NAME"
+fi
 if [ "$TLS_PROXY_MODE" = "caddy" ]; then
   require_value CADDY_ASK_SECRET "$CADDY_ASK_SECRET"
   require_value LETSENCRYPT_EMAIL "$LETSENCRYPT_EMAIL"
@@ -87,6 +103,12 @@ write_compose_env_file() {
     printf 'WEBTUI_WORKER_IMAGE=%s\n' "$WEBTUI_WORKER_IMAGE"
     printf 'WEBTUI_WEB_IMAGE=%s\n' "$WEBTUI_WEB_IMAGE"
     printf 'WEBTUI_ADMIN_IMAGE=%s\n' "$WEBTUI_ADMIN_IMAGE"
+    printf 'WEBTUI_PORTAL_IMAGE=%s\n' "$WEBTUI_PORTAL_IMAGE"
+    printf 'DEPLOYMENT_MODE=%s\n' "$DEPLOYMENT_MODE"
+    printf 'INSTANCE_DOMAIN=%s\n' "$INSTANCE_DOMAIN"
+    printf 'INSTANCE_NAME=%s\n' "$INSTANCE_NAME"
+    printf 'PORTAL_ORIGIN=%s\n' "$PORTAL_ORIGIN"
+    printf 'PORTAL_BASE_PATH=%s\n' "$PORTAL_BASE_PATH"
     printf 'NEXT_PUBLIC_API_BASE_URL=%s\n' "$NEXT_PUBLIC_API_BASE_URL"
     printf 'NEXT_PUBLIC_WS_BASE_URL=%s\n' "$NEXT_PUBLIC_WS_BASE_URL"
     printf 'NEXT_PUBLIC_GOOGLE_CLIENT_ID=%s\n' "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"
@@ -143,7 +165,7 @@ if [ "$SKIP_PULL" != "true" ]; then
   compose pull
 fi
 compose --profile migration run --rm migrate
-compose up -d postgres redis api worker web admin
+compose up -d postgres redis api worker web admin portal
 compose_all_proxies stop "$FALLBACK_PROXY_SERVICE"
 if ! compose up -d --force-recreate "$PROXY_SERVICE"; then
   echo "Failed to start $PROXY_SERVICE. Restoring $FALLBACK_PROXY_SERVICE." >&2

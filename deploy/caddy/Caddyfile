@@ -34,6 +34,11 @@ https:// {
 		reverse_proxy admin:3001
 	}
 
+	@portal path /portal /portal/*
+	handle @portal {
+		reverse_proxy portal:3002
+	}
+
 	handle_path /downloads/files/* {
 		root * /srv/downloads
 		file_server

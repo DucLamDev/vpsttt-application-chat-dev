@@ -18,13 +18,14 @@ const mobileDownloadUrl =
 const documentationUrl =
   process.env.NEXT_PUBLIC_DOCUMENTATION_URL ??
   "https://docs.webtuichat.com";
+const portalBasePath = process.env.NEXT_PUBLIC_PORTAL_BASE_PATH ?? "";
 
 export default function PortalHomePage() {
   return (
     <main>
       <header className="site-header">
-        <a className="brand" href="/" aria-label="WebTUI Chat Portal">
-          <img alt="" src="/brand/logo_webtui.png" />
+        <a className="brand" href={`${portalBasePath || "/"}`} aria-label="WebTUI Chat Portal">
+          <img alt="" src={`${portalBasePath}/brand/logo_webtui.png`} />
           <span><strong>WebTUI Chat</strong><small>Self-hosted portal</small></span>
         </a>
         <nav aria-label="Điều hướng chính">

@@ -8,7 +8,7 @@ WebTUI Chat dùng ba lớp tách biệt:
 
 | Lớp | Domain ví dụ | Trách nhiệm |
 |---|---|---|
-| Portal trung tâm | `https://portal.webtuichat.com` | Nhập domain, kiểm tra discovery, download center, tài liệu |
+| Portal trung tâm | `https://chat.vpsttt.com/portal` | Nhập domain, kiểm tra discovery, download center, tài liệu |
 | Instance customer | `https://chat.company.com` | Web chat, API, PostgreSQL, Redis, RabbitMQ, storage, WebSocket, TURN, token |
 | Client dùng chung | Desktop/Mobile WebTUI Chat | Nhập domain, discovery, lưu runtime và đăng nhập trực tiếp vào instance |
 
@@ -137,6 +137,8 @@ sh deploy/self-hosted/install.sh \
 ```
 
 Installer thêm portal origin vào CORS để browser portal được phép gọi discovery.
+Với portal chính tại `https://chat.vpsttt.com/portal`, origin cần cấu hình là
+`https://chat.vpsttt.com` vì CORS origin không bao gồm path.
 Không dùng `CORS_ALLOWED_ORIGINS=*` trên production.
 
 ## Triển khai portal

@@ -41,7 +41,7 @@ theo `INSTANCE_DOMAIN` và `INSTANCE_NAME`.
 3. Cài Docker và Docker Compose v2 trên VPS.
 4. Clone source hoặc tải bản release VPSTTT Chat.
 5. Chạy installer self-hosted.
-6. Mở `https://portal.webtuichat.com`, nhập `chat.company.com`.
+6. Mở `https://chat.vpsttt.com/portal`, nhập `chat.company.com`.
 7. Portal kiểm tra discovery rồi chuyển tới màn đăng ký trên `chat.company.com`.
 8. Tài khoản đầu tiên trở thành workspace owner; sau đó đăng ký mở chuyển sang
    `invite_only`.
@@ -88,8 +88,9 @@ sh deploy/self-hosted/install.sh \
   --name "Company Chat"
 ```
 
-Installer mặc định cho phép portal `https://portal.webtuichat.com` gọi discovery
-từ browser. Nếu vận hành portal riêng, truyền origin HTTPS không có path:
+Installer mặc định cho phép origin `https://chat.vpsttt.com` của portal gọi
+discovery từ browser. Người dùng mở portal tại `https://chat.vpsttt.com/portal`.
+Nếu vận hành portal riêng, truyền origin HTTPS không có path:
 
 ```sh
 sh deploy/self-hosted/install.sh \
@@ -163,7 +164,7 @@ Kiểm tra các URL chính:
 - Discovery: `https://chat.company.com/api/v1/discovery?domain=chat.company.com`
 - WebSocket: `wss://chat.company.com/ws`
 
-Mở `https://portal.webtuichat.com`, nhập `chat.company.com` và tiếp tục tại màn
+Mở `https://chat.vpsttt.com/portal`, nhập `chat.company.com` và tiếp tục tại màn
 đăng ký mà portal điều hướng tới. Backend sẽ cấp owner cho tài khoản đầu tiên
 nếu workspace chưa có owner, rồi chuyển registration mode sang `invite_only` để
 người lạ không tự đăng ký thêm. Có thể mở thẳng web customer khi cần khôi phục

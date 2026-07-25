@@ -13,27 +13,29 @@ permissions:
 
 jobs:
   docs:
-    name: Kiểm tra tài liệu và cấu trúc
+    name: Check docs and structure
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Kiểm tra file kiến trúc bắt buộc
+      - name: Check required architecture files
         run: |
           test -f CleanArchitecture.md
           test -f docs/architecture/source-layout.md
           test -f docs/database/postgresql-design.md
           test -f backend/db/migrations/000001_initial_schema.up.sql
 
-      - name: Kiểm tra lỗi encoding phổ biến trong mã nguồn và tài liệu
+      - name: Check common encoding corruption
         run: |
-          # Không bắt riêng ký tự Ã/Â vì đây cũng là chữ tiếng Việt hợp lệ
-          # khi viết hoa (ví dụ: "ĐÃ", "ÂM"). Chỉ bắt các cụm mojibake đặc
-          # trưng để tránh false positive nhưng vẫn phát hiện file bị decode sai.
+          # Detect common mojibake sequences without flagging valid Vietnamese text.
           pattern="$(printf '\303\204|\303\206|\303\241\302\272|\303\241\302\273|\303\242\342\202\254|\303\242\342\202\254\342\204\242|\303\242\342\202\254\305\223|\303\242\342\202\254\357\277\275|\303\242\342\202\254\342\200\234|\303\242\342\202\254\342\200\235')"
           if grep -RInE "$pattern" --include='*.go' --include='*.md' --include='*.yaml' --include='*.yml' .; then
-            echo "Phát hiện chuỗi có dấu hiệu lỗi encoding."
+            echo "Detected text that looks like encoding corruption."
+            exit 1
+          fi
+          if grep -RIn "$(printf '\357\277\275')" --include='*.go' --include='*.md' --include='*.yaml' --include='*.yml' .; then
+            echo "Detected Unicode replacement characters."
             exit 1
           fi
 
@@ -47,7 +49,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Kiểm tra có go.mod
+      - name: Check go.mod
         id: gomod
         run: |
           if [ -f go.mod ]; then
@@ -74,7 +76,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Kiểm tra có package.json
+      - name: Check package.json
         id: package
         run: |
           if [ -f frontend/package.json ]; then
@@ -120,3 +122,8 @@ jobs:
         if: steps.package.outputs.exists == 'true'
         working-directory: frontend
         run: npm run build:admin
+
+      - name: Build portal
+        if: steps.package.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run build:portal

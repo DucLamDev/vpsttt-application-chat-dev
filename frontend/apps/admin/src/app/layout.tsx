@@ -1,14 +1,7 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "@webtui/ui/styles.css";
 import "./globals.css";
 import { AppProviders } from "./providers";
-
-const inter = Inter({
-  display: "swap",
-  subsets: ["latin", "vietnamese"],
-  variable: "--font-inter"
-});
 
 export const metadata: Metadata = {
   title: "Quản trị WebTui Chat",
@@ -21,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html className={inter.variable} lang="vi" suppressHydrationWarning>
+    <html lang="vi" suppressHydrationWarning>
       <body>
         <AppProviders>{children}</AppProviders>
       </body>

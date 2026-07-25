@@ -1,16 +1,16 @@
-﻿# Váº­n hÃ nh vÃ  triá»ƒn khai
+# Vận hành và triển khai
 
-Má»¥c tiÃªu váº­n hÃ nh lÃ  cÃ³ thá»ƒ build, test, deploy, rollback vÃ  quan sÃ¡t há»‡ thá»‘ng má»™t cÃ¡ch láº·p láº¡i Ä‘Æ°á»£c.
+Mục tiêu vận hành là có thể build, test, deploy, rollback và quan sát hệ thống một cách lặp lại được.
 
-## MÃ´i trÆ°á»ng
+## Môi trường
 
-- `dev`: cháº¡y local báº±ng Docker Compose hoáº·c service cá»¥c bá»™.
-- `staging`: giá»‘ng production nhÆ°ng dá»¯ liá»‡u khÃ´ng pháº£i dá»¯ liá»‡u tháº­t.
-- `production`: báº­t backup, monitoring, alert vÃ  cáº¥u hÃ¬nh báº£o máº­t Ä‘áº§y Ä‘á»§.
+- `dev`: chạy local bằng Docker Compose hoặc service cục bộ.
+- `staging`: giống production nhưng dữ liệu không phải dữ liệu thật.
+- `production`: bật backup, monitoring, alert và cấu hình bảo mật đầy đủ.
 
 ## CI/CD
 
-Pipeline GitHub Actions má»¥c tiÃªu:
+Pipeline GitHub Actions mục tiêu:
 
 ```text
 Developer push
@@ -26,19 +26,19 @@ Developer push
 -> notification
 ```
 
-Workflow nÃªn tÃ¡ch theo trÃ¡ch nhiá»‡m:
+Workflow nên tách theo trách nhiệm:
 
-- `backend.yml`: lint, test vÃ  build backend.
-- `frontend.yml`: lint, typecheck, test vÃ  build frontend.
-- `docker.yml`: build vÃ  push image.
-- `deploy.yml`: triá»ƒn khai staging/production.
-- `release.yml`: táº¡o release tag vÃ  changelog náº¿u cáº§n.
+- `backend.yml`: lint, test và build backend.
+- `frontend.yml`: lint, typecheck, test và build frontend.
+- `docker.yml`: build và push image.
+- `deploy.yml`: triển khai staging/production.
+- `release.yml`: tạo release tag và changelog nếu cần.
 
-Thiáº¿t káº¿ chi tiáº¿t náº±m á»Ÿ [CI/CD vá»›i GitHub Actions vÃ  Docker Compose](cicd-github-actions-docker-compose.md).
+Thiết kế chi tiết nằm ở [CI/CD với GitHub Actions và Docker Compose](cicd-github-actions-docker-compose.md).
 
-## Docker vÃ  háº¡ táº§ng
+## Docker và hạ tầng
 
-`deploy/` chá»©a cáº¥u hÃ¬nh cho:
+`deploy/` chứa cấu hình cho:
 
 - API server.
 - Worker.
@@ -52,50 +52,50 @@ Thiáº¿t káº¿ chi tiáº¿t náº±m á»Ÿ [CI/CD vá»›i GitHub Actions
 - Loki.
 - AlertManager.
 
-File Compose hiá»‡n táº¡i:
+File Compose hiện tại:
 
-- `deploy/docker/compose.dev.yml`: cháº¡y háº¡ táº§ng local vÃ  cÃ³ profile `app` cho API/worker.
-- `deploy/docker/compose.prod.yml`: cháº¡y production báº±ng image Ä‘Ã£ publish, dÃ¹ng PostgreSQL/Redis ná»™i bá»™ VPS, RabbitMQ CloudAMQP vÃ  MinIO/S3 ngoÃ i VPS.
-- `deploy/scripts/deploy-compose.sh`: script pull image, cháº¡y migration vÃ  restart service.
-- `deploy/scripts/init-letsencrypt.sh`: script khá»Ÿi táº¡o HTTPS cho `chat.vpsttt.com` vÃ  `chat.vpsttt.com`.
-- `deploy/.env.example`: máº«u biáº¿n mÃ´i trÆ°á»ng production, khÃ´ng chá»©a secret tháº­t.
+- `deploy/docker/compose.dev.yml`: chạy hạ tầng local và có profile `app` cho API/worker.
+- `deploy/docker/compose.prod.yml`: chạy production bằng image đã publish, dùng PostgreSQL/Redis nội bộ VPS, RabbitMQ CloudAMQP và MinIO/S3 ngoài VPS.
+- `deploy/scripts/deploy-compose.sh`: script pull image, chạy migration và restart service.
+- `deploy/scripts/init-letsencrypt.sh`: script khởi tạo HTTPS cho `chat.vpsttt.com` và `chat.vpsttt.com`.
+- `deploy/.env.example`: mẫu biến môi trường production, không chứa secret thật.
 
 ## Database
 
-- Migration pháº£i cháº¡y tá»± Ä‘á»™ng trong pipeline deploy hoáº·c báº±ng job riÃªng cÃ³ kiá»ƒm soÃ¡t.
-- KhÃ´ng sá»­a migration Ä‘Ã£ cháº¡y trÃªn production.
-- Dá»¯ liá»‡u seed chá»‰ dÃ¹ng cho dev/staging, khÃ´ng cháº¡y tá»± Ä‘á»™ng trÃªn production.
-- Query Ä‘á»c náº·ng nÃªn Ä‘Æ°á»£c tá»‘i Æ°u trÆ°á»›c khi Ä‘Æ°a sang read replica.
+- Migration phải chạy tự động trong pipeline deploy hoặc bằng job riêng có kiểm soát.
+- Không sửa migration đã chạy trên production.
+- Dữ liệu seed chỉ dùng cho dev/staging, không chạy tự động trên production.
+- Query đọc nặng nên được tối ưu trước khi đưa sang read replica.
 
-## Backup vÃ  restore
+## Backup và restore
 
-- Backup PostgreSQL theo lá»‹ch.
-- Backup file storage theo lá»‹ch.
-- LÆ°u backup á»Ÿ Ã­t nháº¥t má»™t nÆ¡i ngoÃ i server chÃ­nh.
-- Kiá»ƒm thá»­ restore Ä‘á»‹nh ká»³, vÃ¬ backup chÆ°a Ä‘Æ°á»£c kiá»ƒm thá»­ chÆ°a thá»ƒ xem lÃ  an toÃ n.
+- Backup PostgreSQL theo lịch.
+- Backup file storage theo lịch.
+- Lưu backup ở ít nhất một nơi ngoài server chính.
+- Kiểm thử restore định kỳ, vì backup chưa được kiểm thử chưa thể xem là an toàn.
 
 ## Monitoring
 
 - Prometheus thu metric.
-- Grafana hiá»ƒn thá»‹ dashboard.
-- Loki lÆ°u log táº­p trung.
-- AlertManager gá»­i cáº£nh bÃ¡o.
+- Grafana hiển thị dashboard.
+- Loki lưu log tập trung.
+- AlertManager gửi cảnh báo.
 
-Metric tá»‘i thiá»ƒu:
+Metric tối thiểu:
 
-- Latency vÃ  error rate cá»§a API.
-- Sá»‘ connection WebSocket.
-- Sá»‘ message gá»­i/phÃºt.
-- Queue depth vÃ  consumer lag.
-- Tá»· lá»‡ retry/dead letter.
-- CPU, RAM, disk vÃ  network.
-- TÃ¬nh tráº¡ng PostgreSQL, Redis, RabbitMQ vÃ  MinIO.
+- Latency và error rate của API.
+- Số connection WebSocket.
+- Số message gửi/phút.
+- Queue depth và consumer lag.
+- Tỷ lệ retry/dead letter.
+- CPU, RAM, disk và network.
+- Tình trạng PostgreSQL, Redis, RabbitMQ và MinIO.
 
-## Báº£o máº­t
+## Bảo mật
 
-- KhÃ´ng commit secret.
-- Báº­t TLS á»Ÿ Nginx.
-- Báº­t rate limit cho auth, upload, webhook vÃ  API nháº¡y cáº£m.
-- Log request cáº§n trÃ¡nh token, password vÃ  secret.
-- Webhook cáº§n kÃ½ request hoáº·c dÃ¹ng token riÃªng.
-- Admin API cáº§n phÃ¢n quyá»n rÃµ rÃ ng vÃ  audit log.
+- Không commit secret.
+- Bật TLS ở Nginx.
+- Bật rate limit cho auth, upload, webhook và API nhạy cảm.
+- Log request cần tránh token, password và secret.
+- Webhook cần ký request hoặc dùng token riêng.
+- Admin API cần phân quyền rõ ràng và audit log.

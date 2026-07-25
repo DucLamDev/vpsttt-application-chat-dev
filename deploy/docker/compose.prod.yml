@@ -40,6 +40,11 @@ services:
       - path: ../../.env
         required: true
         format: raw
+    environment:
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self_hosted}
+      INSTANCE_DOMAIN: ${INSTANCE_DOMAIN:-chat.vpsttt.com}
+      INSTANCE_NAME: ${INSTANCE_NAME:-WebTUI Chat}
+      PORTAL_ORIGIN: ${PORTAL_ORIGIN:-https://chat.vpsttt.com}
     command: ["migrate", "up"]
     networks:
       - backend
@@ -55,6 +60,10 @@ services:
         required: true
         format: raw
     environment:
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self_hosted}
+      INSTANCE_DOMAIN: ${INSTANCE_DOMAIN:-chat.vpsttt.com}
+      INSTANCE_NAME: ${INSTANCE_NAME:-WebTUI Chat}
+      PORTAL_ORIGIN: ${PORTAL_ORIGIN:-https://chat.vpsttt.com}
       REGISTRATION_DEFAULT_WORKSPACE_ID: ${REGISTRATION_DEFAULT_WORKSPACE_ID:-3f1e32b9-0a2f-4ca1-b0dc-04221a551c1c}
     volumes:
       - ../../data/desktop-releases:/var/lib/webtui/desktop-releases:ro
@@ -83,6 +92,11 @@ services:
       - path: ../../.env
         required: true
         format: raw
+    environment:
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self_hosted}
+      INSTANCE_DOMAIN: ${INSTANCE_DOMAIN:-chat.vpsttt.com}
+      INSTANCE_NAME: ${INSTANCE_NAME:-WebTUI Chat}
+      PORTAL_ORIGIN: ${PORTAL_ORIGIN:-https://chat.vpsttt.com}
     networks:
       - backend
     depends_on:
@@ -122,6 +136,21 @@ services:
     networks:
       - backend
 
+  portal:
+    image: ${WEBTUI_PORTAL_IMAGE}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL: ${DESKTOP_DOWNLOAD_URL:-https://chat.vpsttt.com/download/desktop}
+      NEXT_PUBLIC_DOCUMENTATION_URL: ${DOCUMENTATION_URL:-https://chat.vpsttt.com/docs}
+      NEXT_PUBLIC_MOBILE_DOWNLOAD_URL: ${MOBILE_DOWNLOAD_URL:-https://chat.vpsttt.com/download/mobile}
+      NEXT_PUBLIC_PORTAL_BASE_PATH: ${PORTAL_BASE_PATH:-/portal}
+      NEXT_TELEMETRY_DISABLED: "1"
+      PORT: "3002"
+    expose:
+      - "3002"
+    networks:
+      - backend
+
   caddy:
     image: caddy:2.10-alpine
     profiles: ["dynamic-tls"]
@@ -147,6 +176,8 @@ services:
         condition: service_started
       admin:
         condition: service_started
+      portal:
+        condition: service_started
 
   nginx:
     image: nginx:1.27-alpine
@@ -161,6 +192,7 @@ services:
       API_UPSTREAM: api:8080
       FRONTEND_UPSTREAM: web:3000
       ADMIN_UPSTREAM: admin:3001
+      PORTAL_UPSTREAM: portal:3002
     volumes:
       - ../nginx/templates:/etc/nginx/templates:ro
       - ../../data/downloads:/var/www/downloads:ro
@@ -168,6 +200,15 @@ services:
       - certbot_www:/var/www/certbot:ro
     networks:
       - backend
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+      admin:
+        condition: service_started
+      portal:
+        condition: service_started
 
   certbot:
     image: certbot/certbot:latest

@@ -8,12 +8,13 @@ DOMAIN=""
 EMAIL=""
 INSTANCE_NAME="VPSTTT Chat"
 TURN_EXTERNAL_IP=""
-PORTAL_ORIGIN="https://portal.webtuichat.com"
+PORTAL_ORIGIN="https://chat.vpsttt.com"
+PORTAL_PATH="/portal"
 FORCE=0
 SKIP_DNS_CHECK=0
 
 usage() {
-  echo "Usage: $0 --domain chat.example.com --email admin@example.com [--name 'Example Chat'] [--portal-origin https://portal.webtuichat.com] [--external-ip 203.0.113.10] [--skip-dns-check] [--force]"
+  echo "Usage: $0 --domain chat.example.com --email admin@example.com [--name 'Example Chat'] [--portal-origin https://chat.vpsttt.com] [--external-ip 203.0.113.10] [--skip-dns-check] [--force]"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -192,5 +193,5 @@ until curl -fsS --max-time 10 "https://$DOMAIN/ready" >/dev/null 2>&1; do
 done
 
 echo "VPSTTT Chat is ready at https://$DOMAIN"
-echo "Register or sign in through $PORTAL_ORIGIN with domain $DOMAIN"
+echo "Register or sign in through $PORTAL_ORIGIN$PORTAL_PATH with domain $DOMAIN"
 echo "The first account registered on this domain becomes workspace owner."
